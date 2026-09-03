@@ -11,6 +11,7 @@ from .converter import SubtitleError, convert_file, read_subtitle, convert_text,
 from .cover import CoverEmbedError, embed_cover
 from .cropper import CoverCropDialog
 from .embedder import LyricsEmbedError, embed_lrc
+from .metadata import MetadataError, read_mp3_metadata, save_mp3_metadata
 from .remover import TagRemovalError, remove_embedded_covers, remove_embedded_lyrics
 
 
@@ -25,6 +26,14 @@ class Sub2LRCApp(tk.Tk):
         self.results: dict[str, tuple[Path, str]] = {}
         self.output_dir = tk.StringVar(value=str(Path.home() / "Desktop"))
         self.status = tk.StringVar(value="请选择 VTT 或 SRT 字幕文件")
+        self.metadata_mp3_path = tk.StringVar()
+        self.metadata_title = tk.StringVar()
+        self.metadata_artist = tk.StringVar()
+        self.metadata_album = tk.StringVar()
+        self.metadata_cover_state = tk.StringVar(value="封面：尚未读取")
+        self.metadata_lyrics_state = tk.StringVar(value="歌词：尚未读取")
+        self.metadata_output_mode = tk.StringVar(value="overwrite")
+        self.metadata_status = tk.StringVar(value="请选择 MP3 文件")
         self.mp3_path = tk.StringVar()
         self.lrc_path = tk.StringVar()
         self.lyrics_output_mode = tk.StringVar(value="overwrite")
@@ -44,14 +53,127 @@ class Sub2LRCApp(tk.Tk):
         notebook.pack(fill="both", expand=True)
 
         converter_tab = ttk.Frame(notebook, padding=12)
+        metadata_tab = ttk.Frame(notebook, padding=18)
         embed_tab = ttk.Frame(notebook, padding=18)
         cover_tab = ttk.Frame(notebook, padding=18)
         notebook.add(converter_tab, text="字幕转 LRC")
+        notebook.add(metadata_tab, text="MP3 信息")
         notebook.add(embed_tab, text="MP3 内嵌歌词")
         notebook.add(cover_tab, text="MP3 内嵌封面")
         self._build_converter_tab(converter_tab)
+        self._build_metadata_tab(metadata_tab)
         self._build_embed_tab(embed_tab)
         self._build_cover_tab(cover_tab)
+
+    def _build_metadata_tab(self, root: ttk.Frame) -> None:
+        root.columnconfigure(1, weight=1)
+
+        ttk.Label(root, text="查看并修改 MP3 基础信息", font=("Microsoft YaHei UI", 13, "bold")).grid(
+            row=0, column=0, columnspan=3, sticky="w", pady=(0, 20)
+        )
+        ttk.Label(root, text="MP3 文件：").grid(row=1, column=0, sticky="w", pady=8)
+        ttk.Entry(root, textvariable=self.metadata_mp3_path, state="readonly").grid(
+            row=1, column=1, sticky="ew", padx=8
+        )
+        ttk.Button(root, text="选择歌曲…", command=self.choose_metadata_mp3).grid(row=1, column=2)
+
+        fields = ttk.LabelFrame(root, text="基础标签", padding=12)
+        fields.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+        fields.columnconfigure(1, weight=1)
+        ttk.Label(fields, text="歌名：").grid(row=0, column=0, sticky="w", pady=6)
+        ttk.Entry(fields, textvariable=self.metadata_title).grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=6)
+        ttk.Label(fields, text="歌手：").grid(row=1, column=0, sticky="w", pady=6)
+        ttk.Entry(fields, textvariable=self.metadata_artist).grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=6)
+        ttk.Label(fields, text="专辑：").grid(row=2, column=0, sticky="w", pady=6)
+        ttk.Entry(fields, textvariable=self.metadata_album).grid(row=2, column=1, sticky="ew", padx=(8, 0), pady=6)
+
+        detected = ttk.LabelFrame(root, text="已检测到的内容", padding=10)
+        detected.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(12, 0))
+        ttk.Label(detected, textvariable=self.metadata_cover_state).pack(side="left", padx=(0, 36))
+        ttk.Label(detected, textvariable=self.metadata_lyrics_state).pack(side="left")
+
+        output_mode = ttk.LabelFrame(root, text="输出方式", padding=(10, 6))
+        output_mode.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(12, 0))
+        ttk.Radiobutton(
+            output_mode,
+            text="覆盖原文件",
+            variable=self.metadata_output_mode,
+            value="overwrite",
+        ).pack(side="left", padx=(0, 20))
+        ttk.Radiobutton(
+            output_mode,
+            text="另存为",
+            variable=self.metadata_output_mode,
+            value="save_as",
+        ).pack(side="left")
+
+        ttk.Button(root, text="保存修改", command=self.save_metadata).grid(
+            row=5, column=0, columnspan=3, pady=(18, 14), ipadx=32, ipady=7
+        )
+        ttk.Label(
+            root,
+            text="保存时只修改歌名、歌手和专辑；不会删除封面、歌词或改变音频数据。",
+            foreground="#555555",
+        ).grid(row=6, column=0, columnspan=3, sticky="w")
+        ttk.Separator(root).grid(row=7, column=0, columnspan=3, sticky="ew", pady=18)
+        ttk.Label(root, textvariable=self.metadata_status, anchor="w", wraplength=760).grid(
+            row=8, column=0, columnspan=3, sticky="ew"
+        )
+
+    def choose_metadata_mp3(self) -> None:
+        selected = filedialog.askopenfilename(
+            title="选择 MP3 歌曲",
+            filetypes=[("MP3 音频", "*.mp3")],
+        )
+        if selected:
+            self._load_metadata(Path(selected), show_error=True)
+
+    def _load_metadata(self, path: Path, show_error: bool) -> bool:
+        try:
+            metadata = read_mp3_metadata(path)
+        except (OSError, MetadataError) as exc:
+            self.metadata_status.set(f"读取失败：{exc}")
+            if show_error:
+                messagebox.showerror("读取 MP3 信息失败", str(exc))
+            return False
+
+        self.metadata_mp3_path.set(str(path))
+        self.metadata_title.set(metadata.title)
+        self.metadata_artist.set(metadata.artist)
+        self.metadata_album.set(metadata.album)
+        self.metadata_cover_state.set("封面：已检测到" if metadata.has_cover else "封面：未检测到")
+        self.metadata_lyrics_state.set("歌词：已检测到" if metadata.has_lyrics else "歌词：未检测到")
+        self.metadata_status.set("MP3 信息读取完成，可以修改后保存")
+        return True
+
+    def save_metadata(self) -> None:
+        mp3 = self.metadata_mp3_path.get().strip()
+        if not mp3:
+            messagebox.showinfo("Sub2LRC", "请先选择 MP3 文件。")
+            return
+        proceed, destination = self._choose_mp3_destination(
+            mp3,
+            self.metadata_output_mode.get(),
+            "已修改标签",
+        )
+        if not proceed:
+            return
+        try:
+            output = save_mp3_metadata(
+                mp3,
+                self.metadata_title.get(),
+                self.metadata_artist.get(),
+                self.metadata_album.get(),
+                destination,
+            )
+        except (OSError, MetadataError) as exc:
+            self.metadata_status.set(f"保存失败：{exc}")
+            messagebox.showerror("保存 MP3 信息失败", str(exc))
+            return
+
+        self._load_metadata(output, show_error=False)
+        self.metadata_status.set(f"修改已保存：{output}")
+        messagebox.showinfo("保存完成", f"MP3 基础信息已保存。\n输出文件：{output}")
 
     def _build_converter_tab(self, root: ttk.Frame) -> None:
         root.columnconfigure(0, weight=1)
