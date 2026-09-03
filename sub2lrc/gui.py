@@ -7,12 +7,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from .converter import SubtitleError, convert_file, read_subtitle, convert_text, unique_output_path
+from .embedder import LyricsEmbedError, embed_lrc
 
 
 class Sub2LRCApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("Sub2LRC - 字幕转歌词")
+        self.title("Sub2LRC - 字幕转歌词与 MP3 内嵌歌词")
         self.geometry("900x620")
         self.minsize(720, 480)
 
@@ -20,11 +21,25 @@ class Sub2LRCApp(tk.Tk):
         self.results: dict[str, tuple[Path, str]] = {}
         self.output_dir = tk.StringVar(value=str(Path.home() / "Desktop"))
         self.status = tk.StringVar(value="请选择 VTT 或 SRT 字幕文件")
+        self.mp3_path = tk.StringVar()
+        self.lrc_path = tk.StringVar()
+        self.embed_status = tk.StringVar(value="请选择 MP3 文件和 LRC 歌词")
         self._build_ui()
 
     def _build_ui(self) -> None:
-        root = ttk.Frame(self, padding=12)
-        root.pack(fill="both", expand=True)
+        container = ttk.Frame(self, padding=8)
+        container.pack(fill="both", expand=True)
+        notebook = ttk.Notebook(container)
+        notebook.pack(fill="both", expand=True)
+
+        converter_tab = ttk.Frame(notebook, padding=12)
+        embed_tab = ttk.Frame(notebook, padding=18)
+        notebook.add(converter_tab, text="字幕转 LRC")
+        notebook.add(embed_tab, text="MP3 内嵌歌词")
+        self._build_converter_tab(converter_tab)
+        self._build_embed_tab(embed_tab)
+
+    def _build_converter_tab(self, root: ttk.Frame) -> None:
         root.columnconfigure(0, weight=1)
         root.rowconfigure(3, weight=1)
 
@@ -68,6 +83,71 @@ class Sub2LRCApp(tk.Tk):
         self.preview.configure(yscrollcommand=preview_scroll.set, state="disabled")
 
         ttk.Label(root, textvariable=self.status, anchor="w").grid(row=4, column=0, sticky="ew", pady=(8, 0))
+
+    def _build_embed_tab(self, root: ttk.Frame) -> None:
+        root.columnconfigure(1, weight=1)
+
+        ttk.Label(root, text="把 LRC 歌词写入 MP3 的 ID3 标签", font=("Microsoft YaHei UI", 13, "bold")).grid(
+            row=0, column=0, columnspan=3, sticky="w", pady=(0, 20)
+        )
+
+        ttk.Label(root, text="MP3 文件：").grid(row=1, column=0, sticky="w", pady=8)
+        ttk.Entry(root, textvariable=self.mp3_path).grid(row=1, column=1, sticky="ew", padx=8)
+        ttk.Button(root, text="选择歌曲…", command=self.choose_mp3).grid(row=1, column=2)
+
+        ttk.Label(root, text="LRC 歌词：").grid(row=2, column=0, sticky="w", pady=8)
+        ttk.Entry(root, textvariable=self.lrc_path).grid(row=2, column=1, sticky="ew", padx=8)
+        ttk.Button(root, text="选择歌词…", command=self.choose_lrc).grid(row=2, column=2)
+
+        ttk.Button(root, text="写入歌词", command=self.write_lyrics).grid(
+            row=3, column=0, columnspan=3, pady=(22, 14), ipadx=30, ipady=6
+        )
+        ttk.Label(
+            root,
+            text="写入 ID3v2.3 USLT 歌词标签；操作前会在歌曲旁自动创建 .bak 备份。",
+            foreground="#555555",
+        ).grid(row=4, column=0, columnspan=3, sticky="w")
+        ttk.Separator(root).grid(row=5, column=0, columnspan=3, sticky="ew", pady=18)
+        ttk.Label(root, textvariable=self.embed_status, anchor="w", wraplength=760).grid(
+            row=6, column=0, columnspan=3, sticky="ew"
+        )
+
+    def choose_mp3(self) -> None:
+        selected = filedialog.askopenfilename(
+            title="选择 MP3 歌曲",
+            filetypes=[("MP3 音频", "*.mp3")],
+        )
+        if selected:
+            self.mp3_path.set(selected)
+            matching_lrc = Path(selected).with_suffix(".lrc")
+            if matching_lrc.is_file():
+                self.lrc_path.set(str(matching_lrc))
+            self.embed_status.set("已选择 MP3 文件")
+
+    def choose_lrc(self) -> None:
+        selected = filedialog.askopenfilename(
+            title="选择 LRC 歌词",
+            filetypes=[("LRC 歌词", "*.lrc")],
+        )
+        if selected:
+            self.lrc_path.set(selected)
+            self.embed_status.set("已选择 LRC 歌词")
+
+    def write_lyrics(self) -> None:
+        mp3 = self.mp3_path.get().strip()
+        lrc = self.lrc_path.get().strip()
+        if not mp3 or not lrc:
+            messagebox.showinfo("Sub2LRC", "请先选择 MP3 文件和 LRC 歌词。")
+            return
+        try:
+            backup = embed_lrc(mp3, lrc)
+        except (OSError, LyricsEmbedError) as exc:
+            self.embed_status.set(f"写入失败：{exc}")
+            messagebox.showerror("写入歌词失败", str(exc))
+            return
+
+        self.embed_status.set(f"歌词已写入：{mp3}；备份：{backup}")
+        messagebox.showinfo("写入完成", f"LRC 歌词已写入 MP3。\n备份文件：{backup}")
 
     def choose_files(self) -> None:
         names = filedialog.askopenfilenames(

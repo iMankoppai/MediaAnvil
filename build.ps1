@@ -29,6 +29,15 @@ if ($LASTEXITCODE -ne 0) {
     }
 }
 
+& $buildPython -c "import mutagen" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Installing application dependencies..."
+    & $buildPython -m pip install -r (Join-Path $PSScriptRoot "requirements.txt")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to install application dependencies."
+    }
+}
+
 Write-Host "Building Sub2LRC.exe..."
 & $buildPython -m PyInstaller --noconfirm --clean --onefile --windowed --name Sub2LRC (Join-Path $PSScriptRoot "main.py")
 if ($LASTEXITCODE -ne 0) {
