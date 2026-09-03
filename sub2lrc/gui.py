@@ -145,6 +145,9 @@ class Sub2LRCApp(tk.Tk):
         ttk.Button(bottom, text="保存到 MP3", command=self.save_editor, style="Accent.TButton").pack(
             side="right", ipadx=28, ipady=7
         )
+        ttk.Button(bottom, text="取消修改", command=self.cancel_editor_changes).pack(
+            side="right", padx=(0, 8), ipadx=14, ipady=7
+        )
 
     def choose_editor_mp3(self) -> None:
         if self._has_pending_changes() and not messagebox.askyesno(
@@ -303,6 +306,34 @@ class Sub2LRCApp(tk.Tk):
         self._load_editor_file(output, show_error=False)
         self.editor_status.set(f"已保存：{output}")
         messagebox.showinfo("保存完成", f"所有修改已保存到 MP3。\n输出文件：{output}")
+
+    def cancel_editor_changes(self) -> None:
+        state = self._original_editor_state
+        if state is None:
+            messagebox.showinfo("Sub2LRC", "当前没有正在编辑的 MP3。")
+            return
+        if not self._has_pending_changes():
+            self.editor_status.set("当前没有尚未保存的修改")
+            return
+        if not messagebox.askyesno("取消修改", "确定放弃当前所有尚未保存的修改吗？"):
+            return
+
+        self._cleanup_pending_cover()
+        self._lyrics_action = "unchanged"
+        self._pending_lrc_path = None
+        self._cover_action = "unchanged"
+        self.editor_title.set(state.title)
+        self.editor_artist.set(state.artist)
+        self.editor_album.set(state.album)
+        self.editor_lyrics_state.set("已内嵌歌词" if state.has_lyrics else "未检测到内嵌歌词")
+        self.lyrics_state_label.configure(foreground="#26734d" if state.has_lyrics else "#c62828")
+        self.lyrics_button_text.set("更换歌词…" if state.has_lyrics else "导入 LRC…")
+        self._set_lyrics_preview(state.lyrics)
+        self.editor_cover_state.set("已内嵌封面" if state.has_cover else "未检测到内嵌封面")
+        self.cover_state_label.configure(foreground="#26734d" if state.has_cover else "#c62828")
+        self.cover_button_text.set("更换封面…" if state.has_cover else "选择图片…")
+        self._show_cover_data(state.cover_data)
+        self.editor_status.set("已取消尚未保存的修改，MP3 文件没有改变")
 
     def _has_pending_changes(self) -> bool:
         state = self._original_editor_state
