@@ -49,9 +49,10 @@ class EmbedderTests(unittest.TestCase):
             )
             lrc.write_text(lyrics, encoding="utf-8-sig", newline="\n")
 
-            backup = embed_lrc(mp3, lrc)
+            output = embed_lrc(mp3, lrc)
 
-            self.assertEqual(backup.read_bytes(), before)
+            self.assertEqual(output, mp3)
+            self.assertFalse((root / "歌曲.mp3.bak").exists())
             self.assertEqual(audio_payload(mp3), original_audio)
             self.assertAlmostEqual(MP3(mp3).info.length, duration_before, places=6)
             self.assertLess(abs(mp3.stat().st_size - len(before)), 128 * 1024)
@@ -97,8 +98,27 @@ class EmbedderTests(unittest.TestCase):
             frames = [frame for frame in ID3(mp3).getall("USLT") if frame.desc == "Sub2LRC"]
             self.assertEqual(len(frames), 1)
             self.assertEqual(frames[0].text, "[00:02.00]second\n")
-            self.assertTrue((root / "song.mp3.bak").exists())
-            self.assertTrue((root / "song.mp3.1.bak").exists())
+            self.assertFalse((root / "song.mp3.bak").exists())
+
+    def test_save_as_keeps_source_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp3"
+            destination = root / "saved as.mp3"
+            lrc = root / "lyrics.lrc"
+            write_test_mp3(source)
+            source_before = source.read_bytes()
+            lrc.write_text("[00:01.00]lyrics\n", encoding="utf-8", newline="\n")
+
+            output = embed_lrc(source, lrc, destination)
+
+            self.assertEqual(output, destination)
+            self.assertEqual(source.read_bytes(), source_before)
+            self.assertEqual(
+                [frame.text for frame in ID3(destination).getall("USLT") if frame.desc == "Sub2LRC"],
+                ["[00:01.00]lyrics\n"],
+            )
+            self.assertFalse(any(root.glob("*.bak")))
 
     def test_preserves_existing_id3v24_version_and_frame(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

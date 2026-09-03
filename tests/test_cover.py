@@ -72,16 +72,34 @@ class CoverTests(unittest.TestCase):
             duration_before = MP3(mp3).info.length
             image.write_bytes(PNG_1X1)
 
-            backup = embed_cover(mp3, image)
+            output = embed_cover(mp3, image)
 
             covers = ID3(mp3, translate=False).getall("APIC")
-            self.assertEqual(backup.read_bytes(), original_audio)
+            self.assertEqual(output, mp3)
+            self.assertFalse((root / "中文 歌曲.mp3.bak").exists())
             self.assertEqual(len(covers), 1)
             self.assertEqual(covers[0].mime, "image/png")
             self.assertEqual(covers[0].type, 3)
             self.assertEqual(covers[0].data, PNG_1X1)
             self.assertEqual(audio_payload(mp3), original_audio)
             self.assertAlmostEqual(MP3(mp3).info.length, duration_before, places=6)
+
+    def test_save_as_keeps_source_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp3"
+            destination = root / "new cover.mp3"
+            image = root / "cover.png"
+            write_test_mp3(source)
+            source_before = source.read_bytes()
+            image.write_bytes(PNG_1X1)
+
+            output = embed_cover(source, image, destination)
+
+            self.assertEqual(output, destination)
+            self.assertEqual(source.read_bytes(), source_before)
+            self.assertEqual(ID3(destination).getall("APIC")[0].data, PNG_1X1)
+            self.assertFalse(any(root.glob("*.bak")))
 
     def test_jpeg_replaces_all_old_covers_and_preserves_other_tags(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -54,7 +54,8 @@ class RemoverTests(unittest.TestCase):
 
             saved = ID3(mp3, translate=False)
             self.assertEqual(result.removed_count, 2)
-            self.assertEqual(result.backup_path.read_bytes(), before)
+            self.assertEqual(result.output_path, mp3)
+            self.assertFalse((root / "中文 歌曲.mp3.bak").exists())
             self.assertEqual(saved.getall("USLT"), [])
             self.assertEqual(saved.getall("SYLT"), [])
             self.assertEqual(len(saved.getall("APIC")), 2)
@@ -83,7 +84,7 @@ class RemoverTests(unittest.TestCase):
             self.assertEqual(saved.getall("TALB")[0].text, ["专辑"])
             self.assertEqual(audio_payload(mp3), original_audio)
 
-    def test_no_matching_tags_is_a_noop_without_backup(self) -> None:
+    def test_no_matching_tags_is_a_noop_without_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             mp3 = root / "song.mp3"
@@ -97,11 +98,29 @@ class RemoverTests(unittest.TestCase):
             covers_result = remove_embedded_covers(mp3)
 
             self.assertEqual(lyrics_result.removed_count, 0)
-            self.assertIsNone(lyrics_result.backup_path)
+            self.assertIsNone(lyrics_result.output_path)
             self.assertEqual(covers_result.removed_count, 0)
-            self.assertIsNone(covers_result.backup_path)
+            self.assertIsNone(covers_result.output_path)
             self.assertEqual(mp3.read_bytes(), before)
             self.assertFalse((root / "song.mp3.bak").exists())
+
+    def test_save_as_removal_keeps_source_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp3"
+            destination = root / "without lyrics.mp3"
+            write_test_mp3(source)
+            add_common_tags(source)
+            source_before = source.read_bytes()
+
+            result = remove_embedded_lyrics(source, destination)
+
+            self.assertEqual(result.output_path, destination)
+            self.assertEqual(source.read_bytes(), source_before)
+            self.assertEqual(ID3(destination).getall("USLT"), [])
+            self.assertEqual(ID3(destination).getall("SYLT"), [])
+            self.assertEqual(len(ID3(destination).getall("APIC")), 2)
+            self.assertFalse(any(root.glob("*.bak")))
 
     def test_reports_missing_and_invalid_mp3(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

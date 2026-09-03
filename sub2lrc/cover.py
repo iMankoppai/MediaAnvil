@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-import shutil
 
-from .embedder import unique_backup_path
+from .mp3io import apply_to_mp3_copy
 
 
 class CoverEmbedError(ValueError):
@@ -39,7 +38,7 @@ def read_cover(path: str | Path) -> tuple[bytes, str]:
     return data, mime
 
 
-def embed_cover(mp3: str | Path, image: str | Path) -> Path:
+def embed_cover(mp3: str | Path, image: str | Path, destination: str | Path | None = None) -> Path:
     """Replace all MP3 cover frames with one front-cover APIC frame."""
     mp3_path = Path(mp3)
     image_path = Path(image)
@@ -61,11 +60,9 @@ def embed_cover(mp3: str | Path, image: str | Path) -> Path:
     except (HeaderNotFoundError, MutagenError) as exc:
         raise CoverEmbedError("所选文件不是有效的 MP3，或音频数据已经损坏。") from exc
 
-    backup_path = unique_backup_path(mp3_path)
-    try:
-        shutil.copy2(mp3_path, backup_path)
+    def edit(target: Path) -> None:
         try:
-            tags = ID3(mp3_path, translate=False)
+            tags = ID3(target, translate=False)
             original_version = tags.version[1]
             save_version = 4 if original_version == 4 else 3
             if save_version == 3:
@@ -76,24 +73,20 @@ def embed_cover(mp3: str | Path, image: str | Path) -> Path:
 
         tags.delall("APIC")
         tags.add(APIC(encoding=1, mime=mime, type=3, desc="Cover", data=image_data))
-        tags.save(mp3_path, v2_version=save_version)
+        tags.save(target, v2_version=save_version)
 
-        saved_covers = ID3(mp3_path, translate=False).getall("APIC")
+        saved_covers = ID3(target, translate=False).getall("APIC")
         if (
             len(saved_covers) != 1
             or saved_covers[0].mime != mime
             or saved_covers[0].type != 3
             or saved_covers[0].data != image_data
         ):
-            raise CoverEmbedError("写入后的封面校验失败，原 MP3 已从备份恢复。")
-    except (OSError, MutagenError, CoverEmbedError) as exc:
-        if backup_path.exists():
-            try:
-                shutil.copy2(backup_path, mp3_path)
-            except OSError:
-                pass
+            raise CoverEmbedError("写入后的封面校验失败，原文件未被修改。")
+
+    try:
+        return apply_to_mp3_copy(mp3_path, destination, edit)
+    except (OSError, MutagenError, CoverEmbedError, ValueError) as exc:
         if isinstance(exc, CoverEmbedError):
             raise
         raise CoverEmbedError(f"写入封面失败：{exc}") from exc
-
-    return backup_path

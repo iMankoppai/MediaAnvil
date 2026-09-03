@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import shutil
 
-from .embedder import unique_backup_path
+from .mp3io import apply_to_mp3_copy
 
 
 class TagRemovalError(ValueError):
@@ -16,10 +15,15 @@ class TagRemovalError(ValueError):
 @dataclass(frozen=True)
 class RemovalResult:
     removed_count: int
-    backup_path: Path | None
+    output_path: Path | None
 
 
-def _remove_frames(mp3: str | Path, frame_ids: tuple[str, ...], label: str) -> RemovalResult:
+def _remove_frames(
+    mp3: str | Path,
+    frame_ids: tuple[str, ...],
+    label: str,
+    destination: str | Path | None = None,
+) -> RemovalResult:
     mp3_path = Path(mp3)
     if mp3_path.suffix.lower() != ".mp3":
         raise TagRemovalError("请选择扩展名为 .mp3 的歌曲文件。")
@@ -45,43 +49,40 @@ def _remove_frames(mp3: str | Path, frame_ids: tuple[str, ...], label: str) -> R
     except MutagenError as exc:
         raise TagRemovalError(f"无法读取 MP3 的 ID3 标签：{exc}") from exc
 
-    original_version = tags.version[1]
-    save_version = 4 if original_version == 4 else 3
-    if save_version == 3:
+    if tags.version[1] != 4:
         tags.update_to_v23()
     removed_count = sum(len(tags.getall(frame_id)) for frame_id in frame_ids)
     if removed_count == 0:
         return RemovalResult(0, None)
 
-    backup_path = unique_backup_path(mp3_path)
+    def edit(target: Path) -> None:
+        target_tags = ID3(target, translate=False)
+        save_version = 4 if target_tags.version[1] == 4 else 3
+        if save_version == 3:
+            target_tags.update_to_v23()
+        for frame_id in frame_ids:
+            target_tags.delall(frame_id)
+        target_tags.save(target, v2_version=save_version)
+
+        saved = ID3(target, translate=False)
+        if any(saved.getall(frame_id) for frame_id in frame_ids):
+            raise TagRemovalError(f"移除{label}后的校验失败，原文件未被修改。")
 
     try:
-        shutil.copy2(mp3_path, backup_path)
-        for frame_id in frame_ids:
-            tags.delall(frame_id)
-        tags.save(mp3_path, v2_version=save_version)
-
-        saved = ID3(mp3_path, translate=False)
-        if any(saved.getall(frame_id) for frame_id in frame_ids):
-            raise TagRemovalError(f"移除{label}后的校验失败，原 MP3 已从备份恢复。")
-    except (OSError, MutagenError, TagRemovalError) as exc:
-        if backup_path.exists():
-            try:
-                shutil.copy2(backup_path, mp3_path)
-            except OSError:
-                pass
+        output_path = apply_to_mp3_copy(mp3_path, destination, edit)
+    except (OSError, MutagenError, TagRemovalError, ValueError) as exc:
         if isinstance(exc, TagRemovalError):
             raise
         raise TagRemovalError(f"移除{label}失败：{exc}") from exc
 
-    return RemovalResult(removed_count, backup_path)
+    return RemovalResult(removed_count, output_path)
 
 
-def remove_embedded_lyrics(mp3: str | Path) -> RemovalResult:
+def remove_embedded_lyrics(mp3: str | Path, destination: str | Path | None = None) -> RemovalResult:
     """Remove all unsynchronised and synchronised ID3 lyrics frames."""
-    return _remove_frames(mp3, ("USLT", "SYLT"), "内嵌歌词")
+    return _remove_frames(mp3, ("USLT", "SYLT"), "内嵌歌词", destination)
 
 
-def remove_embedded_covers(mp3: str | Path) -> RemovalResult:
+def remove_embedded_covers(mp3: str | Path, destination: str | Path | None = None) -> RemovalResult:
     """Remove all ID3 attached-picture frames."""
-    return _remove_frames(mp3, ("APIC",), "内嵌封面")
+    return _remove_frames(mp3, ("APIC",), "内嵌封面", destination)

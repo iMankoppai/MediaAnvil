@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-import shutil
+
+from .mp3io import apply_to_mp3_copy
 
 
 class LyricsEmbedError(ValueError):
@@ -32,17 +33,8 @@ def read_lrc(path: str | Path) -> str:
     return text
 
 
-def unique_backup_path(mp3_path: Path) -> Path:
-    candidate = mp3_path.with_name(f"{mp3_path.name}.bak")
-    number = 1
-    while candidate.exists():
-        candidate = mp3_path.with_name(f"{mp3_path.name}.{number}.bak")
-        number += 1
-    return candidate
-
-
-def embed_lrc(mp3: str | Path, lrc: str | Path) -> Path:
-    """Embed timed LRC text in an ID3v2.3 USLT frame and return the backup path."""
+def embed_lrc(mp3: str | Path, lrc: str | Path, destination: str | Path | None = None) -> Path:
+    """Embed timed LRC text and return the overwritten or saved-as MP3 path."""
     mp3_path = Path(mp3)
     lrc_path = Path(lrc)
     if mp3_path.suffix.lower() != ".mp3":
@@ -67,11 +59,9 @@ def embed_lrc(mp3: str | Path, lrc: str | Path) -> Path:
     except (HeaderNotFoundError, MutagenError) as exc:
         raise LyricsEmbedError("所选文件不是有效的 MP3，或音频数据已经损坏。") from exc
 
-    backup_path = unique_backup_path(mp3_path)
-    try:
-        shutil.copy2(mp3_path, backup_path)
+    def edit(target: Path) -> None:
         try:
-            tags = ID3(mp3_path, translate=False)
+            tags = ID3(target, translate=False)
             original_version = tags.version[1]
             save_version = 4 if original_version == 4 else 3
             if save_version == 3:
@@ -85,20 +75,16 @@ def embed_lrc(mp3: str | Path, lrc: str | Path) -> Path:
             if key.startswith("USLT:Sub2LRC:"):
                 del tags[key]
         tags.add(USLT(encoding=1, lang="und", desc="Sub2LRC", text=lyrics))
-        tags.save(mp3_path, v2_version=save_version)
+        tags.save(target, v2_version=save_version)
 
-        saved = ID3(mp3_path, translate=False)
+        saved = ID3(target, translate=False)
         matches = [frame for frame in saved.getall("USLT") if frame.desc == "Sub2LRC"]
         if len(matches) != 1 or matches[0].text != lyrics:
-            raise LyricsEmbedError("写入后的歌词校验失败，原 MP3 已从备份恢复。")
-    except (OSError, MutagenError, LyricsEmbedError) as exc:
-        if backup_path.exists():
-            try:
-                shutil.copy2(backup_path, mp3_path)
-            except OSError:
-                pass
+            raise LyricsEmbedError("写入后的歌词校验失败，原文件未被修改。")
+
+    try:
+        return apply_to_mp3_copy(mp3_path, destination, edit)
+    except (OSError, MutagenError, LyricsEmbedError, ValueError) as exc:
         if isinstance(exc, LyricsEmbedError):
             raise
         raise LyricsEmbedError(f"写入 ID3 标签失败：{exc}") from exc
-
-    return backup_path
