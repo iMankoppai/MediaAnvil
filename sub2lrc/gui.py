@@ -34,7 +34,7 @@ class Sub2LRCApp(tk.Tk):
         self.editor_album = tk.StringVar()
         self.editor_lyrics_state = tk.StringVar(value="尚未读取歌词")
         self.editor_cover_state = tk.StringVar(value="尚未读取封面")
-        self.editor_output_mode = tk.StringVar(value="overwrite")
+        self.editor_output_mode = tk.StringVar(value="save_as")
         self.editor_status = tk.StringVar(value="请选择一个 MP3 文件开始编辑")
         self.lyrics_button_text = tk.StringVar(value="导入 LRC…")
         self.cover_button_text = tk.StringVar(value="选择图片…")
