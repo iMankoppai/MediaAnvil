@@ -94,9 +94,10 @@ class Sub2LRCApp(tk.Tk):
         preview_box.grid_propagate(False)
         preview_box.columnconfigure(0, weight=1)
         preview_box.rowconfigure(0, weight=1)
-        self.cover_preview = ttk.Label(preview_box, text="未检测到封面", anchor="center")
+        self.cover_preview = ttk.Label(preview_box, text="", anchor="center")
         self.cover_preview.grid(row=0, column=0, sticky="nsew")
-        ttk.Label(cover, textvariable=self.editor_cover_state, anchor="center").grid(
+        self.cover_state_label = ttk.Label(cover, textvariable=self.editor_cover_state, anchor="center")
+        self.cover_state_label.grid(
             row=1, column=0, sticky="ew", pady=(6, 4)
         )
         cover_actions = ttk.Frame(cover)
@@ -112,7 +113,8 @@ class Sub2LRCApp(tk.Tk):
         lyrics.rowconfigure(1, weight=1)
         lyrics_toolbar = ttk.Frame(lyrics)
         lyrics_toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        ttk.Label(lyrics_toolbar, textvariable=self.editor_lyrics_state).pack(side="left")
+        self.lyrics_state_label = ttk.Label(lyrics_toolbar, textvariable=self.editor_lyrics_state)
+        self.lyrics_state_label.pack(side="left")
         ttk.Button(lyrics_toolbar, text="移除歌词", command=self.mark_lyrics_for_removal).pack(side="right")
         ttk.Button(lyrics_toolbar, textvariable=self.lyrics_button_text, command=self.choose_editor_lrc).pack(
             side="right", padx=(0, 6)
@@ -171,9 +173,11 @@ class Sub2LRCApp(tk.Tk):
         self.editor_artist.set(state.artist)
         self.editor_album.set(state.album)
         self.editor_lyrics_state.set("已内嵌歌词" if state.has_lyrics else "未检测到内嵌歌词")
+        self.lyrics_state_label.configure(foreground="#26734d" if state.has_lyrics else "#c62828")
         self.lyrics_button_text.set("更换歌词…" if state.has_lyrics else "导入 LRC…")
         self._set_lyrics_preview(state.lyrics)
         self.editor_cover_state.set("已内嵌封面" if state.has_cover else "未检测到内嵌封面")
+        self.cover_state_label.configure(foreground="#26734d" if state.has_cover else "#c62828")
         self.cover_button_text.set("更换封面…" if state.has_cover else "选择图片…")
         self._show_cover_data(state.cover_data)
         self.editor_status.set("信息读取完成；修改需要调整的内容后统一保存")
@@ -195,6 +199,7 @@ class Sub2LRCApp(tk.Tk):
         self._lyrics_action = "replace"
         self._set_lyrics_preview(lyrics)
         self.editor_lyrics_state.set(f"待保存：{Path(selected).name}")
+        self.lyrics_state_label.configure(foreground="#8a5a00")
         self.lyrics_button_text.set("更换歌词…")
         self.editor_status.set("已选择新歌词，点击“保存到 MP3”后写入")
 
@@ -209,6 +214,7 @@ class Sub2LRCApp(tk.Tk):
         self._lyrics_action = "remove"
         self._set_lyrics_preview("")
         self.editor_lyrics_state.set("待保存：移除内嵌歌词")
+        self.lyrics_state_label.configure(foreground="#c62828")
         self.lyrics_button_text.set("导入 LRC…")
         self.editor_status.set("歌词将在点击“保存到 MP3”后移除")
 
@@ -248,6 +254,7 @@ class Sub2LRCApp(tk.Tk):
         self._cover_action = "replace"
         self._show_cover_data(cover_data)
         self.editor_cover_state.set(f"待保存：{Path(selected).name}（已裁剪为 1:1）")
+        self.cover_state_label.configure(foreground="#8a5a00")
         self.cover_button_text.set("更换封面…")
         self.editor_status.set("已选择新封面，点击“保存到 MP3”后写入")
 
@@ -262,6 +269,7 @@ class Sub2LRCApp(tk.Tk):
         self._cover_action = "remove"
         self._show_cover_data(None, "保存后移除封面")
         self.editor_cover_state.set("待保存：移除内嵌封面")
+        self.cover_state_label.configure(foreground="#c62828")
         self.cover_button_text.set("选择图片…")
         self.editor_status.set("封面将在点击“保存到 MP3”后移除")
 
@@ -316,7 +324,7 @@ class Sub2LRCApp(tk.Tk):
             self.lyrics_preview.insert("1.0", content)
         self.lyrics_preview.configure(state="disabled")
 
-    def _show_cover_data(self, data: bytes | None, empty_text: str = "未检测到封面") -> None:
+    def _show_cover_data(self, data: bytes | None, empty_text: str = "") -> None:
         self._cover_photo = None
         if not data:
             self.cover_preview.configure(image="", text=empty_text)
