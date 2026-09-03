@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+.build-venv/
+build/
+dist/
+*.spec
+
+# Local user media and generated lyrics in the project root
+/*.wav
+/*.mp3
+/*.flac
+/*.m4a
+/*.aac
+/*.ogg
+/*.opus
+/*.wma
+/*.ape
+/*.aiff
+/*.alac
+/*.vtt
+/*.srt
+/*.lrc
