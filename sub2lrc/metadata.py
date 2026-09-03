@@ -69,14 +69,28 @@ def save_mp3_metadata(
     destination: str | Path | None = None,
 ) -> Path:
     """Save only TIT2, TPE1, and TALB, preserving every other tag and audio frame."""
+    return update_mp3_metadata(path, title, artist, album, destination)
+
+
+def update_mp3_metadata(
+    path: str | Path,
+    title: str | None = None,
+    artist: str | None = None,
+    album: str | None = None,
+    destination: str | Path | None = None,
+) -> Path:
+    """Update selected basic fields; ``None`` means leave that field unchanged."""
     mp3_path = Path(path)
-    # Validate before creating an output copy and provide the same clear errors as reading.
     read_mp3_metadata(mp3_path)
-    values = {
-        "TIT2": title.strip(),
-        "TPE1": artist.strip(),
-        "TALB": album.strip(),
+    requested = {
+        "TIT2": title,
+        "TPE1": artist,
+        "TALB": album,
     }
+    values = {frame_id: value.strip() for frame_id, value in requested.items() if value is not None}
+
+    if not values and destination is None:
+        return mp3_path
 
     try:
         from mutagen import MutagenError
@@ -103,11 +117,8 @@ def save_mp3_metadata(
         tags.save(target, v2_version=save_version)
 
         saved = read_mp3_metadata(target)
-        if (saved.title, saved.artist, saved.album) != (
-            values["TIT2"],
-            values["TPE1"],
-            values["TALB"],
-        ):
+        saved_values = {"TIT2": saved.title, "TPE1": saved.artist, "TALB": saved.album}
+        if any(saved_values[frame_id] != value for frame_id, value in values.items()):
             raise MetadataError("写入后的基础标签校验失败，原文件未被修改。")
 
     try:
