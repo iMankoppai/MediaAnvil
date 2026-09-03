@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tempfile
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from .converter import SubtitleError, convert_file, read_subtitle, convert_text, unique_output_path
+from .cover import CoverEmbedError, embed_cover
+from .cropper import CoverCropDialog
 from .embedder import LyricsEmbedError, embed_lrc
 
 
 class Sub2LRCApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("Sub2LRC - 字幕转歌词与 MP3 内嵌歌词")
+        self.title("Sub2LRC - 字幕与 MP3 标签工具")
         self.geometry("900x620")
         self.minsize(720, 480)
 
@@ -24,6 +27,11 @@ class Sub2LRCApp(tk.Tk):
         self.mp3_path = tk.StringVar()
         self.lrc_path = tk.StringVar()
         self.embed_status = tk.StringVar(value="请选择 MP3 文件和 LRC 歌词")
+        self.cover_mp3_path = tk.StringVar()
+        self.cover_image_path = tk.StringVar()
+        self.cover_status = tk.StringVar(value="请选择 MP3 文件和封面图片")
+        self._cropped_cover_path: Path | None = None
+        self._cropped_source_path: Path | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -34,10 +42,13 @@ class Sub2LRCApp(tk.Tk):
 
         converter_tab = ttk.Frame(notebook, padding=12)
         embed_tab = ttk.Frame(notebook, padding=18)
+        cover_tab = ttk.Frame(notebook, padding=18)
         notebook.add(converter_tab, text="字幕转 LRC")
         notebook.add(embed_tab, text="MP3 内嵌歌词")
+        notebook.add(cover_tab, text="MP3 内嵌封面")
         self._build_converter_tab(converter_tab)
         self._build_embed_tab(embed_tab)
+        self._build_cover_tab(cover_tab)
 
     def _build_converter_tab(self, root: ttk.Frame) -> None:
         root.columnconfigure(0, weight=1)
@@ -148,6 +159,112 @@ class Sub2LRCApp(tk.Tk):
 
         self.embed_status.set(f"歌词已写入：{mp3}；备份：{backup}")
         messagebox.showinfo("写入完成", f"LRC 歌词已写入 MP3。\n备份文件：{backup}")
+
+    def _build_cover_tab(self, root: ttk.Frame) -> None:
+        root.columnconfigure(1, weight=1)
+
+        ttk.Label(root, text="把 JPG 或 PNG 封面写入 MP3", font=("Microsoft YaHei UI", 13, "bold")).grid(
+            row=0, column=0, columnspan=3, sticky="w", pady=(0, 20)
+        )
+
+        ttk.Label(root, text="MP3 文件：").grid(row=1, column=0, sticky="w", pady=8)
+        ttk.Entry(root, textvariable=self.cover_mp3_path).grid(row=1, column=1, sticky="ew", padx=8)
+        ttk.Button(root, text="选择歌曲…", command=self.choose_cover_mp3).grid(row=1, column=2)
+
+        ttk.Label(root, text="封面图片：").grid(row=2, column=0, sticky="w", pady=8)
+        ttk.Entry(root, textvariable=self.cover_image_path, state="readonly").grid(row=2, column=1, sticky="ew", padx=8)
+        ttk.Button(root, text="选择图片…", command=self.choose_cover_image).grid(row=2, column=2)
+
+        ttk.Button(root, text="写入封面", command=self.write_cover).grid(
+            row=3, column=0, columnspan=3, pady=(22, 14), ipadx=30, ipady=6
+        )
+        ttk.Label(
+            root,
+            text="写入 ID3 APIC 正面封面标签；旧封面会被替换，其他标签会保留，并自动创建 .bak 备份。",
+            foreground="#555555",
+        ).grid(row=4, column=0, columnspan=3, sticky="w")
+        ttk.Separator(root).grid(row=5, column=0, columnspan=3, sticky="ew", pady=18)
+        ttk.Label(root, textvariable=self.cover_status, anchor="w", wraplength=760).grid(
+            row=6, column=0, columnspan=3, sticky="ew"
+        )
+
+    def choose_cover_mp3(self) -> None:
+        selected = filedialog.askopenfilename(
+            title="选择 MP3 歌曲",
+            filetypes=[("MP3 音频", "*.mp3")],
+        )
+        if selected:
+            self.cover_mp3_path.set(selected)
+            self.cover_status.set("已选择 MP3 文件")
+
+    def choose_cover_image(self) -> None:
+        selected = filedialog.askopenfilename(
+            title="选择封面图片",
+            filetypes=[("封面图片", "*.jpg *.jpeg *.png"), ("JPEG 图片", "*.jpg *.jpeg"), ("PNG 图片", "*.png")],
+        )
+        if not selected:
+            return
+        temporary_path: Path | None = None
+        try:
+            dialog = CoverCropDialog(self, selected)
+            self.wait_window(dialog)
+            cropped = dialog.result
+            if cropped is None:
+                return
+
+            source_suffix = Path(selected).suffix.lower()
+            output_format = "PNG" if source_suffix == ".png" else "JPEG"
+            suffix = ".png" if output_format == "PNG" else ".jpg"
+            if output_format == "JPEG" and cropped.mode not in {"RGB", "L"}:
+                cropped = cropped.convert("RGB")
+            temporary = tempfile.NamedTemporaryFile(prefix="sub2lrc-cover-", suffix=suffix, delete=False)
+            temporary.close()
+            temporary_path = Path(temporary.name)
+            cropped.save(temporary_path, format=output_format, quality=95)
+        except (OSError, ValueError) as exc:
+            if temporary_path:
+                temporary_path.unlink(missing_ok=True)
+            messagebox.showerror("封面图片错误", str(exc))
+            return
+
+        self._cleanup_cropped_cover()
+        self._cropped_cover_path = temporary_path
+        self._cropped_source_path = Path(selected).resolve()
+        self.cover_image_path.set(selected)
+        self.cover_status.set(f"封面已裁剪为 {cropped.width} × {cropped.height}，可以写入")
+
+    def write_cover(self) -> None:
+        mp3 = self.cover_mp3_path.get().strip()
+        image_text = self.cover_image_path.get().strip()
+        if not mp3 or not image_text:
+            messagebox.showinfo("Sub2LRC", "请先选择 MP3 文件和封面图片。")
+            return
+        source_path = Path(image_text)
+        image = source_path
+        if self._cropped_cover_path and self._cropped_source_path == source_path.resolve():
+            image = self._cropped_cover_path
+        try:
+            backup = embed_cover(mp3, image)
+        except (OSError, CoverEmbedError) as exc:
+            self.cover_status.set(f"写入失败：{exc}")
+            messagebox.showerror("写入封面失败", str(exc))
+            return
+
+        self.cover_status.set(f"封面已写入：{mp3}；备份：{backup}")
+        messagebox.showinfo("写入完成", f"封面已写入 MP3。\n备份文件：{backup}")
+
+    def _cleanup_cropped_cover(self) -> None:
+        if self._cropped_cover_path:
+            try:
+                self._cropped_cover_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        self._cropped_cover_path = None
+        self._cropped_source_path = None
+
+    def destroy(self) -> None:
+        self._cleanup_cropped_cover()
+        super().destroy()
 
     def choose_files(self) -> None:
         names = filedialog.askopenfilenames(

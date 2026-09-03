@@ -32,7 +32,7 @@ def read_lrc(path: str | Path) -> str:
     return text
 
 
-def _unique_backup_path(mp3_path: Path) -> Path:
+def unique_backup_path(mp3_path: Path) -> Path:
     candidate = mp3_path.with_name(f"{mp3_path.name}.bak")
     number = 1
     while candidate.exists():
@@ -67,7 +67,7 @@ def embed_lrc(mp3: str | Path, lrc: str | Path) -> Path:
     except (HeaderNotFoundError, MutagenError) as exc:
         raise LyricsEmbedError("所选文件不是有效的 MP3，或音频数据已经损坏。") from exc
 
-    backup_path = _unique_backup_path(mp3_path)
+    backup_path = unique_backup_path(mp3_path)
     try:
         shutil.copy2(mp3_path, backup_path)
         try:

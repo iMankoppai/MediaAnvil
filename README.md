@@ -1,6 +1,6 @@
 # Sub2LRC
 
-Sub2LRC 是一个 Windows 字幕与歌词工具，支持将 VTT / SRT 转换为 LRC，也可以把 LRC 歌词写入 MP3，支持中文和批量转换。
+Sub2LRC 是一个 Windows 字幕与 MP3 标签工具，支持将 VTT / SRT 转换为 LRC，也可以把 LRC 歌词和封面写入 MP3，支持中文和批量转换。
 
 ![Sub2LRC 软件截图](assets/screenshot.png)
 
@@ -22,6 +22,16 @@ Sub2LRC 是一个 Windows 字幕与歌词工具，支持将 VTT / SRT 转换为 
 
 歌词会写入 MP3 的 ID3 `USLT` 标签。写入前会在歌曲旁创建 `.bak` 备份；原有标题、歌手、封面及其他应用写入的歌词不会被删除。
 
+## MP3 内嵌封面
+
+1. 切换到“MP3 内嵌封面”页签。
+2. 选择 `.mp3` 歌曲。
+3. 选择 JPG、JPEG 或 PNG 图片。
+4. 在裁剪窗口拖动黄色正方形，并用滑块调整裁剪范围。
+5. 确认裁剪后点击“写入封面”。
+
+封面会写入 MP3 的 ID3 `APIC` 正面封面标签。已有封面会被替换，其他 ID3 标签和音频数据不会改变；原图片不会被覆盖。
+
 ## 下载 EXE
 
 前往 [Releases](https://github.com/iMankoppai/Sub2LRC/releases/latest) 下载最新版 `Sub2LRC.exe`。目标电脑不需要安装 Python。
@@ -31,6 +41,7 @@ Sub2LRC 是一个 Windows 字幕与歌词工具，支持将 VTT / SRT 转换为 
 - 输入：`.vtt`、`.srt`
 - 输出：`.lrc`
 - MP3 内嵌歌词：`.mp3` + `.lrc`
+- MP3 内嵌封面：`.mp3` + `.jpg` / `.jpeg` / `.png`
 - 输入编码：UTF-8、UTF-16、GB18030
 - 输出编码：带 BOM 的 UTF-8
 - 文件名转换示例：`歌曲.wav.vtt` → `歌曲.lrc`

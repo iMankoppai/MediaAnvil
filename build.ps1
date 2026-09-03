@@ -4,7 +4,9 @@ $venvDir = Join-Path $PSScriptRoot ".build-venv"
 
 if (-not (Test-Path $venvDir)) {
     Write-Host "Creating isolated build environment..."
-    python -m venv $venvDir
+    # System packages allow MSYS2 Python to reuse its official Pillow build;
+    # regular Windows Python still installs missing packages from requirements.
+    python -m venv --system-site-packages $venvDir
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to create the isolated build environment."
     }
@@ -29,7 +31,7 @@ if ($LASTEXITCODE -ne 0) {
     }
 }
 
-& $buildPython -c "import mutagen" 2>$null
+& $buildPython -c "import mutagen; from PIL import Image, ImageTk" 2>$null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Installing application dependencies..."
     & $buildPython -m pip install -r (Join-Path $PSScriptRoot "requirements.txt")
