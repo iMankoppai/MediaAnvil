@@ -11,6 +11,7 @@ from .converter import SubtitleError, convert_file, read_subtitle, convert_text,
 from .cover import CoverEmbedError, embed_cover
 from .cropper import CoverCropDialog
 from .embedder import LyricsEmbedError, embed_lrc
+from .remover import TagRemovalError, remove_embedded_covers, remove_embedded_lyrics
 
 
 class Sub2LRCApp(tk.Tk):
@@ -110,12 +111,15 @@ class Sub2LRCApp(tk.Tk):
         ttk.Entry(root, textvariable=self.lrc_path).grid(row=2, column=1, sticky="ew", padx=8)
         ttk.Button(root, text="选择歌词…", command=self.choose_lrc).grid(row=2, column=2)
 
-        ttk.Button(root, text="写入歌词", command=self.write_lyrics).grid(
-            row=3, column=0, columnspan=3, pady=(22, 14), ipadx=30, ipady=6
+        lyric_actions = ttk.Frame(root)
+        lyric_actions.grid(row=3, column=0, columnspan=3, pady=(22, 14))
+        ttk.Button(lyric_actions, text="写入歌词", command=self.write_lyrics).pack(side="left", padx=5, ipadx=24, ipady=6)
+        ttk.Button(lyric_actions, text="移除内嵌歌词", command=self.remove_lyrics).pack(
+            side="left", padx=5, ipadx=16, ipady=6
         )
         ttk.Label(
             root,
-            text="写入 ID3v2.3 USLT 歌词标签；操作前会在歌曲旁自动创建 .bak 备份。",
+            text="写入 ID3 USLT 歌词标签；也可移除全部内嵌歌词，操作前会自动创建 .bak 备份。",
             foreground="#555555",
         ).grid(row=4, column=0, columnspan=3, sticky="w")
         ttk.Separator(root).grid(row=5, column=0, columnspan=3, sticky="ew", pady=18)
@@ -160,6 +164,33 @@ class Sub2LRCApp(tk.Tk):
         self.embed_status.set(f"歌词已写入：{mp3}；备份：{backup}")
         messagebox.showinfo("写入完成", f"LRC 歌词已写入 MP3。\n备份文件：{backup}")
 
+    def remove_lyrics(self) -> None:
+        mp3 = self.mp3_path.get().strip()
+        if not mp3:
+            messagebox.showinfo("Sub2LRC", "请先选择 MP3 文件。")
+            return
+        if not messagebox.askyesno(
+            "确认移除歌词",
+            "将移除该 MP3 中全部内嵌歌词（USLT 和 SYLT）。\n其他标签不会删除。是否继续？",
+        ):
+            return
+        try:
+            result = remove_embedded_lyrics(mp3)
+        except (OSError, TagRemovalError) as exc:
+            self.embed_status.set(f"移除失败：{exc}")
+            messagebox.showerror("移除歌词失败", str(exc))
+            return
+        if result.removed_count == 0:
+            self.embed_status.set("没有找到可移除的内嵌歌词")
+            messagebox.showinfo("没有内嵌歌词", "该 MP3 中没有找到 USLT 或 SYLT 歌词标签。")
+            return
+
+        self.embed_status.set(f"已移除 {result.removed_count} 个歌词标签；备份：{result.backup_path}")
+        messagebox.showinfo(
+            "移除完成",
+            f"已移除 {result.removed_count} 个内嵌歌词标签。\n备份文件：{result.backup_path}",
+        )
+
     def _build_cover_tab(self, root: ttk.Frame) -> None:
         root.columnconfigure(1, weight=1)
 
@@ -175,12 +206,15 @@ class Sub2LRCApp(tk.Tk):
         ttk.Entry(root, textvariable=self.cover_image_path, state="readonly").grid(row=2, column=1, sticky="ew", padx=8)
         ttk.Button(root, text="选择图片…", command=self.choose_cover_image).grid(row=2, column=2)
 
-        ttk.Button(root, text="写入封面", command=self.write_cover).grid(
-            row=3, column=0, columnspan=3, pady=(22, 14), ipadx=30, ipady=6
+        cover_actions = ttk.Frame(root)
+        cover_actions.grid(row=3, column=0, columnspan=3, pady=(22, 14))
+        ttk.Button(cover_actions, text="写入封面", command=self.write_cover).pack(side="left", padx=5, ipadx=24, ipady=6)
+        ttk.Button(cover_actions, text="移除内嵌封面", command=self.remove_cover).pack(
+            side="left", padx=5, ipadx=16, ipady=6
         )
         ttk.Label(
             root,
-            text="写入 ID3 APIC 正面封面标签；旧封面会被替换，其他标签会保留，并自动创建 .bak 备份。",
+            text="写入 ID3 APIC 正面封面标签；也可移除全部内嵌封面，操作前会自动创建 .bak 备份。",
             foreground="#555555",
         ).grid(row=4, column=0, columnspan=3, sticky="w")
         ttk.Separator(root).grid(row=5, column=0, columnspan=3, sticky="ew", pady=18)
@@ -252,6 +286,33 @@ class Sub2LRCApp(tk.Tk):
 
         self.cover_status.set(f"封面已写入：{mp3}；备份：{backup}")
         messagebox.showinfo("写入完成", f"封面已写入 MP3。\n备份文件：{backup}")
+
+    def remove_cover(self) -> None:
+        mp3 = self.cover_mp3_path.get().strip()
+        if not mp3:
+            messagebox.showinfo("Sub2LRC", "请先选择 MP3 文件。")
+            return
+        if not messagebox.askyesno(
+            "确认移除封面",
+            "将移除该 MP3 中全部内嵌封面（APIC）。\n其他标签不会删除。是否继续？",
+        ):
+            return
+        try:
+            result = remove_embedded_covers(mp3)
+        except (OSError, TagRemovalError) as exc:
+            self.cover_status.set(f"移除失败：{exc}")
+            messagebox.showerror("移除封面失败", str(exc))
+            return
+        if result.removed_count == 0:
+            self.cover_status.set("没有找到可移除的内嵌封面")
+            messagebox.showinfo("没有内嵌封面", "该 MP3 中没有找到 APIC 封面标签。")
+            return
+
+        self.cover_status.set(f"已移除 {result.removed_count} 个封面标签；备份：{result.backup_path}")
+        messagebox.showinfo(
+            "移除完成",
+            f"已移除 {result.removed_count} 个内嵌封面标签。\n备份文件：{result.backup_path}",
+        )
 
     def _cleanup_cropped_cover(self) -> None:
         if self._cropped_cover_path:
