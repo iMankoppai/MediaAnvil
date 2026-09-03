@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 
 from .mp3io import apply_to_mp3_copy
@@ -22,19 +23,23 @@ def read_cover(path: str | Path) -> tuple[bytes, str]:
     except OSError as exc:
         raise CoverEmbedError(f"无法读取封面图片：{exc}") from exc
 
-    if (
-        len(data) >= 33
-        and data.startswith(b"\x89PNG\r\n\x1a\n")
-        and data[12:16] == b"IHDR"
-        and int.from_bytes(data[16:20], "big") > 0
-        and int.from_bytes(data[20:24], "big") > 0
-        and data[-8:-4] == b"IEND"
-    ):
-        mime = "image/png"
-    elif len(data) >= 16 and data.startswith(b"\xff\xd8\xff") and data.endswith(b"\xff\xd9"):
-        mime = "image/jpeg"
-    else:
-        raise CoverEmbedError("图片内容不是有效的 JPEG 或 PNG 文件。")
+    try:
+        from PIL import Image, UnidentifiedImageError
+    except ImportError as exc:
+        raise CoverEmbedError("缺少 Pillow 图片组件，请重新安装或重新打包 Sub2LRC。") from exc
+
+    try:
+        with Image.open(BytesIO(data)) as decoded:
+            decoded.verify()
+            image_format = decoded.format
+    except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:
+        raise CoverEmbedError("图片内容不是有效的 JPEG 或 PNG 文件。") from exc
+
+    mime_by_format = {"JPEG": "image/jpeg", "PNG": "image/png"}
+    try:
+        mime = mime_by_format[image_format]
+    except KeyError as exc:
+        raise CoverEmbedError("图片内容不是有效的 JPEG 或 PNG 文件。") from exc
     return data, mime
 
 
