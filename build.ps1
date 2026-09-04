@@ -1,6 +1,8 @@
 $ErrorActionPreference = "Stop"
 
 $venvDir = Join-Path $PSScriptRoot ".build-venv"
+$ffmpegPath = Join-Path $PSScriptRoot "vendor\ffmpeg\ffmpeg.exe"
+$ffmpegDownloadScript = Join-Path $PSScriptRoot "tools\download_ffmpeg.ps1"
 
 if (-not (Test-Path $venvDir)) {
     Write-Host "Creating isolated build environment..."
@@ -41,7 +43,23 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Building Sub2LRC.exe..."
-& $buildPython -m PyInstaller --noconfirm --clean --onefile --windowed --name Sub2LRC (Join-Path $PSScriptRoot "main.py")
+if (-not (Test-Path $ffmpegPath)) {
+    Write-Host "Downloading verified FFmpeg for the standalone EXE..."
+    & powershell -ExecutionPolicy Bypass -File $ffmpegDownloadScript
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $ffmpegPath)) {
+        throw "Failed to prepare the bundled FFmpeg executable."
+    }
+}
+
+$pyinstallerArgs = @(
+    "-m", "PyInstaller",
+    "--noconfirm", "--clean", "--onefile", "--windowed",
+    "--name", "Sub2LRC",
+    "--add-binary", "$ffmpegPath;."
+    "--add-data", "$(Join-Path $PSScriptRoot 'THIRD_PARTY_NOTICES.md');."
+    (Join-Path $PSScriptRoot "main.py")
+)
+& $buildPython @pyinstallerArgs
 if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller failed with exit code $LASTEXITCODE."
 }

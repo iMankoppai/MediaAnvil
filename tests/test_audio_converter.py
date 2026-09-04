@@ -46,6 +46,13 @@ class AudioConverterTests(unittest.TestCase):
             with self.assertRaisesRegex(FfmpegNotFoundError, "找不到指定的 FFmpeg"):
                 find_ffmpeg(Path(directory) / "missing-ffmpeg.exe")
 
+    def test_finds_ffmpeg_extracted_from_packaged_application(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundled = Path(directory) / "ffmpeg.exe"
+            bundled.write_bytes(b"bundled ffmpeg")
+            with patch("sub2lrc.audio_converter.sys._MEIPASS", directory, create=True):
+                self.assertEqual(find_ffmpeg(), bundled)
+
     def test_output_keeps_name_and_avoids_existing_mp3(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

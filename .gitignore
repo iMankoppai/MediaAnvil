@@ -5,6 +5,7 @@ build/
 dist/
 .test-tools/
 release/
+vendor/ffmpeg/ffmpeg.exe
 *.spec
 
 # Local user media and generated lyrics in the project root
