@@ -29,9 +29,18 @@ from .audio_preview import (
     load_audio_lyrics,
     lyric_index_from_display_line,
 )
+from .audio_metadata import (
+    AudioFileInfo,
+    AudioMetadata,
+    AudioMetadataChanges,
+    AudioMetadataError,
+    export_metadata_cover,
+    export_metadata_lyrics,
+    read_metadata,
+    write_metadata,
+)
 from .converter import SubtitleError, convert_file, read_subtitle, unique_output_path
 from .cropper import CoverCropDialog
-from .editor import Mp3Edits, Mp3EditorError, Mp3EditorState, read_mp3_editor_state, save_mp3_edits
 from .embedder import LyricsEmbedError, read_lrc
 from .image_converter import (
     IMAGE_FORMAT_SPECS,
@@ -39,14 +48,6 @@ from .image_converter import (
     ImageConversionError,
     ImageConversionSettings,
     convert_image_batch,
-)
-from .metadata import MetadataError
-from .mp3_exporter import (
-    Mp3AudioInfo,
-    Mp3ExportError,
-    export_embedded_cover,
-    export_embedded_lyrics,
-    inspect_mp3,
 )
 
 
@@ -101,11 +102,11 @@ class Sub2LRCApp(tk.Tk):
         self.editor_lyrics_state = tk.StringVar(value="尚未读取歌词")
         self.editor_cover_state = tk.StringVar(value="尚未读取封面")
         self.editor_output_mode = tk.StringVar(value="save_as")
-        self.editor_status = tk.StringVar(value="请选择一个 MP3 文件开始编辑")
-        self.editor_audio_info = tk.StringVar(value="选择 MP3 后显示格式、时长、码率、采样率、声道和大小")
+        self.editor_status = tk.StringVar(value="请选择一个音频文件开始编辑")
+        self.editor_audio_info = tk.StringVar(value="选择音频后显示格式、时长、码率、采样率、声道和大小")
         self.lyrics_button_text = tk.StringVar(value="导入 LRC…")
         self.cover_button_text = tk.StringVar(value="选择图片…")
-        self._original_editor_state: Mp3EditorState | None = None
+        self._original_editor_state: AudioMetadata | None = None
         self._lyrics_action = "unchanged"
         self._pending_lrc_path: Path | None = None
         self._cover_action = "unchanged"
@@ -938,13 +939,13 @@ class Sub2LRCApp(tk.Tk):
         root.columnconfigure(0, weight=1)
         root.rowconfigure(2, weight=1)
 
-        file_area = ttk.LabelFrame(root, text="1. MP3 文件", padding=10)
+        file_area = ttk.LabelFrame(root, text="1. 音频文件", padding=10)
         file_area.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         file_area.columnconfigure(0, weight=1)
         ttk.Entry(file_area, textvariable=self.editor_mp3_path, state="readonly").grid(
             row=0, column=0, sticky="ew", padx=(0, 8)
         )
-        ttk.Button(file_area, text="选择 MP3…", command=self.choose_editor_mp3).grid(row=0, column=1)
+        ttk.Button(file_area, text="选择音频…", command=self.choose_editor_mp3).grid(row=0, column=1)
         ttk.Label(
             file_area, textvariable=self.editor_audio_info, foreground="#555555", wraplength=820
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
@@ -956,11 +957,14 @@ class Sub2LRCApp(tk.Tk):
         basic = ttk.LabelFrame(upper, text="2. 基础信息", padding=12)
         basic.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         basic.columnconfigure(1, weight=1)
+        self.editor_basic_entries: list[ttk.Entry] = []
         for row, (label, variable) in enumerate(
             (("歌名：", self.editor_title), ("歌手：", self.editor_artist), ("专辑：", self.editor_album))
         ):
             ttk.Label(basic, text=label).grid(row=row, column=0, sticky="w", pady=7)
-            ttk.Entry(basic, textvariable=variable).grid(row=row, column=1, sticky="ew", padx=(8, 0), pady=7)
+            entry = ttk.Entry(basic, textvariable=variable)
+            entry.grid(row=row, column=1, sticky="ew", padx=(8, 0), pady=7)
+            self.editor_basic_entries.append(entry)
         ttk.Label(basic, text="留空并保存会移除对应信息。", foreground="#666666").grid(
             row=3, column=0, columnspan=2, sticky="w", pady=(12, 0)
         )
@@ -981,11 +985,15 @@ class Sub2LRCApp(tk.Tk):
         )
         cover_actions = ttk.Frame(cover)
         cover_actions.grid(row=2, column=0)
-        ttk.Button(cover_actions, textvariable=self.cover_button_text, command=self.choose_editor_cover).pack(
+        self.editor_cover_choose_button = ttk.Button(
+            cover_actions, textvariable=self.cover_button_text, command=self.choose_editor_cover
+        )
+        self.editor_cover_choose_button.pack(
             side="left", padx=3
         )
         ttk.Button(cover_actions, text="导出", command=self.export_editor_cover).pack(side="left", padx=3)
-        ttk.Button(cover_actions, text="移除", command=self.mark_cover_for_removal).pack(side="left", padx=3)
+        self.editor_cover_remove_button = ttk.Button(cover_actions, text="移除", command=self.mark_cover_for_removal)
+        self.editor_cover_remove_button.pack(side="left", padx=3)
 
         lyrics = ttk.LabelFrame(root, text="3. 歌词", padding=10)
         lyrics.grid(row=2, column=0, sticky="nsew", pady=(0, 10))
@@ -995,11 +1003,17 @@ class Sub2LRCApp(tk.Tk):
         lyrics_toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         self.lyrics_state_label = ttk.Label(lyrics_toolbar, textvariable=self.editor_lyrics_state)
         self.lyrics_state_label.pack(side="left")
-        ttk.Button(lyrics_toolbar, text="移除歌词", command=self.mark_lyrics_for_removal).pack(side="right")
+        self.editor_lyrics_remove_button = ttk.Button(
+            lyrics_toolbar, text="移除歌词", command=self.mark_lyrics_for_removal
+        )
+        self.editor_lyrics_remove_button.pack(side="right")
         ttk.Button(lyrics_toolbar, text="导出歌词…", command=self.export_editor_lyrics).pack(
             side="right", padx=(0, 6)
         )
-        ttk.Button(lyrics_toolbar, textvariable=self.lyrics_button_text, command=self.choose_editor_lrc).pack(
+        self.editor_lyrics_choose_button = ttk.Button(
+            lyrics_toolbar, textvariable=self.lyrics_button_text, command=self.choose_editor_lrc
+        )
+        self.editor_lyrics_choose_button.pack(
             side="right", padx=(0, 6)
         )
         self.lyrics_preview = tk.Text(
@@ -1025,7 +1039,10 @@ class Sub2LRCApp(tk.Tk):
         ttk.Label(bottom, textvariable=self.editor_status, anchor="w", wraplength=650).pack(
             side="left", fill="x", expand=True
         )
-        ttk.Button(bottom, text="保存到 MP3", command=self.save_editor, style="Accent.TButton").pack(
+        self.editor_save_button = ttk.Button(
+            bottom, text="保存到音频", command=self.save_editor, style="Accent.TButton"
+        )
+        self.editor_save_button.pack(
             side="right", ipadx=28, ipady=7
         )
         ttk.Button(bottom, text="取消修改", command=self.cancel_editor_changes).pack(
@@ -1034,21 +1051,27 @@ class Sub2LRCApp(tk.Tk):
 
     def choose_editor_mp3(self) -> None:
         if self._has_pending_changes() and not messagebox.askyesno(
-            "尚未保存", "当前修改尚未保存。选择其他 MP3 会放弃这些修改，是否继续？"
+            "尚未保存", "当前修改尚未保存。选择其他音频会放弃这些修改，是否继续？"
         ):
             return
-        selected = filedialog.askopenfilename(title="选择 MP3 歌曲", filetypes=[("MP3 音频", "*.mp3")])
+        selected = filedialog.askopenfilename(
+            title="选择音频文件",
+            filetypes=[
+                ("支持的音频标签", "*.mp3 *.flac *.m4a *.ogg *.opus *.wav"),
+                ("MP3", "*.mp3"), ("FLAC", "*.flac"), ("M4A", "*.m4a"),
+                ("OGG / Opus", "*.ogg *.opus"), ("WAV（只读）", "*.wav"),
+            ],
+        )
         if selected:
             self._load_editor_file(Path(selected), show_error=True)
 
     def _load_editor_file(self, path: Path, show_error: bool) -> bool:
         try:
-            state = read_mp3_editor_state(path)
-            audio_info = inspect_mp3(path)
-        except (OSError, MetadataError, Mp3EditorError, Mp3ExportError) as exc:
+            state = read_metadata(path)
+        except (OSError, AudioMetadataError) as exc:
             self.editor_status.set(f"读取失败：{exc}")
             if show_error:
-                messagebox.showerror("读取 MP3 失败", str(exc))
+                messagebox.showerror("读取音频标签失败", str(exc))
             return False
         self._cleanup_pending_cover()
         self._original_editor_state = state
@@ -1059,7 +1082,7 @@ class Sub2LRCApp(tk.Tk):
         self.editor_title.set(state.title)
         self.editor_artist.set(state.artist)
         self.editor_album.set(state.album)
-        self.editor_audio_info.set(self._format_audio_info(audio_info))
+        self.editor_audio_info.set(self._format_audio_info(state.info))
         self.editor_lyrics_state.set("已内嵌歌词" if state.has_lyrics else "未检测到内嵌歌词")
         self.lyrics_state_label.configure(foreground="#26734d" if state.has_lyrics else "#c62828")
         self.lyrics_button_text.set("更换歌词…" if state.has_lyrics else "导入 LRC…")
@@ -1068,11 +1091,25 @@ class Sub2LRCApp(tk.Tk):
         self.cover_state_label.configure(foreground="#26734d" if state.has_cover else "#c62828")
         self.cover_button_text.set("更换封面…" if state.has_cover else "选择图片…")
         self._show_cover_data(state.cover_data)
-        self.editor_status.set("信息读取完成；修改需要调整的内容后统一保存")
+        self._set_editor_writable(state.writable)
+        self.editor_status.set(
+            "信息读取完成；修改需要调整的内容后统一保存"
+            if state.writable else "WAV 当前仅提供信息读取，标签保存暂未开放"
+        )
         return True
 
+    def _set_editor_writable(self, writable: bool) -> None:
+        state = "normal" if writable else "disabled"
+        for entry in self.editor_basic_entries:
+            entry.configure(state=state)
+        for button in (
+            self.editor_cover_choose_button, self.editor_cover_remove_button,
+            self.editor_lyrics_choose_button, self.editor_lyrics_remove_button, self.editor_save_button,
+        ):
+            button.configure(state=state)
+
     @staticmethod
-    def _format_audio_info(info: Mp3AudioInfo) -> str:
+    def _format_audio_info(info: AudioFileInfo) -> str:
         total_seconds = max(0, round(info.duration_seconds))
         hours, remainder = divmod(total_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
@@ -1080,33 +1117,33 @@ class Sub2LRCApp(tk.Tk):
         channels = {1: "单声道", 2: "立体声"}.get(info.channels, f"{info.channels} 声道")
         size_mb = info.file_size_bytes / 1024 / 1024
         return (
-            f"MP3  ·  {duration}  ·  {info.bitrate_kbps} kbps  ·  "
+            f"{info.format_label}  ·  {duration}  ·  {info.bitrate_kbps} kbps  ·  "
             f"{info.sample_rate_hz:,} Hz  ·  {channels}  ·  {size_mb:.1f} MB  ·  "
-            f"{info.id3_version}（{info.tag_count} 个标签）"
+            f"{info.tag_count} 个标签"
         )
 
     def export_editor_lyrics(self) -> None:
         state = self._original_editor_state
         source_text = self.editor_mp3_path.get().strip()
         if state is None or not source_text:
-            messagebox.showinfo("Sub2LRC", "请先选择 MP3 文件。")
+            messagebox.showinfo("Sub2LRC", "请先选择音频文件。")
             return
         if not state.has_lyrics:
-            messagebox.showinfo("没有内嵌歌词", "当前 MP3 没有可导出的内嵌歌词。")
+            messagebox.showinfo("没有内嵌歌词", "当前音频没有可导出的内嵌歌词。")
             return
         selected = filedialog.askdirectory(title="选择歌词导出目录", initialdir=str(Path(source_text).parent))
         if not selected:
             return
         try:
-            output, frame_count = export_embedded_lyrics(source_text, selected)
-        except (OSError, Mp3ExportError) as exc:
+            output = export_metadata_lyrics(source_text, selected)
+        except (OSError, AudioMetadataError) as exc:
             messagebox.showerror("导出歌词失败", str(exc))
             return
         self.editor_status.set(f"已导出歌词：{output}")
-        if frame_count > 1:
+        if state.lyrics_count > 1:
             messagebox.showwarning(
                 "歌词已导出",
-                f"检测到 {frame_count} 个歌词标签，已优先导出本软件写入的歌词。\n输出文件：{output}",
+                f"检测到 {state.lyrics_count} 个歌词标签，已导出优先歌词。\n输出文件：{output}",
             )
         else:
             messagebox.showinfo("歌词已导出", f"输出文件：{output}")
@@ -1115,31 +1152,34 @@ class Sub2LRCApp(tk.Tk):
         state = self._original_editor_state
         source_text = self.editor_mp3_path.get().strip()
         if state is None or not source_text:
-            messagebox.showinfo("Sub2LRC", "请先选择 MP3 文件。")
+            messagebox.showinfo("Sub2LRC", "请先选择音频文件。")
             return
         if not state.has_cover:
-            messagebox.showinfo("没有内嵌封面", "当前 MP3 没有可导出的内嵌封面。")
+            messagebox.showinfo("没有内嵌封面", "当前音频没有可导出的内嵌封面。")
             return
         selected = filedialog.askdirectory(title="选择封面导出目录", initialdir=str(Path(source_text).parent))
         if not selected:
             return
         try:
-            output, frame_count = export_embedded_cover(source_text, selected)
-        except (OSError, Mp3ExportError) as exc:
+            output = export_metadata_cover(source_text, selected)
+        except (OSError, AudioMetadataError) as exc:
             messagebox.showerror("导出封面失败", str(exc))
             return
         self.editor_status.set(f"已导出封面：{output}")
-        if frame_count > 1:
+        if state.cover_count > 1:
             messagebox.showwarning(
                 "封面已导出",
-                f"检测到 {frame_count} 张内嵌图片，已优先导出正面封面。\n输出文件：{output}",
+                f"检测到 {state.cover_count} 张内嵌图片，已优先导出正面封面。\n输出文件：{output}",
             )
         else:
             messagebox.showinfo("封面已导出", f"输出文件：{output}")
 
     def choose_editor_lrc(self) -> None:
         if self._original_editor_state is None:
-            messagebox.showinfo("Sub2LRC", "请先选择 MP3 文件。")
+            messagebox.showinfo("Sub2LRC", "请先选择音频文件。")
+            return
+        if not self._original_editor_state.writable:
+            messagebox.showinfo("只读格式", "当前格式暂时只支持读取标签。")
             return
         selected = filedialog.askopenfilename(title="选择 LRC 歌词", filetypes=[("LRC 歌词", "*.lrc")])
         if not selected:
@@ -1155,11 +1195,11 @@ class Sub2LRCApp(tk.Tk):
         self.editor_lyrics_state.set(f"待保存：{Path(selected).name}")
         self.lyrics_state_label.configure(foreground="#8a5a00")
         self.lyrics_button_text.set("更换歌词…")
-        self.editor_status.set("已选择新歌词，点击“保存到 MP3”后写入")
+        self.editor_status.set("已选择新歌词，点击“保存到音频”后写入")
 
     def mark_lyrics_for_removal(self) -> None:
         if self._original_editor_state is None:
-            messagebox.showinfo("Sub2LRC", "请先选择 MP3 文件。")
+            messagebox.showinfo("Sub2LRC", "请先选择音频文件。")
             return
         if not self._original_editor_state.has_lyrics and self._lyrics_action != "replace":
             messagebox.showinfo("没有内嵌歌词", "当前 MP3 没有可移除的内嵌歌词。")
@@ -1170,11 +1210,11 @@ class Sub2LRCApp(tk.Tk):
         self.editor_lyrics_state.set("待保存：移除内嵌歌词")
         self.lyrics_state_label.configure(foreground="#c62828")
         self.lyrics_button_text.set("导入 LRC…")
-        self.editor_status.set("歌词将在点击“保存到 MP3”后移除")
+        self.editor_status.set("歌词将在点击“保存到音频”后移除")
 
     def choose_editor_cover(self) -> None:
         if self._original_editor_state is None:
-            messagebox.showinfo("Sub2LRC", "请先选择 MP3 文件。")
+            messagebox.showinfo("Sub2LRC", "请先选择音频文件。")
             return
         selected = filedialog.askopenfilename(
             title="选择封面图片",
@@ -1210,11 +1250,11 @@ class Sub2LRCApp(tk.Tk):
         self.editor_cover_state.set(f"待保存：{Path(selected).name}（已裁剪为 1:1）")
         self.cover_state_label.configure(foreground="#8a5a00")
         self.cover_button_text.set("更换封面…")
-        self.editor_status.set("已选择新封面，点击“保存到 MP3”后写入")
+        self.editor_status.set("已选择新封面，点击“保存到音频”后写入")
 
     def mark_cover_for_removal(self) -> None:
         if self._original_editor_state is None:
-            messagebox.showinfo("Sub2LRC", "请先选择 MP3 文件。")
+            messagebox.showinfo("Sub2LRC", "请先选择音频文件。")
             return
         if not self._original_editor_state.has_cover and self._cover_action != "replace":
             messagebox.showinfo("没有内嵌封面", "当前 MP3 没有可移除的内嵌封面。")
@@ -1231,9 +1271,12 @@ class Sub2LRCApp(tk.Tk):
         source_text = self.editor_mp3_path.get().strip()
         state = self._original_editor_state
         if not source_text or state is None:
-            messagebox.showinfo("Sub2LRC", "请先选择 MP3 文件。")
+            messagebox.showinfo("Sub2LRC", "请先选择音频文件。")
             return
-        edits = Mp3Edits(
+        if not state.writable:
+            messagebox.showinfo("只读格式", "当前格式暂时只支持读取标签。")
+            return
+        edits = AudioMetadataChanges(
             title=self.editor_title.get() if self.editor_title.get() != state.title else None,
             artist=self.editor_artist.get() if self.editor_artist.get() != state.artist else None,
             album=self.editor_album.get() if self.editor_album.get() != state.album else None,
@@ -1245,23 +1288,23 @@ class Sub2LRCApp(tk.Tk):
         if not self._has_pending_changes() and self.editor_output_mode.get() == "overwrite":
             messagebox.showinfo("没有修改", "当前没有需要保存的修改。")
             return
-        proceed, destination = self._choose_mp3_destination(source_text, self.editor_output_mode.get())
+        proceed, destination = self._choose_audio_destination(source_text, self.editor_output_mode.get())
         if not proceed:
             return
         try:
-            output = save_mp3_edits(source_text, edits, destination)
-        except (OSError, MetadataError, Mp3EditorError) as exc:
+            output = write_metadata(source_text, edits, destination)
+        except (OSError, AudioMetadataError) as exc:
             self.editor_status.set(f"保存失败：{exc}")
-            messagebox.showerror("保存 MP3 失败", str(exc))
+            messagebox.showerror("保存音频标签失败", str(exc))
             return
         self._load_editor_file(output, show_error=False)
         self.editor_status.set(f"已保存：{output}")
-        messagebox.showinfo("保存完成", f"所有修改已保存到 MP3。\n输出文件：{output}")
+        messagebox.showinfo("保存完成", f"所有修改已保存到音频。\n输出文件：{output}")
 
     def cancel_editor_changes(self) -> None:
         state = self._original_editor_state
         if state is None:
-            messagebox.showinfo("Sub2LRC", "当前没有正在编辑的 MP3。")
+            messagebox.showinfo("Sub2LRC", "当前没有正在编辑的音频。")
             return
         if not self._has_pending_changes():
             self.editor_status.set("当前没有尚未保存的修改")
@@ -1284,7 +1327,7 @@ class Sub2LRCApp(tk.Tk):
         self.cover_state_label.configure(foreground="#26734d" if state.has_cover else "#c62828")
         self.cover_button_text.set("更换封面…" if state.has_cover else "选择图片…")
         self._show_cover_data(state.cover_data)
-        self.editor_status.set("已取消尚未保存的修改，MP3 文件没有改变")
+        self.editor_status.set("已取消尚未保存的修改，音频文件没有改变")
 
     def _has_pending_changes(self) -> bool:
         state = self._original_editor_state
@@ -1320,16 +1363,16 @@ class Sub2LRCApp(tk.Tk):
         except OSError:
             self.cover_preview.configure(image="", text="封面存在，但无法预览")
 
-    def _choose_mp3_destination(self, source: str, mode: str) -> tuple[bool, Path | None]:
+    def _choose_audio_destination(self, source: str, mode: str) -> tuple[bool, Path | None]:
         if mode == "overwrite":
             return True, None
         source_path = Path(source)
         selected = filedialog.asksaveasfilename(
-            title="另存为 MP3",
+            title="另存音频标签文件",
             initialdir=str(source_path.parent),
             initialfile=source_path.name,
-            defaultextension=".mp3",
-            filetypes=[("MP3 音频", "*.mp3")],
+            defaultextension=source_path.suffix,
+            filetypes=[(f"{source_path.suffix.upper().lstrip('.')} 音频", f"*{source_path.suffix}")],
             confirmoverwrite=True,
         )
         return (True, Path(selected)) if selected else (False, None)
