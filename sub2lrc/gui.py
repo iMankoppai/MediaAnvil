@@ -180,6 +180,7 @@ class Sub2LRCApp(tk.Tk):
         lyric_scroll = ttk.Scrollbar(lyrics, orient="vertical", command=self.preview_lyrics.yview)
         lyric_scroll.grid(row=0, column=1, sticky="ns")
         self.preview_lyrics.configure(yscrollcommand=lyric_scroll.set)
+        self.preview_lyrics.tag_configure("center", justify="center", spacing1=3, spacing3=3)
         self.preview_lyrics.tag_configure("current", background="#fff2a8", foreground="#9a3b00")
         self.preview_lyrics.bind("<Button-1>", self._click_preview_lyric)
         self.after(200, self._poll_preview_audio)
@@ -220,6 +221,7 @@ class Sub2LRCApp(tk.Tk):
         self.preview_lyrics.delete("1.0", "end")
         if self._preview_timeline:
             self.preview_lyrics.insert("1.0", "\n".join(line.text for line in self._preview_timeline))
+            self.preview_lyrics.tag_add("center", "1.0", "end")
         self.preview_lyrics.configure(state="disabled")
         self._update_preview_time(0.0, duration)
 
