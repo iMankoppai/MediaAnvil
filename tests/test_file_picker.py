@@ -2,11 +2,27 @@ from pathlib import Path
 import tempfile
 import tkinter as tk
 import unittest
+from unittest.mock import patch
 
-from sub2lrc.file_picker import InAppFilePicker
+from sub2lrc.file_picker import InAppFilePicker, desktop_directory
 
 
 class InAppFilePickerTests(unittest.TestCase):
+    def test_onedrive_desktop_wins_when_registry_only_reports_conventional_desktop(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            conventional = home / "Desktop"
+            redirected = home / "OneDrive" / "Desktop"
+            conventional.mkdir()
+            redirected.mkdir(parents=True)
+            with (
+                patch("sub2lrc.file_picker.sys.platform", "win32"),
+                patch("sub2lrc.file_picker.Path.home", return_value=home),
+                patch("sub2lrc.file_picker._windows_desktop_directory", return_value=conventional),
+                patch.dict("sub2lrc.file_picker.os.environ", {"OneDrive": str(home / "OneDrive")}),
+            ):
+                self.assertEqual(desktop_directory(), redirected.resolve())
+
     def make_root(self) -> tk.Tk:
         try:
             root = tk.Tk()

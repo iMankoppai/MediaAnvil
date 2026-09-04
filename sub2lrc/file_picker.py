@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import sys
 import tkinter as tk
 from tkinter import ttk
 from typing import Literal
@@ -11,14 +13,44 @@ from typing import Literal
 PickerMode = Literal["open", "save", "directory"]
 
 
+def _windows_desktop_directory() -> Path | None:
+    try:
+        import winreg
+
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+            value, _kind = winreg.QueryValueEx(key, "Desktop")
+        candidate = Path(os.path.expandvars(value)).expanduser()
+        return candidate if candidate.is_dir() else None
+    except (ImportError, OSError, TypeError):
+        return None
+
+
+def desktop_directory() -> Path:
+    """Return the real desktop, including OneDrive/redirection on Windows."""
+    if sys.platform == "win32":
+        registered = _windows_desktop_directory()
+        conventional = (Path.home() / "Desktop").resolve()
+        if registered is not None and registered.resolve() != conventional:
+            return registered.resolve()
+        one_drive = os.environ.get("OneDrive") or os.environ.get("OneDriveConsumer")
+        if one_drive:
+            redirected = Path(one_drive) / "Desktop"
+            if redirected.is_dir():
+                return redirected.resolve()
+        if registered is not None:
+            return registered.resolve()
+    conventional = Path.home() / "Desktop"
+    return conventional.resolve() if conventional.is_dir() else Path.home().resolve()
+
+
 def _usable_directory(value: str | Path | None) -> Path:
     candidate = Path(value).expanduser() if value else Path.home()
     if candidate.is_file():
         candidate = candidate.parent
     if candidate.is_dir():
         return candidate.resolve()
-    desktop = Path.home() / "Desktop"
-    return desktop if desktop.is_dir() else Path.home()
+    return desktop_directory()
 
 
 class InAppFilePicker:
@@ -80,7 +112,7 @@ class InAppFilePicker:
         shortcuts = ttk.Frame(root)
         shortcuts.grid(row=1, column=0, sticky="w", pady=(0, 8))
         ttk.Button(shortcuts, text="主目录", command=lambda: self._set_directory(Path.home())).pack(side="left")
-        desktop = Path.home() / "Desktop"
+        desktop = desktop_directory()
         if desktop.is_dir():
             ttk.Button(shortcuts, text="桌面", command=lambda: self._set_directory(desktop)).pack(
                 side="left", padx=(6, 0)

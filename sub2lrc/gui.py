@@ -42,7 +42,13 @@ from .audio_metadata import (
 from .converter import SubtitleError, convert_file, read_subtitle, unique_output_path
 from .cropper import CoverCropDialog
 from .embedder import LyricsEmbedError, read_lrc
-from .file_picker import ask_directory, ask_open_file, ask_open_files, ask_save_file
+from .file_picker import (
+    ask_directory,
+    ask_open_file,
+    ask_open_files,
+    ask_save_file,
+    desktop_directory,
+)
 from .image_converter import (
     IMAGE_FORMAT_SPECS,
     ImageBatchConversionResult,
@@ -61,12 +67,12 @@ class Sub2LRCApp(tk.Tk):
 
         self.sources: list[Path] = []
         self.results: dict[str, tuple[Path, str]] = {}
-        self.output_dir = tk.StringVar(value=str(Path.home() / "Desktop"))
+        self.output_dir = tk.StringVar(value=str(desktop_directory()))
         self.subtitle_output_format = tk.StringVar(value="LRC")
         self.subtitle_final_duration = tk.StringVar(value="5")
         self.status = tk.StringVar(value="请选择 LRC、SRT 或 VTT 文件")
         self.audio_sources: list[Path] = []
-        self.audio_output_dir = tk.StringVar(value=str(Path.home() / "Desktop"))
+        self.audio_output_dir = tk.StringVar(value=str(desktop_directory()))
         self.audio_format_label = tk.StringVar(value="MP3")
         self.audio_parameter = tk.StringVar(value="192")
         self.audio_sample_rate = tk.StringVar(value="保持原始采样率")
@@ -76,7 +82,7 @@ class Sub2LRCApp(tk.Tk):
         self.audio_progress = tk.DoubleVar(value=0.0)
         self._audio_running = False
         self.image_sources: list[Path] = []
-        self.image_output_dir = tk.StringVar(value=str(Path.home() / "Desktop"))
+        self.image_output_dir = tk.StringVar(value=str(desktop_directory()))
         self.image_format_label = tk.StringVar(value="JPG / JPEG")
         self.image_quality = tk.StringVar(value="90")
         self.image_current = tk.StringVar(value="请选择一张或多张图片")
