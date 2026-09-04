@@ -7,7 +7,7 @@ from pathlib import Path
 import tempfile
 import threading
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageDraw, ImageTk
 
@@ -42,13 +42,6 @@ from .audio_metadata import (
 from .converter import SubtitleError, convert_file, read_subtitle, unique_output_path
 from .cropper import CoverCropDialog
 from .embedder import LyricsEmbedError, read_lrc
-from .file_picker import (
-    ask_directory,
-    ask_open_file,
-    ask_open_files,
-    ask_save_file,
-    desktop_directory,
-)
 from .image_converter import (
     IMAGE_FORMAT_SPECS,
     ImageBatchConversionResult,
@@ -56,7 +49,6 @@ from .image_converter import (
     ImageConversionSettings,
     convert_image_batch,
 )
-from .window_drag import install_windows_drag_redraw_guard
 
 
 class Sub2LRCApp(tk.Tk):
@@ -68,12 +60,12 @@ class Sub2LRCApp(tk.Tk):
 
         self.sources: list[Path] = []
         self.results: dict[str, tuple[Path, str]] = {}
-        self.output_dir = tk.StringVar(value=str(desktop_directory()))
+        self.output_dir = tk.StringVar(value=str(Path.home() / "Desktop"))
         self.subtitle_output_format = tk.StringVar(value="LRC")
         self.subtitle_final_duration = tk.StringVar(value="5")
         self.status = tk.StringVar(value="请选择 LRC、SRT 或 VTT 文件")
         self.audio_sources: list[Path] = []
-        self.audio_output_dir = tk.StringVar(value=str(desktop_directory()))
+        self.audio_output_dir = tk.StringVar(value=str(Path.home() / "Desktop"))
         self.audio_format_label = tk.StringVar(value="MP3")
         self.audio_parameter = tk.StringVar(value="192")
         self.audio_sample_rate = tk.StringVar(value="保持原始采样率")
@@ -83,7 +75,7 @@ class Sub2LRCApp(tk.Tk):
         self.audio_progress = tk.DoubleVar(value=0.0)
         self._audio_running = False
         self.image_sources: list[Path] = []
-        self.image_output_dir = tk.StringVar(value=str(desktop_directory()))
+        self.image_output_dir = tk.StringVar(value=str(Path.home() / "Desktop"))
         self.image_format_label = tk.StringVar(value="JPG / JPEG")
         self.image_quality = tk.StringVar(value="90")
         self.image_current = tk.StringVar(value="请选择一张或多张图片")
@@ -103,7 +95,6 @@ class Sub2LRCApp(tk.Tk):
         self._preview_pointer_xy: tuple[int, int] | None = None
         self._preview_padding_lines = 0
         self._preview_space_down = False
-        self._preview_poll_job: str | None = None
         self.editor_mp3_path = tk.StringVar()
         self.editor_title = tk.StringVar()
         self.editor_artist = tk.StringVar()
@@ -121,10 +112,7 @@ class Sub2LRCApp(tk.Tk):
         self._cover_action = "unchanged"
         self._pending_cover_path: Path | None = None
         self._cover_photo: ImageTk.PhotoImage | None = None
-        self._active_tool_tab_id: str | None = None
-        self._converter_selected_result = ""
         self._build_ui()
-        self._drag_redraw_guard = install_windows_drag_redraw_guard(self)
 
     def _build_ui(self) -> None:
         container = ttk.Frame(self, padding=8)
@@ -143,106 +131,13 @@ class Sub2LRCApp(tk.Tk):
         notebook.add(converter_tab, text="歌词 / 字幕转换")
         notebook.add(audio_tab, text="音频格式转换")
         notebook.add(image_tab, text="图片格式转换")
+        self._build_converter_tab(converter_tab)
+        self._build_editor_tab(editor_tab)
+        self._build_audio_tab(audio_tab)
+        self._build_image_tab(image_tab)
         self._build_preview_tab(preview_tab)
-        self._tool_tab_builders = {
-            str(editor_tab): self._build_editor_tab,
-            str(converter_tab): self._build_converter_tab,
-            str(audio_tab): self._build_audio_tab,
-            str(image_tab): self._build_image_tab,
-        }
-        self._tool_tab_kinds = {
-            str(editor_tab): "editor",
-            str(converter_tab): "converter",
-            str(audio_tab): "audio",
-            str(image_tab): "image",
-        }
-        notebook.bind("<<NotebookTabChanged>>", self._on_main_tab_changed, add="+")
         self.bind("<KeyPress-space>", self._toggle_preview_with_space)
         self.bind("<KeyRelease-space>", self._release_preview_space)
-
-    def _on_main_tab_changed(self, _event: tk.Event | None = None) -> None:
-        selected = self.main_notebook.select()
-        if selected == self._active_tool_tab_id:
-            return
-        if self._active_tool_tab_id and (self._audio_running or self._image_running):
-            self.main_notebook.select(self._active_tool_tab_id)
-            return
-        self._destroy_active_tool_tab()
-        builder = self._tool_tab_builders.get(selected)
-        if builder is None:
-            return
-        root = self.nametowidget(selected)
-        builder(root)
-        self._active_tool_tab_id = selected
-        self._restore_active_tool_tab(self._tool_tab_kinds[selected])
-
-    def _destroy_active_tool_tab(self) -> None:
-        tab_id = self._active_tool_tab_id
-        if tab_id is None:
-            return
-        kind = self._tool_tab_kinds[tab_id]
-        if kind == "converter":
-            self._converter_selected_result = self.result_box.get()
-        root = self.nametowidget(tab_id)
-        for child in root.winfo_children():
-            child.destroy()
-        self._active_tool_tab_id = None
-
-    def _restore_active_tool_tab(self, kind: str) -> None:
-        if kind == "converter":
-            for path in self.sources:
-                self.file_list.insert("end", str(path))
-            names = list(self.results)
-            self.result_box["values"] = names
-            selected = self._converter_selected_result
-            if selected not in self.results and names:
-                selected = names[0]
-            if selected:
-                self.result_box.set(selected)
-                self.show_selected_result()
-        elif kind == "audio":
-            for path in self.audio_sources:
-                self.audio_file_list.insert("end", str(path))
-        elif kind == "image":
-            for path in self.image_sources:
-                self.image_file_list.insert("end", str(path))
-        elif kind == "editor":
-            self._restore_editor_widgets()
-
-    def _restore_editor_widgets(self) -> None:
-        state = self._original_editor_state
-        if state is None:
-            return
-        if self._lyrics_action == "remove":
-            lyrics = ""
-        elif self._lyrics_action == "replace" and self._pending_lrc_path is not None:
-            try:
-                lyrics = read_lrc(self._pending_lrc_path)
-            except (OSError, LyricsEmbedError):
-                lyrics = state.lyrics
-        else:
-            lyrics = state.lyrics
-        self._set_lyrics_preview(lyrics)
-
-        if self._cover_action == "remove":
-            self._show_cover_data(None, "保存后移除封面")
-        elif self._cover_action == "replace" and self._pending_cover_path is not None:
-            try:
-                self._show_cover_data(self._pending_cover_path.read_bytes())
-            except OSError:
-                self._show_cover_data(None, "待保存封面无法读取")
-        else:
-            self._show_cover_data(state.cover_data)
-
-        lyrics_color = "#c62828" if self._lyrics_action == "remove" else (
-            "#8a5a00" if self._lyrics_action == "replace" else ("#26734d" if state.has_lyrics else "#c62828")
-        )
-        cover_color = "#c62828" if self._cover_action == "remove" else (
-            "#8a5a00" if self._cover_action == "replace" else ("#26734d" if state.has_cover else "#c62828")
-        )
-        self.lyrics_state_label.configure(foreground=lyrics_color)
-        self.cover_state_label.configure(foreground=cover_color)
-        self._set_editor_writable(state.writable)
 
     def _build_preview_tab(self, root: ttk.Frame) -> None:
         self._create_preview_scale_style()
@@ -306,8 +201,7 @@ class Sub2LRCApp(tk.Tk):
         lyric_scroll.grid(row=0, column=1, sticky="ns")
         def update_lyric_scroll(first: str, last: str) -> None:
             lyric_scroll.set(first, last)
-            if self._preview_pointer_xy is not None:
-                self.after_idle(self._refresh_preview_hover)
+            self.after_idle(self._refresh_preview_hover)
         self.preview_lyrics.configure(yscrollcommand=update_lyric_scroll)
         self.preview_lyrics.tag_configure("center", justify="center", spacing1=3, spacing3=3)
         self.preview_lyrics.tag_configure("current", foreground="#b8860b")
@@ -315,6 +209,7 @@ class Sub2LRCApp(tk.Tk):
         self.preview_lyrics.bind("<Button-1>", self._click_preview_lyric)
         self.preview_lyrics.bind("<Motion>", self._hover_preview_lyric)
         self.preview_lyrics.bind("<Leave>", self._leave_preview_lyrics)
+        self.after(200, self._poll_preview_audio)
 
     def _create_preview_scale_style(self) -> None:
         large = Image.new("RGBA", (36, 36), (0, 0, 0, 0))
@@ -339,14 +234,16 @@ class Sub2LRCApp(tk.Tk):
         )
 
     def choose_preview_audio(self) -> None:
-        selected = ask_open_file(
-            self,
+        selected = filedialog.askopenfilename(
             title="选择预览音频",
-            extensions=(".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg"),
+            filetypes=[
+                ("支持的音频", "*.mp3 *.wav *.flac *.m4a *.aac *.ogg"),
+                ("MP3", "*.mp3"), ("WAV", "*.wav"), ("FLAC", "*.flac"),
+                ("M4A / AAC", "*.m4a *.aac"), ("OGG", "*.ogg"),
+            ],
         )
         if not selected:
             return
-        self._cancel_preview_poll()
         if self._preview_player is not None:
             self._preview_player.close()
         try:
@@ -400,7 +297,6 @@ class Sub2LRCApp(tk.Tk):
         try:
             self._preview_player.play()
             self.preview_audio_status.set("正在播放")
-            self._schedule_preview_poll()
         except AudioPreviewError as exc:
             messagebox.showerror("播放失败", str(exc))
 
@@ -409,7 +305,6 @@ class Sub2LRCApp(tk.Tk):
             return
         try:
             self._preview_player.pause()
-            self._cancel_preview_poll()
             if self._preview_player.state == PlaybackState.PAUSED:
                 self.preview_audio_status.set("已暂停")
         except AudioPreviewError as exc:
@@ -488,34 +383,19 @@ class Sub2LRCApp(tk.Tk):
             messagebox.showerror("音量调整失败", str(exc))
         return "break"
 
-    def _schedule_preview_poll(self) -> None:
-        if self._preview_poll_job is None:
-            self._preview_poll_job = self.after(100, self._poll_preview_audio)
-
-    def _cancel_preview_poll(self) -> None:
-        if self._preview_poll_job is None:
-            return
-        try:
-            self.after_cancel(self._preview_poll_job)
-        except tk.TclError:
-            pass
-        self._preview_poll_job = None
-
     def _poll_preview_audio(self) -> None:
-        self._preview_poll_job = None
         player = self._preview_player
-        if player is None:
-            return
-        position = player.position
-        if not self._preview_seeking:
-            self.preview_audio_position.set(position)
-            self._update_preview_time(position, player.duration)
-            lyric_index = current_lyric_index(self._preview_timeline, position)
-            self._highlight_preview_lyric(lyric_index)
-        if player.state == PlaybackState.PLAYING:
-            self._schedule_preview_poll()
-        elif player.state == PlaybackState.STOPPED and position >= player.duration:
-            self.preview_audio_status.set("播放完成")
+        if player is not None:
+            position = player.position
+            if not self._preview_seeking:
+                self.preview_audio_position.set(position)
+                self._update_preview_time(position, player.duration)
+                lyric_index = current_lyric_index(self._preview_timeline, position)
+                self._highlight_preview_lyric(lyric_index)
+            self._refresh_preview_hover()
+            if player.state == PlaybackState.STOPPED and position >= player.duration:
+                self.preview_audio_status.set("播放完成")
+        self.after(200, self._poll_preview_audio)
 
     def _highlight_preview_lyric(self, index: int | None, *, force_scroll: bool = False) -> None:
         if index == self._preview_lyric_index and not force_scroll:
@@ -685,13 +565,16 @@ class Sub2LRCApp(tk.Tk):
         )
         self.image_start_button = ttk.Button(root, text="开始转换", command=self.start_image_conversion)
         self.image_start_button.grid(row=4, column=0, sticky="e", ipadx=28, ipady=7)
-        self._update_image_parameter_ui(reset_value=False)
+        self._update_image_parameter_ui()
 
     def choose_image_files(self) -> None:
-        names = ask_open_files(
-            self,
+        names = filedialog.askopenfilenames(
             title="选择图片文件",
-            extensions=(".jpg", ".jpeg", ".png", ".webp", ".bmp"),
+            filetypes=[
+                ("支持的图片", "*.jpg *.jpeg *.png *.webp *.bmp"),
+                ("JPG / JPEG", "*.jpg *.jpeg"), ("PNG", "*.png"),
+                ("WebP", "*.webp"), ("BMP", "*.bmp"),
+            ],
         )
         existing = {path.resolve() for path in self.image_sources}
         for name in names:
@@ -724,7 +607,7 @@ class Sub2LRCApp(tk.Tk):
     def choose_image_output_dir(self) -> None:
         if self._image_running:
             return
-        selected = ask_directory(self, title="选择图片输出目录", initialdir=self.image_output_dir.get())
+        selected = filedialog.askdirectory(title="选择图片输出目录", initialdir=self.image_output_dir.get())
         if selected:
             self.image_output_dir.set(selected)
 
@@ -734,13 +617,10 @@ class Sub2LRCApp(tk.Tk):
                 return key
         raise ImageConversionError("请选择有效的图片输出格式。")
 
-    def _update_image_parameter_ui(
-        self, _event: object | None = None, *, reset_value: bool = True
-    ) -> None:
+    def _update_image_parameter_ui(self, _event: object | None = None) -> None:
         spec = IMAGE_FORMAT_SPECS[self._selected_image_format_key()]
         if spec.supports_quality:
-            if reset_value:
-                self.image_quality.set(str(spec.default_quality))
+            self.image_quality.set(str(spec.default_quality))
             self.image_quality_label.grid()
             self.image_quality_box.grid()
         else:
@@ -904,13 +784,16 @@ class Sub2LRCApp(tk.Tk):
         )
         self.audio_start_button = ttk.Button(root, text="开始转换", command=self.start_audio_conversion)
         self.audio_start_button.grid(row=4, column=0, sticky="e", ipadx=28, ipady=7)
-        self._update_audio_parameter_ui(reset_value=False)
+        self._update_audio_parameter_ui()
 
     def choose_audio_files(self) -> None:
-        names = ask_open_files(
-            self,
+        names = filedialog.askopenfilenames(
             title="选择音频文件",
-            extensions=(".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg"),
+            filetypes=[
+                ("支持的音频", "*.mp3 *.wav *.flac *.m4a *.aac *.ogg"),
+                ("MP3", "*.mp3"), ("WAV", "*.wav"), ("FLAC", "*.flac"),
+                ("M4A / AAC", "*.m4a *.aac"), ("OGG", "*.ogg"),
+            ],
         )
         existing = {path.resolve() for path in self.audio_sources}
         for name in names:
@@ -943,7 +826,7 @@ class Sub2LRCApp(tk.Tk):
     def choose_audio_output_dir(self) -> None:
         if self._audio_running:
             return
-        selected = ask_directory(self, title="选择音频输出目录", initialdir=self.audio_output_dir.get())
+        selected = filedialog.askdirectory(title="选择音频输出目录", initialdir=self.audio_output_dir.get())
         if selected:
             self.audio_output_dir.set(selected)
 
@@ -1022,9 +905,7 @@ class Sub2LRCApp(tk.Tk):
                 return key
         raise AudioConversionError("请选择有效的输出格式。")
 
-    def _update_audio_parameter_ui(
-        self, _event: object | None = None, *, reset_value: bool = True
-    ) -> None:
+    def _update_audio_parameter_ui(self, _event: object | None = None) -> None:
         spec = FORMAT_SPECS[self._selected_audio_format_key()]
         if spec.parameter_label is None:
             self.audio_parameter_label.grid_remove()
@@ -1033,8 +914,7 @@ class Sub2LRCApp(tk.Tk):
             return
         self.audio_parameter_label.configure(text=f"{spec.parameter_label}：")
         self.audio_parameter_box.configure(values=tuple(str(value) for value in spec.parameter_options))
-        if reset_value or not self.audio_parameter.get():
-            self.audio_parameter.set(str(spec.default_parameter))
+        self.audio_parameter.set(str(spec.default_parameter))
         self.audio_parameter_label.grid()
         self.audio_parameter_box.grid()
 
@@ -1057,7 +937,6 @@ class Sub2LRCApp(tk.Tk):
 
     def _build_editor_tab(self, root: ttk.Frame) -> None:
         root.columnconfigure(0, weight=1)
-        root.rowconfigure(1, weight=0)
         root.rowconfigure(2, weight=1)
 
         file_area = ttk.LabelFrame(root, text="1. 音频文件", padding=10)
@@ -1070,20 +949,6 @@ class Sub2LRCApp(tk.Tk):
         ttk.Label(
             file_area, textvariable=self.editor_audio_info, foreground="#555555", wraplength=820
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
-
-        self._editor_details_built = self._original_editor_state is not None
-        if not self._editor_details_built:
-            root.rowconfigure(1, weight=1)
-            root.rowconfigure(2, weight=0)
-            ttk.Label(
-                root,
-                textvariable=self.editor_status,
-                anchor="center",
-                justify="center",
-                foreground="#555555",
-                font=("Microsoft YaHei UI", 11),
-            ).grid(row=1, column=0, sticky="nsew")
-            return
 
         upper = ttk.Frame(root)
         upper.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
@@ -1189,10 +1054,13 @@ class Sub2LRCApp(tk.Tk):
             "尚未保存", "当前修改尚未保存。选择其他音频会放弃这些修改，是否继续？"
         ):
             return
-        selected = ask_open_file(
-            self,
+        selected = filedialog.askopenfilename(
             title="选择音频文件",
-            extensions=(".mp3", ".flac", ".m4a", ".ogg", ".opus", ".wav"),
+            filetypes=[
+                ("支持的音频标签", "*.mp3 *.flac *.m4a *.ogg *.opus *.wav"),
+                ("MP3", "*.mp3"), ("FLAC", "*.flac"), ("M4A", "*.m4a"),
+                ("OGG / Opus", "*.ogg *.opus"), ("WAV（只读）", "*.wav"),
+            ],
         )
         if selected:
             self._load_editor_file(Path(selected), show_error=True)
@@ -1215,13 +1083,6 @@ class Sub2LRCApp(tk.Tk):
         self.editor_artist.set(state.artist)
         self.editor_album.set(state.album)
         self.editor_audio_info.set(self._format_audio_info(state.info))
-        if not getattr(self, "_editor_details_built", False):
-            tab_id = self._active_tool_tab_id
-            if tab_id is not None and self._tool_tab_kinds.get(tab_id) == "editor":
-                root = self.nametowidget(tab_id)
-                for child in root.winfo_children():
-                    child.destroy()
-                self._build_editor_tab(root)
         self.editor_lyrics_state.set("已内嵌歌词" if state.has_lyrics else "未检测到内嵌歌词")
         self.lyrics_state_label.configure(foreground="#26734d" if state.has_lyrics else "#c62828")
         self.lyrics_button_text.set("更换歌词…" if state.has_lyrics else "导入 LRC…")
@@ -1270,7 +1131,7 @@ class Sub2LRCApp(tk.Tk):
         if not state.has_lyrics:
             messagebox.showinfo("没有内嵌歌词", "当前音频没有可导出的内嵌歌词。")
             return
-        selected = ask_directory(self, title="选择歌词导出目录", initialdir=Path(source_text).parent)
+        selected = filedialog.askdirectory(title="选择歌词导出目录", initialdir=str(Path(source_text).parent))
         if not selected:
             return
         try:
@@ -1296,7 +1157,7 @@ class Sub2LRCApp(tk.Tk):
         if not state.has_cover:
             messagebox.showinfo("没有内嵌封面", "当前音频没有可导出的内嵌封面。")
             return
-        selected = ask_directory(self, title="选择封面导出目录", initialdir=Path(source_text).parent)
+        selected = filedialog.askdirectory(title="选择封面导出目录", initialdir=str(Path(source_text).parent))
         if not selected:
             return
         try:
@@ -1320,7 +1181,7 @@ class Sub2LRCApp(tk.Tk):
         if not self._original_editor_state.writable:
             messagebox.showinfo("只读格式", "当前格式暂时只支持读取标签。")
             return
-        selected = ask_open_file(self, title="选择 LRC 歌词", extensions=(".lrc",))
+        selected = filedialog.askopenfilename(title="选择 LRC 歌词", filetypes=[("LRC 歌词", "*.lrc")])
         if not selected:
             return
         try:
@@ -1355,10 +1216,9 @@ class Sub2LRCApp(tk.Tk):
         if self._original_editor_state is None:
             messagebox.showinfo("Sub2LRC", "请先选择音频文件。")
             return
-        selected = ask_open_file(
-            self,
+        selected = filedialog.askopenfilename(
             title="选择封面图片",
-            extensions=(".jpg", ".jpeg", ".png"),
+            filetypes=[("封面图片", "*.jpg *.jpeg *.png"), ("JPEG 图片", "*.jpg *.jpeg"), ("PNG 图片", "*.png")],
         )
         if not selected:
             return
@@ -1507,13 +1367,13 @@ class Sub2LRCApp(tk.Tk):
         if mode == "overwrite":
             return True, None
         source_path = Path(source)
-        selected = ask_save_file(
-            self,
+        selected = filedialog.asksaveasfilename(
             title="另存音频标签文件",
             initialdir=str(source_path.parent),
             initialfile=source_path.name,
-            default_extension=source_path.suffix,
-            extensions=(source_path.suffix,),
+            defaultextension=source_path.suffix,
+            filetypes=[(f"{source_path.suffix.upper().lstrip('.')} 音频", f"*{source_path.suffix}")],
+            confirmoverwrite=True,
         )
         return (True, Path(selected)) if selected else (False, None)
 
@@ -1526,12 +1386,9 @@ class Sub2LRCApp(tk.Tk):
         self._pending_cover_path = None
 
     def destroy(self) -> None:
-        self._cancel_preview_poll()
         if self._preview_player is not None:
             self._preview_player.close()
         self._cleanup_pending_cover()
-        if self._drag_redraw_guard is not None:
-            self._drag_redraw_guard.close()
         super().destroy()
 
     def _build_converter_tab(self, root: ttk.Frame) -> None:
@@ -1596,10 +1453,12 @@ class Sub2LRCApp(tk.Tk):
         ttk.Label(root, textvariable=self.status, anchor="w").grid(row=4, column=0, sticky="ew", pady=(8, 0))
 
     def choose_files(self) -> None:
-        names = ask_open_files(
-            self,
+        names = filedialog.askopenfilenames(
             title="选择歌词 / 字幕文件",
-            extensions=(".lrc", ".srt", ".vtt"),
+            filetypes=[
+                ("支持的文件", "*.lrc *.srt *.vtt"),
+                ("LRC 歌词", "*.lrc"), ("SRT 字幕", "*.srt"), ("VTT 字幕", "*.vtt"),
+            ],
         )
         existing = {path.resolve() for path in self.sources}
         for name in names:
@@ -1624,7 +1483,7 @@ class Sub2LRCApp(tk.Tk):
         self.status.set("已清空文件列表")
 
     def choose_output_dir(self) -> None:
-        selected = ask_directory(self, title="选择输出目录", initialdir=self.output_dir.get())
+        selected = filedialog.askdirectory(title="选择输出目录", initialdir=self.output_dir.get())
         if selected:
             self.output_dir.set(selected)
 
@@ -1696,13 +1555,12 @@ class Sub2LRCApp(tk.Tk):
             return
         original_path, content = result
         suffix = original_path.suffix.lower()
-        selected = ask_save_file(
-            self,
+        labels = {".lrc": "LRC 歌词", ".srt": "SRT 字幕", ".vtt": "VTT 字幕"}
+        selected = filedialog.asksaveasfilename(
             title="保存转换结果",
-            initialdir=original_path.parent,
             initialfile=original_path.name,
-            default_extension=suffix,
-            extensions=(suffix,),
+            defaultextension=suffix,
+            filetypes=[(labels.get(suffix, "文本文件"), f"*{suffix}")],
         )
         if selected:
             try:
