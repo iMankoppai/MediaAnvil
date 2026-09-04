@@ -20,7 +20,7 @@ from .audio_converter import (
     convert_audio_batch,
     find_ffmpeg,
 )
-from .converter import SubtitleError, convert_file, read_subtitle, convert_text, unique_output_path
+from .converter import SubtitleError, convert_file, read_subtitle, unique_output_path
 from .cropper import CoverCropDialog
 from .editor import Mp3Edits, Mp3EditorError, Mp3EditorState, read_mp3_editor_state, save_mp3_edits
 from .embedder import LyricsEmbedError, read_lrc
@@ -37,7 +37,9 @@ class Sub2LRCApp(tk.Tk):
         self.sources: list[Path] = []
         self.results: dict[str, tuple[Path, str]] = {}
         self.output_dir = tk.StringVar(value=str(Path.home() / "Desktop"))
-        self.status = tk.StringVar(value="请选择 VTT 或 SRT 字幕文件")
+        self.subtitle_output_format = tk.StringVar(value="LRC")
+        self.subtitle_final_duration = tk.StringVar(value="5")
+        self.status = tk.StringVar(value="请选择 LRC、SRT 或 VTT 文件")
         self.audio_sources: list[Path] = []
         self.audio_output_dir = tk.StringVar(value=str(Path.home() / "Desktop"))
         self.audio_format_label = tk.StringVar(value="MP3")
@@ -74,7 +76,7 @@ class Sub2LRCApp(tk.Tk):
         converter_tab = ttk.Frame(notebook, padding=12)
         editor_tab = ttk.Frame(notebook, padding=14)
         audio_tab = ttk.Frame(notebook, padding=14)
-        notebook.add(converter_tab, text="字幕转 LRC")
+        notebook.add(converter_tab, text="歌词 / 字幕转换")
         notebook.add(editor_tab, text="MP3 编辑")
         notebook.add(audio_tab, text="音频转换")
         self._build_converter_tab(converter_tab)
@@ -652,7 +654,7 @@ class Sub2LRCApp(tk.Tk):
         root.rowconfigure(3, weight=1)
         toolbar = ttk.Frame(root)
         toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        ttk.Button(toolbar, text="选择字幕文件…", command=self.choose_files).pack(side="left")
+        ttk.Button(toolbar, text="选择歌词 / 字幕…", command=self.choose_files).pack(side="left")
         ttk.Button(toolbar, text="移除选中", command=self.remove_selected).pack(side="left", padx=6)
         ttk.Button(toolbar, text="清空", command=self.clear_files).pack(side="left")
         files_frame = ttk.LabelFrame(root, text="待转换文件", padding=8)
@@ -670,6 +672,26 @@ class Sub2LRCApp(tk.Tk):
         ttk.Entry(output, textvariable=self.output_dir).grid(row=0, column=1, sticky="ew", padx=6)
         ttk.Button(output, text="浏览…", command=self.choose_output_dir).grid(row=0, column=2)
         ttk.Button(output, text="开始批量转换", command=self.convert_all).grid(row=0, column=3, padx=(12, 0))
+        ttk.Label(output, text="输出格式：").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        format_box = ttk.Combobox(
+            output,
+            textvariable=self.subtitle_output_format,
+            values=("LRC", "SRT", "VTT"),
+            state="readonly",
+            width=10,
+        )
+        format_box.grid(row=1, column=1, sticky="w", padx=6, pady=(8, 0))
+        format_box.bind("<<ComboboxSelected>>", self._update_subtitle_format_ui)
+        self.subtitle_duration_label = ttk.Label(output, text="最后一句持续时间：")
+        self.subtitle_duration_label.grid(row=1, column=2, sticky="e", pady=(8, 0))
+        self.subtitle_duration_box = ttk.Spinbox(
+            output, from_=0.1, to=3600, increment=0.5,
+            textvariable=self.subtitle_final_duration, width=7
+        )
+        self.subtitle_duration_box.grid(row=1, column=3, sticky="w", padx=(6, 0), pady=(8, 0))
+        self.subtitle_duration_unit = ttk.Label(output, text="秒（仅补全无结束时间的歌词）")
+        self.subtitle_duration_unit.grid(row=1, column=4, sticky="w", padx=(4, 0), pady=(8, 0))
+        self._update_subtitle_format_ui()
         preview_frame = ttk.LabelFrame(root, text="转换结果预览", padding=8)
         preview_frame.grid(row=3, column=0, sticky="nsew")
         preview_frame.columnconfigure(1, weight=1)
@@ -690,8 +712,11 @@ class Sub2LRCApp(tk.Tk):
 
     def choose_files(self) -> None:
         names = filedialog.askopenfilenames(
-            title="选择字幕文件",
-            filetypes=[("字幕文件", "*.vtt *.srt"), ("VTT 文件", "*.vtt"), ("SRT 文件", "*.srt")],
+            title="选择歌词 / 字幕文件",
+            filetypes=[
+                ("支持的文件", "*.lrc *.srt *.vtt"),
+                ("LRC 歌词", "*.lrc"), ("SRT 字幕", "*.srt"), ("VTT 字幕", "*.vtt"),
+            ],
         )
         existing = {path.resolve() for path in self.sources}
         for name in names:
@@ -716,28 +741,43 @@ class Sub2LRCApp(tk.Tk):
         self.status.set("已清空文件列表")
 
     def choose_output_dir(self) -> None:
-        selected = filedialog.askdirectory(title="选择 LRC 输出目录", initialdir=self.output_dir.get())
+        selected = filedialog.askdirectory(title="选择输出目录", initialdir=self.output_dir.get())
         if selected:
             self.output_dir.set(selected)
 
+    def _update_subtitle_format_ui(self, _event: object | None = None) -> None:
+        state = "disabled" if self.subtitle_output_format.get().lower() == "lrc" else "normal"
+        self.subtitle_duration_box.configure(state=state)
+        color = "#888888" if state == "disabled" else "#333333"
+        self.subtitle_duration_label.configure(foreground=color)
+        self.subtitle_duration_unit.configure(foreground=color)
+
     def convert_all(self) -> None:
         if not self.sources:
-            messagebox.showinfo("Sub2LRC", "请先选择至少一个 VTT 或 SRT 文件。")
+            messagebox.showinfo("Sub2LRC", "请先选择至少一个 LRC、SRT 或 VTT 文件。")
             return
         output_dir_text = self.output_dir.get().strip()
         if not output_dir_text:
             messagebox.showwarning("Sub2LRC", "请选择输出目录。")
             return
         output_dir = Path(output_dir_text)
+        output_format = self.subtitle_output_format.get().lower()
+        try:
+            final_duration = float(self.subtitle_final_duration.get())
+            if output_format != "lrc" and final_duration <= 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showwarning("Sub2LRC", "最后一句持续时间必须是大于 0 的数字。")
+            return
         successes = 0
         errors: list[str] = []
         self.results.clear()
         for source in self.sources:
             try:
-                lrc = convert_text(read_subtitle(source))
-                destination = unique_output_path(output_dir, source)
-                convert_file(source, destination)
-                self.results[destination.name] = (destination, lrc)
+                destination = unique_output_path(output_dir, source, output_format)
+                convert_file(source, destination, output_format, final_duration)
+                content = read_subtitle(destination)
+                self.results[destination.name] = (destination, content)
                 successes += 1
             except (OSError, SubtitleError) as exc:
                 errors.append(f"{source.name}：{exc}")
@@ -750,7 +790,10 @@ class Sub2LRCApp(tk.Tk):
         if errors:
             messagebox.showwarning("部分文件转换失败", "\n".join(errors[:10]))
         elif successes:
-            messagebox.showinfo("转换完成", f"已生成 {successes} 个 LRC 文件。\n保存位置：{output_dir}")
+            messagebox.showinfo(
+                "转换完成",
+                f"已生成 {successes} 个 {output_format.upper()} 文件。\n保存位置：{output_dir}",
+            )
 
     def show_selected_result(self, _event: object | None = None) -> None:
         result = self.results.get(self.result_box.get())
@@ -769,8 +812,13 @@ class Sub2LRCApp(tk.Tk):
             messagebox.showinfo("Sub2LRC", "请先完成一次转换。")
             return
         original_path, content = result
+        suffix = original_path.suffix.lower()
+        labels = {".lrc": "LRC 歌词", ".srt": "SRT 字幕", ".vtt": "VTT 字幕"}
         selected = filedialog.asksaveasfilename(
-            title="保存 LRC", initialfile=original_path.name, defaultextension=".lrc", filetypes=[("LRC 歌词", "*.lrc")]
+            title="保存转换结果",
+            initialfile=original_path.name,
+            defaultextension=suffix,
+            filetypes=[(labels.get(suffix, "文本文件"), f"*{suffix}")],
         )
         if selected:
             try:
