@@ -6,6 +6,7 @@ from io import BytesIO
 from pathlib import Path
 import tempfile
 import threading
+import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -95,6 +96,7 @@ class Sub2LRCApp(tk.Tk):
         self._preview_pointer_xy: tuple[int, int] | None = None
         self._preview_padding_lines = 0
         self._preview_space_down = False
+        self._last_window_configure = 0.0
         self.editor_mp3_path = tk.StringVar()
         self.editor_title = tk.StringVar()
         self.editor_artist = tk.StringVar()
@@ -138,6 +140,11 @@ class Sub2LRCApp(tk.Tk):
         self._build_preview_tab(preview_tab)
         self.bind("<KeyPress-space>", self._toggle_preview_with_space)
         self.bind("<KeyRelease-space>", self._release_preview_space)
+        self.bind("<Configure>", self._note_window_configure, add="+")
+
+    def _note_window_configure(self, event: tk.Event) -> None:
+        if event.widget is self:
+            self._last_window_configure = time.monotonic()
 
     def _build_preview_tab(self, root: ttk.Frame) -> None:
         self._create_preview_scale_style()
@@ -201,7 +208,8 @@ class Sub2LRCApp(tk.Tk):
         lyric_scroll.grid(row=0, column=1, sticky="ns")
         def update_lyric_scroll(first: str, last: str) -> None:
             lyric_scroll.set(first, last)
-            self.after_idle(self._refresh_preview_hover)
+            if self._preview_pointer_xy is not None:
+                self.after_idle(self._refresh_preview_hover)
         self.preview_lyrics.configure(yscrollcommand=update_lyric_scroll)
         self.preview_lyrics.tag_configure("center", justify="center", spacing1=3, spacing3=3)
         self.preview_lyrics.tag_configure("current", foreground="#b8860b")
@@ -384,6 +392,9 @@ class Sub2LRCApp(tk.Tk):
         return "break"
 
     def _poll_preview_audio(self) -> None:
+        if time.monotonic() - self._last_window_configure < 0.2:
+            self.after(250, self._poll_preview_audio)
+            return
         player = self._preview_player
         if player is not None:
             position = player.position
@@ -392,10 +403,12 @@ class Sub2LRCApp(tk.Tk):
                 self._update_preview_time(position, player.duration)
                 lyric_index = current_lyric_index(self._preview_timeline, position)
                 self._highlight_preview_lyric(lyric_index)
-            self._refresh_preview_hover()
+            if self._preview_pointer_xy is not None:
+                self._refresh_preview_hover()
             if player.state == PlaybackState.STOPPED and position >= player.duration:
                 self.preview_audio_status.set("播放完成")
-        self.after(200, self._poll_preview_audio)
+        delay = 100 if player is not None and player.state == PlaybackState.PLAYING else 500
+        self.after(delay, self._poll_preview_audio)
 
     def _highlight_preview_lyric(self, index: int | None, *, force_scroll: bool = False) -> None:
         if index == self._preview_lyric_index and not force_scroll:
