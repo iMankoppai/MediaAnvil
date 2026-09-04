@@ -274,7 +274,7 @@ class Sub2LRCApp(tk.Tk):
         self.editor_cover_state.set("待保存：移除内嵌封面")
         self.cover_state_label.configure(foreground="#c62828")
         self.cover_button_text.set("选择图片…")
-        self.editor_status.set("封面将在点击“保存到 MP3”后移除")
+        self.editor_status.set("")
 
     def save_editor(self) -> None:
         source_text = self.editor_mp3_path.get().strip()
