@@ -3,6 +3,8 @@ __pycache__/
 .build-venv/
 build/
 dist/
+.test-tools/
+release/
 *.spec
 
 # Local user media and generated lyrics in the project root
