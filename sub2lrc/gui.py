@@ -56,6 +56,7 @@ from .image_converter import (
     ImageConversionSettings,
     convert_image_batch,
 )
+from .window_drag import install_windows_drag_redraw_guard
 
 
 class Sub2LRCApp(tk.Tk):
@@ -123,6 +124,7 @@ class Sub2LRCApp(tk.Tk):
         self._active_tool_tab_id: str | None = None
         self._converter_selected_result = ""
         self._build_ui()
+        self._drag_redraw_guard = install_windows_drag_redraw_guard(self)
 
     def _build_ui(self) -> None:
         container = ttk.Frame(self, padding=8)
@@ -1528,6 +1530,8 @@ class Sub2LRCApp(tk.Tk):
         if self._preview_player is not None:
             self._preview_player.close()
         self._cleanup_pending_cover()
+        if self._drag_redraw_guard is not None:
+            self._drag_redraw_guard.close()
         super().destroy()
 
     def _build_converter_tab(self, root: ttk.Frame) -> None:
