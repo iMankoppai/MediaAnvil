@@ -49,7 +49,8 @@ from .image_converter import (
     ImageConversionSettings,
     convert_image_batch,
 )
-from .ui_theme import COLORS, configure_theme
+from .ui_theme import COLORS, SIZES, STATUS_STYLES, configure_theme
+from .ui_widgets import ElidedLabel, attach_variable_tooltip, set_text_empty_state
 
 
 class Sub2LRCApp(tk.Tk):
@@ -85,14 +86,16 @@ class Sub2LRCApp(tk.Tk):
         self.image_quality = tk.StringVar(value="90")
         self.image_current = tk.StringVar(value="请选择一张或多张图片")
         self.image_summary = tk.StringVar(value="")
-        self.image_preview_name = tk.StringVar(value="尚未选择图片")
-        self.image_preview_details = tk.StringVar(value="选择列表中的图片后显示预览")
+        self.image_preview_name = tk.StringVar()
+        self.image_preview_details = tk.StringVar()
         self.image_progress = tk.DoubleVar(value=0.0)
         self._image_preview_photo: ImageTk.PhotoImage | None = None
         self._image_running = False
         self.preview_audio_path = tk.StringVar()
         self.preview_audio_status = tk.StringVar(value="请选择一首音频进行预览")
         self.preview_audio_time = tk.StringVar(value="00:00 / 00:00")
+        self.preview_current_time = tk.StringVar(value="00:00")
+        self.preview_total_time = tk.StringVar(value="00:00")
         self.preview_track_name = tk.StringVar(value="尚未选择音频")
         self.preview_track_details = tk.StringVar(value="选择文件后显示格式与时长")
         self.preview_audio_position = tk.DoubleVar(value=0.0)
@@ -140,7 +143,11 @@ class Sub2LRCApp(tk.Tk):
             row=1, column=0, sticky="w", padx=8, pady=(2, 22)
         )
 
-        content = ttk.Frame(shell, padding=(20, 16), style="Page.TFrame")
+        content = ttk.Frame(
+            shell,
+            padding=(SIZES["page_pad_x"], SIZES["page_pad_y"]),
+            style="Page.TFrame",
+        )
         content.grid(row=0, column=1, sticky="nsew")
         content.columnconfigure(0, weight=1)
         content.rowconfigure(0, weight=1)
@@ -206,14 +213,14 @@ class Sub2LRCApp(tk.Tk):
 
     def _build_settings_page(self, root: ttk.Frame) -> None:
         self._page_header(root, "⚙", "设置", "调整应用程序的常用选项")
-        card = ttk.LabelFrame(root, text="常规", padding=18, style="Card.TLabelframe")
+        card = ttk.LabelFrame(root, text="常规", padding=SIZES["card_pad"], style="Card.TLabelframe")
         card.grid(row=1, column=0, sticky="ew", pady=(14, 0))
         ttk.Label(card, text="当前版本暂时没有需要配置的全局选项。", style="Card.TLabel").pack(anchor="w")
         ttk.Label(card, text="各转换参数会保存在对应功能页面中。", style="CardMuted.TLabel").pack(anchor="w", pady=(8, 0))
 
     def _build_about_page(self, root: ttk.Frame) -> None:
         self._page_header(root, "ⓘ", "关于", "Sub2LRC 本地多媒体工具箱")
-        card = ttk.LabelFrame(root, text="Sub2LRC v1.0", padding=22, style="Card.TLabelframe")
+        card = ttk.LabelFrame(root, text="Sub2LRC v1.0", padding=SIZES["card_pad"], style="Card.TLabelframe")
         card.grid(row=1, column=0, sticky="ew", pady=(14, 0))
         ttk.Label(card, text="一个简单、离线的 Windows 多媒体处理工具。", style="Card.TLabel").pack(anchor="w")
         ttk.Label(
@@ -234,6 +241,17 @@ class Sub2LRCApp(tk.Tk):
         ttk.Label(text, text=subtitle, style="Subtitle.TLabel").pack(anchor="w", pady=(3, 0))
         return header
 
+    @staticmethod
+    def _set_status_style(label: ttk.Label, kind: str) -> None:
+        label.configure(style=STATUS_STYLES.get(kind, STATUS_STYLES["info"]))
+
+    @staticmethod
+    def _show_empty_overlay(label: ttk.Label, visible: bool, target: tk.Widget) -> None:
+        if visible:
+            label.place(in_=target, relx=0.5, rely=0.5, anchor="center")
+        else:
+            label.place_forget()
+
     def _build_preview_tab(self, root: ttk.Frame) -> None:
         self._create_preview_scale_style()
         root.columnconfigure(0, weight=1)
@@ -243,11 +261,13 @@ class Sub2LRCApp(tk.Tk):
         source = ttk.LabelFrame(root, text="选择音频", padding=12, style="Card.TLabelframe")
         source.grid(row=1, column=0, sticky="ew", pady=(14, 12))
         source.columnconfigure(0, weight=1)
-        ttk.Entry(source, textvariable=self.preview_audio_path, state="readonly").grid(
+        self.preview_path_entry = ttk.Entry(source, textvariable=self.preview_audio_path, state="readonly")
+        self.preview_path_entry.grid(
             row=0, column=0, sticky="ew", padx=(0, 8)
         )
+        attach_variable_tooltip(self.preview_path_entry, self.preview_audio_path)
         self.preview_select_button = ttk.Button(
-            source, text="选择音频文件…", command=self.choose_preview_audio, style="Accent.TButton"
+            source, text="选择音频文件…", command=self.choose_preview_audio, style="Secondary.TButton"
         )
         self.preview_select_button.grid(row=0, column=1)
 
@@ -261,36 +281,49 @@ class Sub2LRCApp(tk.Tk):
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         left.columnconfigure(0, weight=1)
         left.rowconfigure(1, weight=1)
-        info = ttk.LabelFrame(left, text="歌曲信息", padding=18, style="Card.TLabelframe")
+        info = ttk.LabelFrame(left, text="歌曲信息", padding=SIZES["card_pad"], style="Card.TLabelframe")
         info.grid(row=0, column=0, sticky="ew", pady=(0, 10))
-        ttk.Label(info, textvariable=self.preview_track_name, style="Card.TLabel", font=("Microsoft YaHei UI", 12, "bold"), wraplength=360).pack(anchor="w")
-        ttk.Label(info, textvariable=self.preview_track_details, style="CardMuted.TLabel", wraplength=360).pack(anchor="w", pady=(8, 0))
+        ttk.Label(
+            info, text="♫", style="Info.Status.TLabel", font=("Microsoft YaHei UI", 22, "bold")
+        ).pack(side="left", padx=(0, 12))
+        track_text = ttk.Frame(info, style="Card.TFrame")
+        track_text.pack(side="left", fill="x", expand=True)
+        self.preview_track_title_label = ElidedLabel(track_text, textvariable=self.preview_track_name, style="Card.TLabel", font=("Microsoft YaHei UI", 12, "bold"), anchor="w")
+        self.preview_track_title_label.pack(fill="x", anchor="w")
+        ttk.Label(track_text, textvariable=self.preview_track_details, style="CardMuted.TLabel", wraplength=320).pack(anchor="w", pady=(5, 0))
 
-        controls = ttk.LabelFrame(left, text="播放控制", padding=18, style="Card.TLabelframe")
+        controls = ttk.LabelFrame(left, text="播放控制", padding=SIZES["card_pad"], style="Card.TLabelframe")
         controls.grid(row=1, column=0, sticky="nsew")
         controls.columnconfigure(0, weight=1)
         control_buttons = ttk.Frame(controls, style="Card.TFrame")
         control_buttons.grid(row=0, column=0, sticky="ew")
-        control_buttons.columnconfigure((0, 1), weight=1)
+        control_buttons.columnconfigure((0, 1, 2), weight=1)
         self.preview_play_button = ttk.Button(control_buttons, text="▶  播放", command=self.play_preview_audio, style="Accent.TButton")
         self.preview_play_button.grid(row=0, column=0, sticky="ew", padx=(0, 5))
-        self.preview_pause_button = ttk.Button(control_buttons, text="Ⅱ  暂停", command=self.pause_preview_audio)
-        self.preview_pause_button.grid(row=0, column=1, sticky="ew", padx=(5, 0))
-        for button in (self.preview_select_button, self.preview_play_button, self.preview_pause_button):
+        self.preview_pause_button = ttk.Button(
+            control_buttons, text="Ⅱ  暂停", command=self.pause_preview_audio, style="Secondary.TButton"
+        )
+        self.preview_pause_button.grid(row=0, column=1, sticky="ew", padx=5)
+        self.preview_stop_button = ttk.Button(
+            control_buttons, text="■  停止", command=self.stop_preview_audio, style="Secondary.TButton"
+        )
+        self.preview_stop_button.grid(row=0, column=2, sticky="ew", padx=(5, 0))
+        for button in (self.preview_select_button, self.preview_play_button, self.preview_pause_button, self.preview_stop_button):
             button.bind("<KeyPress-space>", self._toggle_preview_with_space)
             button.bind("<KeyRelease-space>", self._release_preview_space)
         timeline = ttk.Frame(controls, style="Card.TFrame")
         timeline.grid(row=1, column=0, sticky="ew", pady=(22, 0))
-        timeline.columnconfigure(0, weight=1)
+        timeline.columnconfigure(1, weight=1)
+        ttk.Label(timeline, textvariable=self.preview_current_time, style="CardMuted.TLabel").grid(row=0, column=0, padx=(0, 8))
         self.preview_audio_scale = ttk.Scale(
             timeline, from_=0, to=1, variable=self.preview_audio_position,
             orient="horizontal", style="Preview.Horizontal.TScale"
         )
-        self.preview_audio_scale.grid(row=0, column=0, sticky="ew")
+        self.preview_audio_scale.grid(row=0, column=1, sticky="ew")
         self.preview_audio_scale.bind("<ButtonPress-1>", self._begin_preview_seek)
         self.preview_audio_scale.bind("<B1-Motion>", self._drag_preview_seek)
         self.preview_audio_scale.bind("<ButtonRelease-1>", self._end_preview_seek)
-        ttk.Label(timeline, textvariable=self.preview_audio_time, style="CardMuted.TLabel", anchor="e").grid(row=1, column=0, sticky="e", pady=(6, 0))
+        ttk.Label(timeline, textvariable=self.preview_total_time, style="CardMuted.TLabel", anchor="e").grid(row=0, column=2, padx=(8, 0))
         volume = ttk.Frame(controls, style="Card.TFrame")
         volume.grid(row=2, column=0, sticky="ew", pady=(18, 0))
         volume.columnconfigure(1, weight=1)
@@ -303,7 +336,8 @@ class Sub2LRCApp(tk.Tk):
         self.preview_volume_scale.bind("<ButtonPress-1>", self._begin_preview_volume)
         self.preview_volume_scale.bind("<B1-Motion>", self._drag_preview_volume)
         self.preview_volume_scale.bind("<ButtonRelease-1>", self._end_preview_volume)
-        ttk.Label(controls, textvariable=self.preview_audio_status, style="CardMuted.TLabel", wraplength=360).grid(row=3, column=0, sticky="w", pady=(20, 0))
+        self.preview_status_label = ttk.Label(controls, textvariable=self.preview_audio_status, style=STATUS_STYLES["info"], wraplength=360)
+        self.preview_status_label.grid(row=3, column=0, sticky="w", pady=(16, 0))
 
         lyrics = ttk.LabelFrame(body, text="同步歌词", padding=12, style="Card.TLabelframe")
         lyrics.grid(row=0, column=1, sticky="nsew")
@@ -326,6 +360,7 @@ class Sub2LRCApp(tk.Tk):
         self.preview_lyrics.bind("<Button-1>", self._click_preview_lyric)
         self.preview_lyrics.bind("<Motion>", self._hover_preview_lyric)
         self.preview_lyrics.bind("<Leave>", self._leave_preview_lyrics)
+        set_text_empty_state(self.preview_lyrics, "♫", "尚未加载歌词", "选择音频后将自动查找同名或内嵌歌词")
         self._preview_poll_job = self.after(200, self._poll_preview_audio)
 
     def _create_preview_scale_style(self) -> None:
@@ -381,16 +416,20 @@ class Sub2LRCApp(tk.Tk):
         self._preview_lyric_index = None
         self._preview_hover_line = None
         self._preview_pointer_xy = None
+        lyrics_error: str | None = None
         try:
             _lyrics, self._preview_timeline = load_audio_lyrics(selected)
         except (OSError, SubtitleError) as exc:
             self._preview_timeline = ()
+            lyrics_error = str(exc)
             self.preview_audio_status.set(f"音频已载入，歌词读取失败：{exc}")
+            self._set_status_style(self.preview_status_label, "warning")
         else:
             self.preview_audio_status.set("音频与歌词已载入" if self._preview_timeline else "音频已载入（没有同步歌词）")
-        self.preview_lyrics.configure(state="normal")
-        self.preview_lyrics.delete("1.0", "end")
+            self._set_status_style(self.preview_status_label, "success" if self._preview_timeline else "info")
         if self._preview_timeline:
+            self.preview_lyrics.configure(state="normal")
+            self.preview_lyrics.delete("1.0", "end")
             self.preview_lyrics.insert("1.0", "\n".join(line.text for line in self._preview_timeline))
             self.preview_lyrics.update_idletasks()
             line_info = self.preview_lyrics.dlineinfo("1.0")
@@ -403,9 +442,13 @@ class Sub2LRCApp(tk.Tk):
             self.preview_lyrics.delete("1.0", "end")
             self.preview_lyrics.insert("1.0", f"{padding}{clean_lyrics}{padding}")
             self.preview_lyrics.tag_add("center", "1.0", "end")
+            self.preview_lyrics.configure(state="disabled")
         else:
             self._preview_padding_lines = 0
-        self.preview_lyrics.configure(state="disabled")
+            if lyrics_error:
+                set_text_empty_state(self.preview_lyrics, "!", "歌词读取失败", "音频仍可正常播放，请检查歌词文件格式")
+            else:
+                set_text_empty_state(self.preview_lyrics, "♫", "没有同步歌词", "音频可以正常播放，也可以添加同名 LRC 文件")
         if self._preview_timeline:
             self._center_preview_lyric_line(f"{self._preview_padding_lines + 1}.0")
         self._update_preview_time(0.0, duration)
@@ -423,6 +466,7 @@ class Sub2LRCApp(tk.Tk):
         try:
             self._preview_player.play()
             self.preview_audio_status.set("正在播放")
+            self._set_status_style(self.preview_status_label, "success")
         except AudioPreviewError as exc:
             messagebox.showerror("播放失败", str(exc))
 
@@ -433,8 +477,19 @@ class Sub2LRCApp(tk.Tk):
             self._preview_player.pause()
             if self._preview_player.state == PlaybackState.PAUSED:
                 self.preview_audio_status.set("已暂停")
+                self._set_status_style(self.preview_status_label, "info")
         except AudioPreviewError as exc:
             messagebox.showerror("暂停失败", str(exc))
+
+    def stop_preview_audio(self) -> None:
+        if self._preview_player is None:
+            return
+        self._preview_player.stop()
+        self.preview_audio_position.set(0.0)
+        self._update_preview_time(0.0, self._preview_player.duration)
+        self._highlight_preview_lyric(None)
+        self.preview_audio_status.set("已停止")
+        self._set_status_style(self.preview_status_label, "info")
 
     def _toggle_preview_with_space(self, _event: tk.Event) -> str | None:
         if self.current_page != "preview":
@@ -484,6 +539,7 @@ class Sub2LRCApp(tk.Tk):
         if self._preview_player is not None:
             self._preview_player.seek(position)
             self.preview_audio_status.set("已跳转到所选进度")
+            self._set_status_style(self.preview_status_label, "info")
         return "break"
 
     def _preview_volume_from_x(self, x: int) -> int:
@@ -522,6 +578,7 @@ class Sub2LRCApp(tk.Tk):
             self._refresh_preview_hover()
             if player.state == PlaybackState.STOPPED and position >= player.duration:
                 self.preview_audio_status.set("播放完成")
+                self._set_status_style(self.preview_status_label, "success")
         self._preview_poll_job = self.after(200, self._poll_preview_audio)
 
     def _highlight_preview_lyric(self, index: int | None, *, force_scroll: bool = False) -> None:
@@ -616,6 +673,7 @@ class Sub2LRCApp(tk.Tk):
         self._update_preview_time(target, player.duration)
         self._highlight_preview_lyric(index, force_scroll=True)
         self.preview_audio_status.set("已跳转到所选歌词")
+        self._set_status_style(self.preview_status_label, "info")
         return "break"
 
     def _update_preview_time(self, position: float, duration: float) -> None:
@@ -623,7 +681,11 @@ class Sub2LRCApp(tk.Tk):
             total = max(0, round(value))
             minutes, seconds = divmod(total, 60)
             return f"{minutes:02d}:{seconds:02d}"
-        self.preview_audio_time.set(f"{format_time(position)} / {format_time(duration)}")
+        current = format_time(position)
+        total = format_time(duration)
+        self.preview_current_time.set(current)
+        self.preview_total_time.set(total)
+        self.preview_audio_time.set(f"{current} / {total}")
 
     def _build_image_tab(self, root: ttk.Frame) -> None:
         root.columnconfigure(0, weight=1)
@@ -638,18 +700,23 @@ class Sub2LRCApp(tk.Tk):
         files = ttk.LabelFrame(body, text="1  选择图片", padding=12, style="Card.TLabelframe")
         files.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         files.columnconfigure(0, weight=1)
-        files.rowconfigure(1, weight=1)
+        files.rowconfigure(2, weight=1)
         toolbar = ttk.Frame(files, style="Card.TFrame")
         toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        ttk.Button(toolbar, text="选择图片…", command=self.choose_image_files, style="Accent.TButton").pack(side="left")
-        ttk.Button(toolbar, text="移除选中", command=self.remove_selected_images).pack(side="left", padx=6)
-        ttk.Button(toolbar, text="清空", command=self.clear_image_files, style="Danger.TButton").pack(side="left")
+        ttk.Button(toolbar, text="选择图片…", command=self.choose_image_files, style="Compact.TButton").pack(side="left")
+        ttk.Button(toolbar, text="移除选中", command=self.remove_selected_images, style="Compact.TButton").pack(side="left", padx=6)
+        ttk.Button(toolbar, text="清空", command=self.clear_image_files, style="CompactDanger.TButton").pack(side="left")
+        ttk.Label(files, text="文件路径", style="CardMuted.TLabel").grid(row=1, column=0, sticky="w", padx=5, pady=(0, 4))
         self.image_file_list = tk.Listbox(files, height=10, selectmode="extended", relief="flat", borderwidth=1, background="#ffffff", foreground=COLORS["text"])
-        self.image_file_list.grid(row=1, column=0, sticky="nsew")
+        self.image_file_list.grid(row=2, column=0, sticky="nsew")
         scrollbar = ttk.Scrollbar(files, orient="vertical", command=self.image_file_list.yview)
-        scrollbar.grid(row=1, column=1, sticky="ns")
-        self.image_file_list.configure(yscrollcommand=scrollbar.set)
+        scrollbar.grid(row=2, column=1, sticky="ns")
+        image_horizontal = ttk.Scrollbar(files, orient="horizontal", command=self.image_file_list.xview)
+        image_horizontal.grid(row=3, column=0, sticky="ew")
+        self.image_file_list.configure(yscrollcommand=scrollbar.set, xscrollcommand=image_horizontal.set)
         self.image_file_list.bind("<<ListboxSelect>>", self._show_selected_image_preview)
+        self.image_files_empty = ttk.Label(files, text="▧\n尚未选择图片\n点击上方按钮添加一张或多张图片", justify="center", style="CardMuted.TLabel")
+        self._show_empty_overlay(self.image_files_empty, True, self.image_file_list)
 
         right = ttk.Frame(body, style="Page.TFrame")
         right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
@@ -675,14 +742,17 @@ class Sub2LRCApp(tk.Tk):
         )
         self.image_quality_box.grid(row=1, column=1, sticky="w", padx=8, pady=5)
         ttk.Label(settings, text="输出目录", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=5)
-        ttk.Entry(settings, textvariable=self.image_output_dir).grid(
+        self.image_output_entry = ttk.Entry(settings, textvariable=self.image_output_dir)
+        self.image_output_entry.grid(
             row=2, column=1, sticky="ew", padx=8, pady=5
         )
+        attach_variable_tooltip(self.image_output_entry, self.image_output_dir)
         ttk.Button(settings, text="浏览…", command=self.choose_image_output_dir).grid(row=2, column=2, pady=6)
         self.image_transparency_hint = ttk.Label(
             settings,
             text="保持原始宽高；透明图片转为 JPG 或 BMP 时使用白色背景。",
             style="CardMuted.TLabel",
+            wraplength=330,
         )
         self.image_transparency_hint.grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
@@ -690,21 +760,32 @@ class Sub2LRCApp(tk.Tk):
         preview.grid(row=1, column=0, sticky="nsew")
         preview.columnconfigure(0, weight=1)
         preview.rowconfigure(0, weight=1)
-        self.image_preview_label = ttk.Label(preview, text="尚未选择图片", anchor="center", style="Card.TLabel")
+        self.image_preview_box = ttk.Frame(preview, width=360, height=230, style="Card.TFrame")
+        self.image_preview_box.grid(row=0, column=0, sticky="nsew")
+        self.image_preview_box.grid_propagate(False)
+        self.image_preview_box.columnconfigure(0, weight=1)
+        self.image_preview_box.rowconfigure(0, weight=1)
+        self.image_preview_label = ttk.Label(
+            self.image_preview_box,
+            text="▧\n\n尚未选择图片\n选择列表中的图片后显示预览",
+            anchor="center", justify="center", style="CardMuted.TLabel"
+        )
         self.image_preview_label.grid(row=0, column=0, sticky="nsew")
-        ttk.Label(preview, textvariable=self.image_preview_name, style="Card.TLabel", font=("Microsoft YaHei UI", 10, "bold")).grid(row=1, column=0, sticky="w", pady=(10, 2))
+        ElidedLabel(preview, textvariable=self.image_preview_name, style="Card.TLabel", font=("Microsoft YaHei UI", 10, "bold"), anchor="w").grid(row=1, column=0, sticky="ew", pady=(10, 2))
         ttk.Label(preview, textvariable=self.image_preview_details, style="CardMuted.TLabel").grid(row=2, column=0, sticky="w")
 
         progress_area = ttk.LabelFrame(root, text="3  转换进度", padding=12, style="Card.TLabelframe")
         progress_area.grid(row=2, column=0, sticky="ew")
         progress_area.columnconfigure(0, weight=1)
-        ttk.Label(progress_area, textvariable=self.image_current, anchor="w", style="CardMuted.TLabel").grid(
+        self.image_status_label = ttk.Label(progress_area, textvariable=self.image_current, anchor="w", style=STATUS_STYLES["info"])
+        self.image_status_label.grid(
             row=0, column=0, sticky="ew"
         )
         ttk.Progressbar(progress_area, variable=self.image_progress, maximum=100).grid(
             row=1, column=0, sticky="ew", pady=(8, 4)
         )
-        ttk.Label(progress_area, textvariable=self.image_summary, anchor="w", style="CardMuted.TLabel").grid(
+        self.image_summary_label = ttk.Label(progress_area, textvariable=self.image_summary, anchor="w", style=STATUS_STYLES["info"])
+        self.image_summary_label.grid(
             row=2, column=0, sticky="ew"
         )
         self.image_start_button = ttk.Button(progress_area, text="开始转换", command=self.start_image_conversion, style="Accent.TButton")
@@ -730,9 +811,11 @@ class Sub2LRCApp(tk.Tk):
         if names:
             self.image_output_dir.set(str(Path(names[0]).parent))
             self.image_current.set(f"已选择 {len(self.image_sources)} 张图片")
+            self._set_status_style(self.image_status_label, "info")
             if not self.image_file_list.curselection():
                 self.image_file_list.selection_set(0)
                 self._show_selected_image_preview()
+        self._show_empty_overlay(self.image_files_empty, not self.image_sources, self.image_file_list)
 
     def remove_selected_images(self) -> None:
         if self._image_running:
@@ -741,7 +824,9 @@ class Sub2LRCApp(tk.Tk):
             self.image_file_list.delete(index)
             del self.image_sources[index]
         self.image_current.set(f"当前有 {len(self.image_sources)} 张待转换图片")
+        self._set_status_style(self.image_status_label, "info")
         self._show_selected_image_preview()
+        self._show_empty_overlay(self.image_files_empty, not self.image_sources, self.image_file_list)
 
     def clear_image_files(self) -> None:
         if self._image_running:
@@ -749,15 +834,20 @@ class Sub2LRCApp(tk.Tk):
         self.image_sources.clear()
         self.image_file_list.delete(0, "end")
         self.image_current.set("已清空图片列表")
+        self._set_status_style(self.image_status_label, "info")
         self.image_progress.set(0.0)
         self.image_summary.set("")
         self._clear_image_preview()
+        self._show_empty_overlay(self.image_files_empty, True, self.image_file_list)
 
     def _clear_image_preview(self) -> None:
         self._image_preview_photo = None
-        self.image_preview_label.configure(image="", text="尚未选择图片")
-        self.image_preview_name.set("尚未选择图片")
-        self.image_preview_details.set("选择列表中的图片后显示预览")
+        self.image_preview_label.configure(
+            image="", text="▧\n\n尚未选择图片\n选择列表中的图片后显示预览",
+            style="CardMuted.TLabel", justify="center"
+        )
+        self.image_preview_name.set("")
+        self.image_preview_details.set("")
 
     def _show_selected_image_preview(self, _event: object | None = None) -> None:
         selection = self.image_file_list.curselection()
@@ -772,13 +862,13 @@ class Sub2LRCApp(tk.Tk):
                 image = opened.convert("RGBA")
             image.thumbnail((360, 220), Image.Resampling.LANCZOS)
             self._image_preview_photo = ImageTk.PhotoImage(image)
-            self.image_preview_label.configure(image=self._image_preview_photo, text="")
+            self.image_preview_label.configure(image=self._image_preview_photo, text="", style="Card.TLabel")
             size_mb = path.stat().st_size / 1024 / 1024
             self.image_preview_name.set(path.name)
             self.image_preview_details.set(f"{width} × {height}  ·  {format_name}  ·  {size_mb:.2f} MB")
         except (OSError, ValueError):
             self._image_preview_photo = None
-            self.image_preview_label.configure(image="", text="无法预览此图片")
+            self.image_preview_label.configure(image="", text="!\n\n无法预览此图片\n转换时会给出明确错误", style="Warning.Status.TLabel", justify="center")
             self.image_preview_name.set(path.name)
             self.image_preview_details.set("图片无法读取，但批量转换时会给出明确错误。")
 
@@ -837,6 +927,7 @@ class Sub2LRCApp(tk.Tk):
         self._image_running = True
         self.image_progress.set(0.0)
         self.image_summary.set("")
+        self._set_status_style(self.image_status_label, "info")
         self.image_start_button.configure(state="disabled")
 
         def report(source: Path, index: int, total: int, overall: float) -> None:
@@ -855,6 +946,7 @@ class Sub2LRCApp(tk.Tk):
     def _update_image_progress(self, source: Path, index: int, total: int, overall: float) -> None:
         self.image_progress.set(overall)
         self.image_current.set(f"正在转换 {index}/{total}：{source.name}")
+        self._set_status_style(self.image_status_label, "info")
 
     def _finish_image_conversion(
         self, result: ImageBatchConversionResult | None, error: ImageConversionError | None
@@ -863,6 +955,7 @@ class Sub2LRCApp(tk.Tk):
         self.image_start_button.configure(state="normal")
         if error is not None:
             self.image_current.set("转换失败")
+            self._set_status_style(self.image_status_label, "error")
             messagebox.showerror("图片转换失败", str(error))
             return
         if result is None:
@@ -872,7 +965,9 @@ class Sub2LRCApp(tk.Tk):
         transparency_count = sum(output.transparency_removed for output in result.outputs)
         self.image_progress.set(100.0)
         self.image_current.set("转换完成")
-        self.image_summary.set(f"成功 {successes} 张，失败 {failures} 张")
+        self.image_summary.set(f"成功 {successes} 张  ·  失败 {failures} 张  ·  总数 {successes + failures} 张")
+        self._set_status_style(self.image_status_label, "success" if failures == 0 else "warning")
+        self._set_status_style(self.image_summary_label, "success" if failures == 0 else "warning")
         messages: list[str] = []
         if transparency_count:
             messages.append(f"有 {transparency_count} 张图片包含透明区域，已使用白色背景。")
@@ -892,17 +987,22 @@ class Sub2LRCApp(tk.Tk):
         files = ttk.LabelFrame(root, text="1  添加音频文件", padding=12, style="Card.TLabelframe")
         files.grid(row=1, column=0, sticky="nsew", pady=(14, 10))
         files.columnconfigure(0, weight=1)
-        files.rowconfigure(1, weight=1)
+        files.rowconfigure(2, weight=1)
         toolbar = ttk.Frame(files, style="Card.TFrame")
         toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        ttk.Button(toolbar, text="选择音频文件…", command=self.choose_audio_files, style="Accent.TButton").pack(side="left")
-        ttk.Button(toolbar, text="移除选中", command=self.remove_selected_audio).pack(side="left", padx=6)
-        ttk.Button(toolbar, text="清空", command=self.clear_audio_files, style="Danger.TButton").pack(side="left")
+        ttk.Button(toolbar, text="选择音频文件…", command=self.choose_audio_files, style="Compact.TButton").pack(side="left")
+        ttk.Button(toolbar, text="移除选中", command=self.remove_selected_audio, style="Compact.TButton").pack(side="left", padx=6)
+        ttk.Button(toolbar, text="清空", command=self.clear_audio_files, style="CompactDanger.TButton").pack(side="left")
+        ttk.Label(files, text="文件路径", style="CardMuted.TLabel").grid(row=1, column=0, sticky="w", padx=5, pady=(0, 4))
         self.audio_file_list = tk.Listbox(files, height=8, selectmode="extended", relief="flat", borderwidth=1, background="#ffffff", foreground=COLORS["text"])
-        self.audio_file_list.grid(row=1, column=0, sticky="nsew")
+        self.audio_file_list.grid(row=2, column=0, sticky="nsew")
         file_scroll = ttk.Scrollbar(files, orient="vertical", command=self.audio_file_list.yview)
-        file_scroll.grid(row=1, column=1, sticky="ns")
-        self.audio_file_list.configure(yscrollcommand=file_scroll.set)
+        file_scroll.grid(row=2, column=1, sticky="ns")
+        audio_horizontal = ttk.Scrollbar(files, orient="horizontal", command=self.audio_file_list.xview)
+        audio_horizontal.grid(row=3, column=0, sticky="ew")
+        self.audio_file_list.configure(yscrollcommand=file_scroll.set, xscrollcommand=audio_horizontal.set)
+        self.audio_files_empty = ttk.Label(files, text="♫\n尚未选择音频\n点击上方按钮添加一个或多个音频文件", justify="center", style="CardMuted.TLabel")
+        self._show_empty_overlay(self.audio_files_empty, True, self.audio_file_list)
 
         settings = ttk.LabelFrame(root, text="2  转换设置", padding=12, style="Card.TLabelframe")
         settings.grid(row=2, column=0, sticky="ew", pady=(0, 10))
@@ -941,7 +1041,9 @@ class Sub2LRCApp(tk.Tk):
             width=18,
         ).grid(row=1, column=3, sticky="ew", padx=(8, 0), pady=5)
         ttk.Label(settings, text="输出目录", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=5)
-        ttk.Entry(settings, textvariable=self.audio_output_dir).grid(row=2, column=1, columnspan=2, sticky="ew", padx=8, pady=5)
+        self.audio_output_entry = ttk.Entry(settings, textvariable=self.audio_output_dir)
+        self.audio_output_entry.grid(row=2, column=1, columnspan=2, sticky="ew", padx=8, pady=5)
+        attach_variable_tooltip(self.audio_output_entry, self.audio_output_dir)
         ttk.Button(settings, text="浏览…", command=self.choose_audio_output_dir).grid(row=2, column=3, sticky="e", pady=5)
         ttk.Label(
             settings,
@@ -953,11 +1055,13 @@ class Sub2LRCApp(tk.Tk):
         progress_area.grid(row=3, column=0, sticky="ew", pady=(0, 10))
         progress_area.columnconfigure(1, weight=1)
         ttk.Label(progress_area, text="当前文件", style="Card.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 12))
-        ttk.Label(progress_area, textvariable=self.audio_current, anchor="w", style="CardMuted.TLabel").grid(row=0, column=1, sticky="ew")
+        self.audio_status_label = ttk.Label(progress_area, textvariable=self.audio_current, anchor="w", style=STATUS_STYLES["info"])
+        self.audio_status_label.grid(row=0, column=1, sticky="ew")
         ttk.Progressbar(progress_area, variable=self.audio_file_progress, maximum=100).grid(row=1, column=1, sticky="ew", pady=(6, 5))
         ttk.Label(progress_area, text="总体进度", style="Card.TLabel").grid(row=2, column=0, sticky="w", padx=(0, 12))
         ttk.Progressbar(progress_area, variable=self.audio_progress, maximum=100).grid(row=2, column=1, sticky="ew", pady=5)
-        ttk.Label(progress_area, textvariable=self.audio_summary, anchor="w", style="CardMuted.TLabel").grid(row=3, column=1, sticky="ew", pady=(5, 0))
+        self.audio_summary_label = ttk.Label(progress_area, textvariable=self.audio_summary, anchor="w", style=STATUS_STYLES["info"])
+        self.audio_summary_label.grid(row=3, column=1, sticky="ew", pady=(5, 0))
         self.audio_start_button = ttk.Button(progress_area, text="开始转换", command=self.start_audio_conversion, style="Accent.TButton")
         self.audio_start_button.grid(row=0, column=2, rowspan=4, sticky="ns", padx=(18, 0), ipadx=20)
         self._update_audio_parameter_ui()
@@ -981,6 +1085,8 @@ class Sub2LRCApp(tk.Tk):
         if names:
             self.audio_output_dir.set(str(Path(names[0]).parent))
             self.audio_current.set(f"已选择 {len(self.audio_sources)} 个音频文件")
+            self._set_status_style(self.audio_status_label, "info")
+        self._show_empty_overlay(self.audio_files_empty, not self.audio_sources, self.audio_file_list)
 
     def remove_selected_audio(self) -> None:
         if self._audio_running:
@@ -989,6 +1095,8 @@ class Sub2LRCApp(tk.Tk):
             self.audio_file_list.delete(index)
             del self.audio_sources[index]
         self.audio_current.set(f"当前有 {len(self.audio_sources)} 个待转换文件")
+        self._set_status_style(self.audio_status_label, "info")
+        self._show_empty_overlay(self.audio_files_empty, not self.audio_sources, self.audio_file_list)
 
     def clear_audio_files(self) -> None:
         if self._audio_running:
@@ -996,9 +1104,11 @@ class Sub2LRCApp(tk.Tk):
         self.audio_sources.clear()
         self.audio_file_list.delete(0, "end")
         self.audio_current.set("已清空音频文件列表")
+        self._set_status_style(self.audio_status_label, "info")
         self.audio_file_progress.set(0.0)
         self.audio_progress.set(0.0)
         self.audio_summary.set("")
+        self._show_empty_overlay(self.audio_files_empty, True, self.audio_file_list)
 
     def choose_audio_output_dir(self) -> None:
         if self._audio_running:
@@ -1021,6 +1131,7 @@ class Sub2LRCApp(tk.Tk):
             ffmpeg = find_ffmpeg()
         except FfmpegNotFoundError as exc:
             self.audio_current.set("未找到 FFmpeg")
+            self._set_status_style(self.audio_status_label, "error")
             messagebox.showerror("缺少 FFmpeg", str(exc))
             return
 
@@ -1034,6 +1145,7 @@ class Sub2LRCApp(tk.Tk):
         self.audio_file_progress.set(0.0)
         self.audio_progress.set(0.0)
         self.audio_summary.set("")
+        self._set_status_style(self.audio_status_label, "info")
         self.audio_start_button.configure(state="disabled")
 
         def report(source: Path, index: int, total: int, file_percent: float, overall: float) -> None:
@@ -1055,6 +1167,7 @@ class Sub2LRCApp(tk.Tk):
         self.audio_file_progress.set(file_percent)
         self.audio_progress.set(overall)
         self.audio_current.set(f"正在转换 {index}/{total}：{source.name}（{file_percent:.0f}%）")
+        self._set_status_style(self.audio_status_label, "info")
 
     def _finish_audio_conversion(
         self, result: BatchConversionResult | None, error: AudioConversionError | None
@@ -1063,6 +1176,7 @@ class Sub2LRCApp(tk.Tk):
         self.audio_start_button.configure(state="normal")
         if error is not None:
             self.audio_current.set("转换失败")
+            self._set_status_style(self.audio_status_label, "error")
             messagebox.showerror("音频转换失败", str(error))
             return
         if result is None:
@@ -1072,7 +1186,9 @@ class Sub2LRCApp(tk.Tk):
         self.audio_progress.set(100.0)
         self.audio_file_progress.set(100.0)
         self.audio_current.set("转换完成")
-        self.audio_summary.set(f"成功 {successes} 个，失败 {failures} 个")
+        self.audio_summary.set(f"成功 {successes} 个  ·  失败 {failures} 个  ·  总数 {successes + failures} 个")
+        self._set_status_style(self.audio_status_label, "success" if failures == 0 else "warning")
+        self._set_status_style(self.audio_summary_label, "success" if failures == 0 else "warning")
         if result.failures:
             details = "\n".join(f"{failure.source.name}：{failure.message}" for failure in result.failures[:10])
             messagebox.showwarning("部分文件转换失败", details)
@@ -1123,16 +1239,19 @@ class Sub2LRCApp(tk.Tk):
         file_area = ttk.LabelFrame(root, text="音频文件", padding=12, style="Card.TLabelframe")
         file_area.grid(row=1, column=0, sticky="ew", pady=(14, 10))
         file_area.columnconfigure(0, weight=1)
-        ttk.Entry(file_area, textvariable=self.editor_mp3_path, state="readonly").grid(
+        self.editor_path_entry = ttk.Entry(file_area, textvariable=self.editor_mp3_path, state="readonly")
+        self.editor_path_entry.grid(
             row=0, column=0, sticky="ew", padx=(0, 8)
         )
-        ttk.Button(file_area, text="选择音频文件…", command=self.choose_editor_mp3, style="Accent.TButton").grid(row=0, column=1)
+        attach_variable_tooltip(self.editor_path_entry, self.editor_mp3_path)
+        ttk.Button(file_area, text="选择音频文件…", command=self.choose_editor_mp3, style="Secondary.TButton").grid(row=0, column=1)
 
         overview = ttk.LabelFrame(root, text="音频概要", padding=(14, 10), style="Card.TLabelframe")
         overview.grid(row=2, column=0, sticky="ew", pady=(0, 10))
-        ttk.Label(
-            overview, textvariable=self.editor_audio_info, style="CardMuted.TLabel", wraplength=920
-        ).pack(anchor="w")
+        self.editor_overview_label = ElidedLabel(
+            overview, textvariable=self.editor_audio_info, style="CardMuted.TLabel", anchor="w"
+        )
+        self.editor_overview_label.pack(fill="x", anchor="w")
 
         editor = ttk.Frame(root, style="Page.TFrame")
         editor.grid(row=3, column=0, sticky="nsew", pady=(0, 10))
@@ -1141,18 +1260,20 @@ class Sub2LRCApp(tk.Tk):
         editor.columnconfigure(2, weight=3, uniform="editor")
         editor.rowconfigure(0, weight=1)
 
-        basic = ttk.LabelFrame(editor, text="1  基础信息", padding=16, style="Card.TLabelframe")
+        basic = ttk.LabelFrame(editor, text="1  基础信息", padding=SIZES["card_pad"], style="Card.TLabelframe")
         basic.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         basic.columnconfigure(0, weight=1)
         self.editor_basic_entries: list[ttk.Entry] = []
         for row, (label, variable) in enumerate(
             (("歌名", self.editor_title), ("歌手", self.editor_artist), ("专辑", self.editor_album))
         ):
-            ttk.Label(basic, text=label, style="Card.TLabel").grid(row=row * 2, column=0, sticky="w", pady=(7, 5))
+            ttk.Label(basic, text=label, style="Card.TLabel").grid(row=row * 2, column=0, sticky="w", pady=(4, 4))
             entry = ttk.Entry(basic, textvariable=variable)
-            entry.grid(row=row * 2 + 1, column=0, sticky="ew", pady=(0, 8))
+            entry.grid(row=row * 2 + 1, column=0, sticky="ew", pady=(0, 5))
             self.editor_basic_entries.append(entry)
-        ttk.Label(basic, text="留空并保存会移除对应信息。", style="CardMuted.TLabel", wraplength=250).grid(row=6, column=0, sticky="w", pady=(14, 0))
+        ttk.Label(basic, text="留空保存会移除该项。", style="CardMuted.TLabel").grid(
+            row=6, column=0, sticky="w", pady=(8, 0)
+        )
 
         lyrics = ttk.LabelFrame(editor, text="2  歌词", padding=12, style="Card.TLabelframe")
         lyrics.grid(row=0, column=1, sticky="nsew", padx=8)
@@ -1168,13 +1289,23 @@ class Sub2LRCApp(tk.Tk):
         lyrics_scroll = ttk.Scrollbar(lyrics, orient="vertical", command=self.lyrics_preview.yview)
         lyrics_scroll.grid(row=1, column=1, sticky="ns")
         self.lyrics_preview.configure(yscrollcommand=lyrics_scroll.set)
+        set_text_empty_state(self.lyrics_preview, "♫", "未检测到内嵌歌词", "可以导入 LRC 歌词后保存到音频")
         lyrics_actions = ttk.Frame(lyrics, style="Card.TFrame")
         lyrics_actions.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        self.editor_lyrics_choose_button = ttk.Button(lyrics_actions, textvariable=self.lyrics_button_text, command=self.choose_editor_lrc)
-        self.editor_lyrics_choose_button.pack(side="left")
-        ttk.Button(lyrics_actions, text="导出歌词…", command=self.export_editor_lyrics).pack(side="left", padx=6)
-        self.editor_lyrics_remove_button = ttk.Button(lyrics_actions, text="移除歌词", command=self.mark_lyrics_for_removal, style="Danger.TButton")
-        self.editor_lyrics_remove_button.pack(side="right")
+        lyrics_actions.columnconfigure((0, 1), weight=1)
+        self.editor_lyrics_choose_button = ttk.Button(
+            lyrics_actions, textvariable=self.lyrics_button_text, command=self.choose_editor_lrc,
+            style="Compact.TButton"
+        )
+        self.editor_lyrics_choose_button.grid(row=0, column=0, sticky="ew", padx=(0, 3))
+        ttk.Button(
+            lyrics_actions, text="导出歌词…", command=self.export_editor_lyrics, style="Compact.TButton"
+        ).grid(row=0, column=1, sticky="ew", padx=(3, 0))
+        self.editor_lyrics_remove_button = ttk.Button(
+            lyrics_actions, text="移除歌词", command=self.mark_lyrics_for_removal,
+            style="CompactDanger.TButton"
+        )
+        self.editor_lyrics_remove_button.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
 
         cover = ttk.LabelFrame(editor, text="3  封面", padding=12, style="Card.TLabelframe")
         cover.grid(row=0, column=2, sticky="nsew", padx=(8, 0))
@@ -1185,7 +1316,10 @@ class Sub2LRCApp(tk.Tk):
         preview_box.grid_propagate(False)
         preview_box.columnconfigure(0, weight=1)
         preview_box.rowconfigure(0, weight=1)
-        self.cover_preview = ttk.Label(preview_box, text="", anchor="center", style="Card.TLabel")
+        self.cover_preview = ttk.Label(
+            preview_box, text="▧\n\n未检测到内嵌封面\n可以选择图片作为封面",
+            anchor="center", justify="center", style="CardMuted.TLabel"
+        )
         self.cover_preview.grid(row=0, column=0, sticky="nsew")
         self.cover_state_label = ttk.Label(cover, textvariable=self.editor_cover_state, anchor="center", style="CardMuted.TLabel")
         self.cover_state_label.grid(row=1, column=0, sticky="ew", pady=(8, 8))
@@ -1213,7 +1347,8 @@ class Sub2LRCApp(tk.Tk):
         ).pack(side="left")
         bottom = ttk.Frame(save_area, style="Card.TFrame")
         bottom.pack(side="right", fill="x", expand=True)
-        ttk.Label(bottom, textvariable=self.editor_status, anchor="w", wraplength=480, style="CardMuted.TLabel").pack(
+        self.editor_status_label = ttk.Label(bottom, textvariable=self.editor_status, anchor="w", wraplength=480, style=STATUS_STYLES["info"])
+        self.editor_status_label.pack(
             side="left", fill="x", expand=True
         )
         self.editor_save_button = ttk.Button(
@@ -1245,6 +1380,7 @@ class Sub2LRCApp(tk.Tk):
             state = read_metadata(path)
         except (OSError, AudioMetadataError) as exc:
             self.editor_status.set(f"读取失败：{exc}")
+            self._set_status_style(self.editor_status_label, "error")
             if show_error:
                 messagebox.showerror("读取音频标签失败", str(exc))
             return False
@@ -1259,11 +1395,11 @@ class Sub2LRCApp(tk.Tk):
         self.editor_album.set(state.album)
         self.editor_audio_info.set(self._format_audio_info(state.info))
         self.editor_lyrics_state.set("已内嵌歌词" if state.has_lyrics else "未检测到内嵌歌词")
-        self.lyrics_state_label.configure(foreground="#26734d" if state.has_lyrics else "#c62828")
+        self._set_status_style(self.lyrics_state_label, "success" if state.has_lyrics else "warning")
         self.lyrics_button_text.set("更换歌词…" if state.has_lyrics else "导入 LRC…")
         self._set_lyrics_preview(state.lyrics)
         self.editor_cover_state.set("已内嵌封面" if state.has_cover else "未检测到内嵌封面")
-        self.cover_state_label.configure(foreground="#26734d" if state.has_cover else "#c62828")
+        self._set_status_style(self.cover_state_label, "success" if state.has_cover else "warning")
         self.cover_button_text.set("更换封面…" if state.has_cover else "选择图片…")
         self._show_cover_data(state.cover_data)
         self._set_editor_writable(state.writable)
@@ -1271,6 +1407,7 @@ class Sub2LRCApp(tk.Tk):
             "信息读取完成；修改需要调整的内容后统一保存"
             if state.writable else "WAV 当前仅提供信息读取，标签保存暂未开放"
         )
+        self._set_status_style(self.editor_status_label, "success" if state.writable else "warning")
         return True
 
     def _set_editor_writable(self, writable: bool) -> None:
@@ -1315,6 +1452,7 @@ class Sub2LRCApp(tk.Tk):
             messagebox.showerror("导出歌词失败", str(exc))
             return
         self.editor_status.set(f"已导出歌词：{output}")
+        self._set_status_style(self.editor_status_label, "success")
         if state.lyrics_count > 1:
             messagebox.showwarning(
                 "歌词已导出",
@@ -1341,6 +1479,7 @@ class Sub2LRCApp(tk.Tk):
             messagebox.showerror("导出封面失败", str(exc))
             return
         self.editor_status.set(f"已导出封面：{output}")
+        self._set_status_style(self.editor_status_label, "success")
         if state.cover_count > 1:
             messagebox.showwarning(
                 "封面已导出",
@@ -1368,9 +1507,10 @@ class Sub2LRCApp(tk.Tk):
         self._lyrics_action = "replace"
         self._set_lyrics_preview(lyrics)
         self.editor_lyrics_state.set(f"待保存：{Path(selected).name}")
-        self.lyrics_state_label.configure(foreground="#8a5a00")
+        self._set_status_style(self.lyrics_state_label, "warning")
         self.lyrics_button_text.set("更换歌词…")
         self.editor_status.set("已选择新歌词，点击“保存到音频”后写入")
+        self._set_status_style(self.editor_status_label, "warning")
 
     def mark_lyrics_for_removal(self) -> None:
         if self._original_editor_state is None:
@@ -1383,9 +1523,10 @@ class Sub2LRCApp(tk.Tk):
         self._lyrics_action = "remove"
         self._set_lyrics_preview("")
         self.editor_lyrics_state.set("待保存：移除内嵌歌词")
-        self.lyrics_state_label.configure(foreground="#c62828")
+        self._set_status_style(self.lyrics_state_label, "error")
         self.lyrics_button_text.set("导入 LRC…")
         self.editor_status.set("歌词将在点击“保存到音频”后移除")
+        self._set_status_style(self.editor_status_label, "warning")
 
     def choose_editor_cover(self) -> None:
         if self._original_editor_state is None:
@@ -1423,9 +1564,10 @@ class Sub2LRCApp(tk.Tk):
         self._cover_action = "replace"
         self._show_cover_data(cover_data)
         self.editor_cover_state.set(f"待保存：{Path(selected).name}（已裁剪为 1:1）")
-        self.cover_state_label.configure(foreground="#8a5a00")
+        self._set_status_style(self.cover_state_label, "warning")
         self.cover_button_text.set("更换封面…")
         self.editor_status.set("已选择新封面，点击“保存到音频”后写入")
+        self._set_status_style(self.editor_status_label, "warning")
 
     def mark_cover_for_removal(self) -> None:
         if self._original_editor_state is None:
@@ -1438,9 +1580,10 @@ class Sub2LRCApp(tk.Tk):
         self._cover_action = "remove"
         self._show_cover_data(None, "保存后移除封面")
         self.editor_cover_state.set("待保存：移除内嵌封面")
-        self.cover_state_label.configure(foreground="#c62828")
+        self._set_status_style(self.cover_state_label, "error")
         self.cover_button_text.set("选择图片…")
-        self.editor_status.set("")
+        self.editor_status.set("封面将在点击“保存到音频”后移除")
+        self._set_status_style(self.editor_status_label, "warning")
 
     def save_editor(self) -> None:
         source_text = self.editor_mp3_path.get().strip()
@@ -1470,10 +1613,12 @@ class Sub2LRCApp(tk.Tk):
             output = write_metadata(source_text, edits, destination)
         except (OSError, AudioMetadataError) as exc:
             self.editor_status.set(f"保存失败：{exc}")
+            self._set_status_style(self.editor_status_label, "error")
             messagebox.showerror("保存音频标签失败", str(exc))
             return
         self._load_editor_file(output, show_error=False)
         self.editor_status.set(f"已保存：{output}")
+        self._set_status_style(self.editor_status_label, "success")
         messagebox.showinfo("保存完成", f"所有修改已保存到音频。\n输出文件：{output}")
 
     def cancel_editor_changes(self) -> None:
@@ -1483,6 +1628,7 @@ class Sub2LRCApp(tk.Tk):
             return
         if not self._has_pending_changes():
             self.editor_status.set("当前没有尚未保存的修改")
+            self._set_status_style(self.editor_status_label, "info")
             return
         if not messagebox.askyesno("取消修改", "确定放弃当前所有尚未保存的修改吗？"):
             return
@@ -1495,14 +1641,15 @@ class Sub2LRCApp(tk.Tk):
         self.editor_artist.set(state.artist)
         self.editor_album.set(state.album)
         self.editor_lyrics_state.set("已内嵌歌词" if state.has_lyrics else "未检测到内嵌歌词")
-        self.lyrics_state_label.configure(foreground="#26734d" if state.has_lyrics else "#c62828")
+        self._set_status_style(self.lyrics_state_label, "success" if state.has_lyrics else "warning")
         self.lyrics_button_text.set("更换歌词…" if state.has_lyrics else "导入 LRC…")
         self._set_lyrics_preview(state.lyrics)
         self.editor_cover_state.set("已内嵌封面" if state.has_cover else "未检测到内嵌封面")
-        self.cover_state_label.configure(foreground="#26734d" if state.has_cover else "#c62828")
+        self._set_status_style(self.cover_state_label, "success" if state.has_cover else "warning")
         self.cover_button_text.set("更换封面…" if state.has_cover else "选择图片…")
         self._show_cover_data(state.cover_data)
         self.editor_status.set("已取消尚未保存的修改，音频文件没有改变")
+        self._set_status_style(self.editor_status_label, "info")
 
     def _has_pending_changes(self) -> bool:
         state = self._original_editor_state
@@ -1518,25 +1665,37 @@ class Sub2LRCApp(tk.Tk):
         )
 
     def _set_lyrics_preview(self, content: str) -> None:
+        if not content:
+            if self._lyrics_action == "remove":
+                set_text_empty_state(self.lyrics_preview, "×", "保存后将移除歌词", "保存前可以导入新歌词或取消修改")
+            else:
+                set_text_empty_state(self.lyrics_preview, "♫", "未检测到内嵌歌词", "可以导入 LRC 歌词后保存到音频")
+            return
         self.lyrics_preview.configure(state="normal")
         self.lyrics_preview.delete("1.0", "end")
-        if content:
-            self.lyrics_preview.insert("1.0", content)
+        self.lyrics_preview.insert("1.0", content)
         self.lyrics_preview.configure(state="disabled")
 
     def _show_cover_data(self, data: bytes | None, empty_text: str = "") -> None:
         self._cover_photo = None
         if not data:
-            self.cover_preview.configure(image="", text=empty_text)
+            if empty_text:
+                text = f"×\n\n{empty_text}\n保存前可以选择新图片或取消修改"
+            else:
+                text = "▧\n\n未检测到内嵌封面\n可以选择图片作为封面"
+            self.cover_preview.configure(image="", text=text, style="CardMuted.TLabel", justify="center")
             return
         try:
             with Image.open(BytesIO(data)) as opened:
                 preview = opened.copy()
             preview.thumbnail((180, 140), Image.Resampling.LANCZOS)
             self._cover_photo = ImageTk.PhotoImage(preview)
-            self.cover_preview.configure(image=self._cover_photo, text="")
+            self.cover_preview.configure(image=self._cover_photo, text="", style="Card.TLabel")
         except OSError:
-            self.cover_preview.configure(image="", text="封面存在，但无法预览")
+            self.cover_preview.configure(
+                image="", text="!\n\n封面存在，但无法预览\n保存操作仍会保留原始封面",
+                style="Warning.Status.TLabel", justify="center"
+            )
 
     def _choose_audio_destination(self, source: str, mode: str) -> tuple[bool, Path | None]:
         if mode == "overwrite":
@@ -1590,23 +1749,36 @@ class Sub2LRCApp(tk.Tk):
         files_frame = ttk.LabelFrame(left, text="1  选择歌词 / 字幕文件", padding=12, style="Card.TLabelframe")
         files_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
         files_frame.columnconfigure(0, weight=1)
-        files_frame.rowconfigure(1, weight=1)
+        files_frame.rowconfigure(2, weight=1)
         toolbar = ttk.Frame(files_frame, style="Card.TFrame")
         toolbar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
-        ttk.Button(toolbar, text="选择文件…", command=self.choose_files, style="Accent.TButton").pack(side="left")
-        ttk.Button(toolbar, text="移除选中", command=self.remove_selected).pack(side="left", padx=6)
-        ttk.Button(toolbar, text="清空", command=self.clear_files, style="Danger.TButton").pack(side="left")
+        ttk.Button(
+            toolbar, text="选择文件…", command=self.choose_files, style="Compact.TButton", width=9
+        ).pack(side="left")
+        ttk.Button(
+            toolbar, text="移除选中", command=self.remove_selected, style="Compact.TButton", width=8
+        ).pack(side="left", padx=6)
+        ttk.Button(
+            toolbar, text="清空", command=self.clear_files, style="CompactDanger.TButton", width=5
+        ).pack(side="left")
+        ttk.Label(files_frame, text="文件路径", style="CardMuted.TLabel").grid(row=1, column=0, sticky="w", padx=5, pady=(0, 4))
         self.file_list = tk.Listbox(files_frame, height=7, selectmode="extended", relief="flat", borderwidth=1, background="#ffffff", foreground=COLORS["text"])
-        self.file_list.grid(row=1, column=0, sticky="nsew")
+        self.file_list.grid(row=2, column=0, sticky="nsew")
         scrollbar = ttk.Scrollbar(files_frame, orient="vertical", command=self.file_list.yview)
-        scrollbar.grid(row=1, column=1, sticky="ns")
-        self.file_list.configure(yscrollcommand=scrollbar.set)
+        scrollbar.grid(row=2, column=1, sticky="ns")
+        subtitle_horizontal = ttk.Scrollbar(files_frame, orient="horizontal", command=self.file_list.xview)
+        subtitle_horizontal.grid(row=3, column=0, sticky="ew")
+        self.file_list.configure(yscrollcommand=scrollbar.set, xscrollcommand=subtitle_horizontal.set)
+        self.subtitle_files_empty = ttk.Label(files_frame, text="AA\n尚未选择转换文件\n支持批量添加 LRC、SRT 和 VTT", justify="center", style="CardMuted.TLabel")
+        self._show_empty_overlay(self.subtitle_files_empty, True, self.file_list)
 
         output = ttk.LabelFrame(left, text="2  转换设置", padding=12, style="Card.TLabelframe")
         output.grid(row=1, column=0, sticky="ew")
         output.columnconfigure(1, weight=1)
         ttk.Label(output, text="输出目录", style="Card.TLabel").grid(row=0, column=0, sticky="w", pady=5)
-        ttk.Entry(output, textvariable=self.output_dir).grid(row=0, column=1, sticky="ew", padx=8, pady=5)
+        self.subtitle_output_entry = ttk.Entry(output, textvariable=self.output_dir)
+        self.subtitle_output_entry.grid(row=0, column=1, sticky="ew", padx=8, pady=5)
+        attach_variable_tooltip(self.subtitle_output_entry, self.output_dir)
         ttk.Button(output, text="浏览…", command=self.choose_output_dir).grid(row=0, column=2)
         ttk.Label(output, text="输出格式", style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=5)
         format_box = ttk.Combobox(
@@ -1658,7 +1830,8 @@ class Sub2LRCApp(tk.Tk):
         preview_scroll = ttk.Scrollbar(preview_frame, orient="vertical", command=self.preview.yview)
         preview_scroll.grid(row=1, column=3, sticky="ns")
         self.preview.configure(yscrollcommand=preview_scroll.set, state="disabled")
-        ttk.Label(preview_frame, textvariable=self.status, anchor="w", style="CardMuted.TLabel", wraplength=650).grid(
+        self.converter_status_label = ttk.Label(preview_frame, textvariable=self.status, anchor="w", style=STATUS_STYLES["info"], wraplength=650)
+        self.converter_status_label.grid(
             row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0)
         )
 
@@ -1686,17 +1859,23 @@ class Sub2LRCApp(tk.Tk):
         if names:
             self.output_dir.set(str(Path(names[0]).parent))
             self.status.set(f"已选择 {len(self.sources)} 个文件")
+            self._set_status_style(self.converter_status_label, "info")
+        self._show_empty_overlay(self.subtitle_files_empty, not self.sources, self.file_list)
 
     def remove_selected(self) -> None:
         for index in reversed(self.file_list.curselection()):
             self.file_list.delete(index)
             del self.sources[index]
         self.status.set(f"当前有 {len(self.sources)} 个待转换文件")
+        self._set_status_style(self.converter_status_label, "info")
+        self._show_empty_overlay(self.subtitle_files_empty, not self.sources, self.file_list)
 
     def clear_files(self) -> None:
         self.sources.clear()
         self.file_list.delete(0, "end")
         self.status.set("已清空文件列表")
+        self._set_status_style(self.converter_status_label, "info")
+        self._show_empty_overlay(self.subtitle_files_empty, True, self.file_list)
 
     def choose_output_dir(self) -> None:
         selected = filedialog.askdirectory(title="选择输出目录", initialdir=self.output_dir.get())
@@ -1745,6 +1924,7 @@ class Sub2LRCApp(tk.Tk):
             self.result_box.current(0)
             self.show_selected_result()
         self.status.set(f"转换完成：成功 {successes} 个，失败 {len(errors)} 个")
+        self._set_status_style(self.converter_status_label, "success" if not errors else "warning")
         if errors:
             messagebox.showwarning("部分文件转换失败", "\n".join(errors[:10]))
         elif successes:
@@ -1763,6 +1943,7 @@ class Sub2LRCApp(tk.Tk):
         self.preview.insert("1.0", content)
         self.preview.configure(state="disabled")
         self.status.set(f"预览：{path}")
+        self._set_status_style(self.converter_status_label, "success")
 
     def save_current(self) -> None:
         result = self.results.get(self.result_box.get())
@@ -1782,7 +1963,9 @@ class Sub2LRCApp(tk.Tk):
             try:
                 Path(selected).write_text(content, encoding="utf-8-sig", newline="\n")
                 self.status.set(f"已保存：{selected}")
+                self._set_status_style(self.converter_status_label, "success")
             except OSError as exc:
+                self._set_status_style(self.converter_status_label, "error")
                 messagebox.showerror("保存失败", str(exc))
 
 

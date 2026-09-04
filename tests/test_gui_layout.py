@@ -6,6 +6,7 @@ import unittest
 from PIL import Image
 
 from sub2lrc.gui import Sub2LRCApp
+from sub2lrc.ui_widgets import ElidedLabel
 
 
 class GuiLayoutTests(unittest.TestCase):
@@ -74,6 +75,76 @@ class GuiLayoutTests(unittest.TestCase):
         self.assertEqual(app.audio_file_progress.get(), 75.0)
         self.assertEqual(app.audio_progress.get(), 43.0)
         self.assertIn("2/4", app.audio_current.get())
+
+    def test_stop_preview_resets_position_and_time_without_changing_file(self) -> None:
+        app = self.make_app()
+
+        class FakePlayer:
+            duration = 125.0
+            stopped = False
+
+            def stop(self) -> None:
+                self.stopped = True
+
+            def close(self) -> None:
+                pass
+
+        player = FakePlayer()
+        app._preview_player = player  # type: ignore[assignment]
+        app.preview_audio_path.set("C:/音乐/很长的中文歌曲名.mp3")
+        app.preview_audio_position.set(72.0)
+        app.stop_preview_audio()
+        self.assertTrue(player.stopped)
+        self.assertEqual(app.preview_audio_position.get(), 0.0)
+        self.assertEqual(app.preview_current_time.get(), "00:00")
+        self.assertEqual(app.preview_total_time.get(), "02:05")
+        self.assertEqual(app.preview_audio_path.get(), "C:/音乐/很长的中文歌曲名.mp3")
+
+    def test_long_label_is_elided_without_modifying_source_value(self) -> None:
+        app = self.make_app()
+        source = tk.StringVar(app, value="这是一首用于验证界面布局不会被撑坏的特别特别长的中文歌曲名称")
+        host = tk.Frame(app, width=120, height=28)
+        host.pack()
+        label = ElidedLabel(host, textvariable=source)
+        label.place(x=0, y=0, width=120, height=28)
+        app.deiconify()
+        app.update()
+        label._refresh()
+        self.assertEqual(source.get(), "这是一首用于验证界面布局不会被撑坏的特别特别长的中文歌曲名称")
+        self.assertTrue(label.display_variable.get().endswith("…"))
+
+    def test_batch_lists_support_horizontal_scrolling_and_empty_overlays(self) -> None:
+        app = self.make_app()
+        for page, listbox, overlay in (
+            ("converter", app.file_list, app.subtitle_files_empty),
+            ("audio", app.audio_file_list, app.audio_files_empty),
+            ("image", app.image_file_list, app.image_files_empty),
+        ):
+            app.show_page(page)
+            app.update_idletasks()
+            self.assertTrue(str(listbox.cget("xscrollcommand")))
+            self.assertEqual(overlay.winfo_manager(), "place")
+
+    def test_editor_buttons_follow_writable_state(self) -> None:
+        app = self.make_app()
+        app._set_editor_writable(False)
+        self.assertIn("disabled", app.editor_save_button.state())
+        self.assertIn("disabled", app.editor_lyrics_choose_button.state())
+        app._set_editor_writable(True)
+        self.assertNotIn("disabled", app.editor_save_button.state())
+        self.assertNotIn("disabled", app.editor_lyrics_choose_button.state())
+
+    def test_pages_survive_supported_window_sizes_and_tk_scaling(self) -> None:
+        app = self.make_app()
+        app.deiconify()
+        self.assertGreater(float(app.tk.call("tk", "scaling")), 0.0)
+        for geometry in ("1050x760", "1500x900"):
+            app.geometry(geometry)
+            for page in ("preview", "editor", "converter", "audio", "image"):
+                app.show_page(page)
+                app.update_idletasks()
+                self.assertGreater(app.pages[page].winfo_width(), 0)
+                self.assertGreater(app.pages[page].winfo_height(), 0)
 
 
 if __name__ == "__main__":

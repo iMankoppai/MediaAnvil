@@ -19,6 +19,24 @@ COLORS = {
     "danger": "#c83b48",
     "danger_soft": "#fff1f2",
     "success": "#278454",
+    "warning": "#a76508",
+    "error": "#c83b48",
+}
+
+SIZES = {
+    "page_pad_x": 20,
+    "page_pad_y": 16,
+    "card_pad": 12,
+    "section_gap": 10,
+    "control_pad_y": 7,
+    "primary_pad_y": 9,
+}
+
+STATUS_STYLES = {
+    "info": "Info.Status.TLabel",
+    "success": "Success.Status.TLabel",
+    "warning": "Warning.Status.TLabel",
+    "error": "Error.Status.TLabel",
 }
 
 
@@ -44,6 +62,10 @@ def configure_theme(root: tk.Misc) -> ttk.Style:
     style.configure("Card.TLabel", background=COLORS["card"], foreground=COLORS["text"])
     style.configure("Muted.TLabel", foreground=COLORS["muted"], background=COLORS["window"])
     style.configure("CardMuted.TLabel", foreground=COLORS["muted"], background=COLORS["card"])
+    style.configure("Info.Status.TLabel", foreground=COLORS["blue"], background=COLORS["card"])
+    style.configure("Success.Status.TLabel", foreground=COLORS["success"], background=COLORS["card"])
+    style.configure("Warning.Status.TLabel", foreground=COLORS["warning"], background=COLORS["card"])
+    style.configure("Error.Status.TLabel", foreground=COLORS["error"], background=COLORS["card"])
     style.configure("Title.TLabel", font=("Microsoft YaHei UI", 20, "bold"))
     style.configure("Subtitle.TLabel", foreground=COLORS["muted"])
     style.configure("Section.TLabel", font=("Microsoft YaHei UI", 11, "bold"))
@@ -61,6 +83,7 @@ def configure_theme(root: tk.Misc) -> ttk.Style:
     )
     style.map("TButton", background=[("active", "#edf2f7"), ("disabled", "#eef1f5")])
     style.configure("Compact.TButton", padding=(7, 6))
+    style.configure("Secondary.TButton", padding=(12, 7), background="#ffffff", bordercolor=COLORS["border"])
     style.configure(
         "Accent.TButton",
         padding=(16, 9),
