@@ -49,20 +49,24 @@ from .image_converter import (
     ImageConversionSettings,
     convert_image_batch,
 )
+from .ui_theme import COLORS, configure_theme
 
 
 class Sub2LRCApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Sub2LRC - 本地多媒体工具箱")
-        self.geometry("940x720")
-        self.minsize(800, 650)
+        self.geometry("1280x820")
+        self.minsize(1050, 760)
+        self.configure(background=COLORS["window"])
+        configure_theme(self)
 
         self.sources: list[Path] = []
         self.results: dict[str, tuple[Path, str]] = {}
         self.output_dir = tk.StringVar(value=str(Path.home() / "Desktop"))
         self.subtitle_output_format = tk.StringVar(value="LRC")
         self.subtitle_final_duration = tk.StringVar(value="5")
+        self.subtitle_advanced_visible = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value="请选择 LRC、SRT 或 VTT 文件")
         self.audio_sources: list[Path] = []
         self.audio_output_dir = tk.StringVar(value=str(Path.home() / "Desktop"))
@@ -73,6 +77,7 @@ class Sub2LRCApp(tk.Tk):
         self.audio_current = tk.StringVar(value="请选择一个或多个音频文件")
         self.audio_summary = tk.StringVar(value="")
         self.audio_progress = tk.DoubleVar(value=0.0)
+        self.audio_file_progress = tk.DoubleVar(value=0.0)
         self._audio_running = False
         self.image_sources: list[Path] = []
         self.image_output_dir = tk.StringVar(value=str(Path.home() / "Desktop"))
@@ -80,11 +85,16 @@ class Sub2LRCApp(tk.Tk):
         self.image_quality = tk.StringVar(value="90")
         self.image_current = tk.StringVar(value="请选择一张或多张图片")
         self.image_summary = tk.StringVar(value="")
+        self.image_preview_name = tk.StringVar(value="尚未选择图片")
+        self.image_preview_details = tk.StringVar(value="选择列表中的图片后显示预览")
         self.image_progress = tk.DoubleVar(value=0.0)
+        self._image_preview_photo: ImageTk.PhotoImage | None = None
         self._image_running = False
         self.preview_audio_path = tk.StringVar()
         self.preview_audio_status = tk.StringVar(value="请选择一首音频进行预览")
         self.preview_audio_time = tk.StringVar(value="00:00 / 00:00")
+        self.preview_track_name = tk.StringVar(value="尚未选择音频")
+        self.preview_track_details = tk.StringVar(value="选择文件后显示格式与时长")
         self.preview_audio_position = tk.DoubleVar(value=0.0)
         self.preview_audio_volume = tk.DoubleVar(value=80.0)
         self._preview_player: AudioPreviewPlayer | None = None
@@ -95,6 +105,7 @@ class Sub2LRCApp(tk.Tk):
         self._preview_pointer_xy: tuple[int, int] | None = None
         self._preview_padding_lines = 0
         self._preview_space_down = False
+        self._preview_poll_job: str | None = None
         self.editor_mp3_path = tk.StringVar()
         self.editor_title = tk.StringVar()
         self.editor_artist = tk.StringVar()
@@ -115,86 +126,192 @@ class Sub2LRCApp(tk.Tk):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        container = ttk.Frame(self, padding=8)
-        container.pack(fill="both", expand=True)
-        notebook = ttk.Notebook(container)
-        self.main_notebook = notebook
-        notebook.pack(fill="both", expand=True)
-        converter_tab = ttk.Frame(notebook, padding=12)
-        editor_tab = ttk.Frame(notebook, padding=14)
-        audio_tab = ttk.Frame(notebook, padding=14)
-        image_tab = ttk.Frame(notebook, padding=14)
-        preview_tab = ttk.Frame(notebook, padding=14)
-        self.preview_tab = preview_tab
-        notebook.add(preview_tab, text="音频预览")
-        notebook.add(editor_tab, text="音频标签编辑")
-        notebook.add(converter_tab, text="歌词 / 字幕转换")
-        notebook.add(audio_tab, text="音频格式转换")
-        notebook.add(image_tab, text="图片格式转换")
-        self._build_converter_tab(converter_tab)
-        self._build_editor_tab(editor_tab)
-        self._build_audio_tab(audio_tab)
-        self._build_image_tab(image_tab)
-        self._build_preview_tab(preview_tab)
+        shell = ttk.Frame(self, style="Page.TFrame")
+        shell.pack(fill="both", expand=True)
+        shell.columnconfigure(1, weight=1)
+        shell.rowconfigure(0, weight=1)
+
+        sidebar = ttk.Frame(shell, width=218, padding=(14, 18), style="Sidebar.TFrame")
+        sidebar.grid(row=0, column=0, sticky="ns")
+        sidebar.grid_propagate(False)
+        sidebar.columnconfigure(0, weight=1)
+        ttk.Label(sidebar, text="♫  Sub2LRC", style="Brand.TLabel").grid(row=0, column=0, sticky="w", padx=8)
+        ttk.Label(sidebar, text="本地多媒体工具箱", style="BrandSub.TLabel").grid(
+            row=1, column=0, sticky="w", padx=8, pady=(2, 22)
+        )
+
+        content = ttk.Frame(shell, padding=(20, 16), style="Page.TFrame")
+        content.grid(row=0, column=1, sticky="nsew")
+        content.columnconfigure(0, weight=1)
+        content.rowconfigure(0, weight=1)
+
+        page_specs = (
+            ("preview", "♫", "音频预览", self._build_preview_tab),
+            ("editor", "◇", "音频标签编辑", self._build_editor_tab),
+            ("converter", "AA", "歌词 / 字幕转换", self._build_converter_tab),
+            ("audio", "⇄", "音频格式转换", self._build_audio_tab),
+            ("image", "▧", "图片格式转换", self._build_image_tab),
+            ("settings", "⚙", "设置", self._build_settings_page),
+            ("about", "ⓘ", "关于", self._build_about_page),
+        )
+        self.pages: dict[str, ttk.Frame] = {}
+        self.nav_buttons: dict[str, tk.Button] = {}
+        for index, (key, icon, label, builder) in enumerate(page_specs):
+            page = ttk.Frame(content, padding=4, style="Page.TFrame")
+            page.grid(row=0, column=0, sticky="nsew")
+            self.pages[key] = page
+            builder(page)
+            nav_row = index + 2 if index < 5 else index + 4
+            button = tk.Button(
+                sidebar,
+                text=f"{icon}   {label}",
+                command=lambda page_key=key: self.show_page(page_key),
+                anchor="w",
+                relief="flat",
+                borderwidth=0,
+                padx=14,
+                pady=11,
+                font=("Microsoft YaHei UI", 10, "bold"),
+                background=COLORS["sidebar"],
+                foreground=COLORS["text"],
+                activebackground=COLORS["blue_soft"],
+                activeforeground=COLORS["blue"],
+                cursor="hand2",
+            )
+            button.grid(row=nav_row, column=0, sticky="ew", pady=2)
+            self.nav_buttons[key] = button
+        sidebar.rowconfigure(7, weight=1)
+        ttk.Label(sidebar, text="v1.0", style="BrandSub.TLabel").grid(
+            row=11, column=0, sticky="w", padx=8, pady=(12, 0)
+        )
+        self.preview_tab = self.pages["preview"]
+        self.current_page = ""
+        self.show_page("preview")
         self.bind("<KeyPress-space>", self._toggle_preview_with_space)
         self.bind("<KeyRelease-space>", self._release_preview_space)
+
+    def show_page(self, key: str) -> None:
+        if key not in self.pages:
+            raise KeyError(f"未知页面：{key}")
+        self.current_page = key
+        self.pages[key].tkraise()
+        for page_key, button in self.nav_buttons.items():
+            selected = page_key == key
+            button.configure(
+                background=COLORS["blue"] if selected else COLORS["sidebar"],
+                foreground="#ffffff" if selected else COLORS["text"],
+                activebackground=COLORS["blue_hover"] if selected else COLORS["blue_soft"],
+                activeforeground="#ffffff" if selected else COLORS["blue"],
+            )
+
+    def _build_settings_page(self, root: ttk.Frame) -> None:
+        self._page_header(root, "⚙", "设置", "调整应用程序的常用选项")
+        card = ttk.LabelFrame(root, text="常规", padding=18, style="Card.TLabelframe")
+        card.grid(row=1, column=0, sticky="ew", pady=(14, 0))
+        ttk.Label(card, text="当前版本暂时没有需要配置的全局选项。", style="Card.TLabel").pack(anchor="w")
+        ttk.Label(card, text="各转换参数会保存在对应功能页面中。", style="CardMuted.TLabel").pack(anchor="w", pady=(8, 0))
+
+    def _build_about_page(self, root: ttk.Frame) -> None:
+        self._page_header(root, "ⓘ", "关于", "Sub2LRC 本地多媒体工具箱")
+        card = ttk.LabelFrame(root, text="Sub2LRC v1.0", padding=22, style="Card.TLabelframe")
+        card.grid(row=1, column=0, sticky="ew", pady=(14, 0))
+        ttk.Label(card, text="一个简单、离线的 Windows 多媒体处理工具。", style="Card.TLabel").pack(anchor="w")
+        ttk.Label(
+            card,
+            text="支持音频预览与同步歌词、音频标签编辑、歌词/字幕互转、音频格式转换和图片格式转换。",
+            style="CardMuted.TLabel",
+            wraplength=760,
+        ).pack(anchor="w", pady=(10, 0))
+
+    def _page_header(self, root: ttk.Frame, icon: str, title: str, subtitle: str) -> ttk.Frame:
+        root.columnconfigure(0, weight=1)
+        header = ttk.Frame(root, style="Page.TFrame")
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+        ttk.Label(header, text=icon, font=("Microsoft YaHei UI", 26, "bold"), foreground=COLORS["blue"]).pack(side="left", padx=(0, 14))
+        text = ttk.Frame(header, style="Page.TFrame")
+        text.pack(side="left", fill="x", expand=True)
+        ttk.Label(text, text=title, style="Title.TLabel").pack(anchor="w")
+        ttk.Label(text, text=subtitle, style="Subtitle.TLabel").pack(anchor="w", pady=(3, 0))
+        return header
 
     def _build_preview_tab(self, root: ttk.Frame) -> None:
         self._create_preview_scale_style()
         root.columnconfigure(0, weight=1)
-        root.rowconfigure(3, weight=1)
-        ttk.Label(root, text="音频预览", font=("Microsoft YaHei UI", 14, "bold")).grid(
-            row=0, column=0, sticky="w", pady=(0, 12)
-        )
-        source = ttk.LabelFrame(root, text="音频文件", padding=10)
-        source.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        root.rowconfigure(2, weight=1)
+        self._page_header(root, "♫", "音频预览", "播放本地音频并查看同步歌词")
+
+        source = ttk.LabelFrame(root, text="选择音频", padding=12, style="Card.TLabelframe")
+        source.grid(row=1, column=0, sticky="ew", pady=(14, 12))
         source.columnconfigure(0, weight=1)
         ttk.Entry(source, textvariable=self.preview_audio_path, state="readonly").grid(
             row=0, column=0, sticky="ew", padx=(0, 8)
         )
-        self.preview_select_button = ttk.Button(source, text="选择音频…", command=self.choose_preview_audio)
+        self.preview_select_button = ttk.Button(
+            source, text="选择音频文件…", command=self.choose_preview_audio, style="Accent.TButton"
+        )
         self.preview_select_button.grid(row=0, column=1)
 
-        controls = ttk.LabelFrame(root, text="播放控制", padding=10)
-        controls.grid(row=2, column=0, sticky="ew", pady=(0, 10))
-        controls.columnconfigure(2, weight=1)
-        self.preview_play_button = ttk.Button(controls, text="播放", command=self.play_preview_audio)
-        self.preview_play_button.grid(row=0, column=0, padx=(0, 6))
-        self.preview_pause_button = ttk.Button(controls, text="暂停", command=self.pause_preview_audio)
-        self.preview_pause_button.grid(row=0, column=1, padx=6)
+        body = ttk.Frame(root, style="Page.TFrame")
+        body.grid(row=2, column=0, sticky="nsew")
+        body.columnconfigure(0, weight=2, uniform="preview")
+        body.columnconfigure(1, weight=3, uniform="preview")
+        body.rowconfigure(0, weight=1)
+
+        left = ttk.Frame(body, style="Page.TFrame")
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        left.columnconfigure(0, weight=1)
+        left.rowconfigure(1, weight=1)
+        info = ttk.LabelFrame(left, text="歌曲信息", padding=18, style="Card.TLabelframe")
+        info.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        ttk.Label(info, textvariable=self.preview_track_name, style="Card.TLabel", font=("Microsoft YaHei UI", 12, "bold"), wraplength=360).pack(anchor="w")
+        ttk.Label(info, textvariable=self.preview_track_details, style="CardMuted.TLabel", wraplength=360).pack(anchor="w", pady=(8, 0))
+
+        controls = ttk.LabelFrame(left, text="播放控制", padding=18, style="Card.TLabelframe")
+        controls.grid(row=1, column=0, sticky="nsew")
+        controls.columnconfigure(0, weight=1)
+        control_buttons = ttk.Frame(controls, style="Card.TFrame")
+        control_buttons.grid(row=0, column=0, sticky="ew")
+        control_buttons.columnconfigure((0, 1), weight=1)
+        self.preview_play_button = ttk.Button(control_buttons, text="▶  播放", command=self.play_preview_audio, style="Accent.TButton")
+        self.preview_play_button.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        self.preview_pause_button = ttk.Button(control_buttons, text="Ⅱ  暂停", command=self.pause_preview_audio)
+        self.preview_pause_button.grid(row=0, column=1, sticky="ew", padx=(5, 0))
         for button in (self.preview_select_button, self.preview_play_button, self.preview_pause_button):
             button.bind("<KeyPress-space>", self._toggle_preview_with_space)
             button.bind("<KeyRelease-space>", self._release_preview_space)
+        timeline = ttk.Frame(controls, style="Card.TFrame")
+        timeline.grid(row=1, column=0, sticky="ew", pady=(22, 0))
+        timeline.columnconfigure(0, weight=1)
         self.preview_audio_scale = ttk.Scale(
-            controls, from_=0, to=1, variable=self.preview_audio_position,
+            timeline, from_=0, to=1, variable=self.preview_audio_position,
             orient="horizontal", style="Preview.Horizontal.TScale"
         )
-        self.preview_audio_scale.grid(row=0, column=2, sticky="ew", padx=(12, 0))
+        self.preview_audio_scale.grid(row=0, column=0, sticky="ew")
         self.preview_audio_scale.bind("<ButtonPress-1>", self._begin_preview_seek)
         self.preview_audio_scale.bind("<B1-Motion>", self._drag_preview_seek)
         self.preview_audio_scale.bind("<ButtonRelease-1>", self._end_preview_seek)
-        ttk.Label(controls, textvariable=self.preview_audio_time, width=15, anchor="e").grid(
-            row=0, column=3, padx=(10, 0)
-        )
-        ttk.Label(controls, text="音量：").grid(row=1, column=0, columnspan=2, sticky="e", pady=(10, 0))
+        ttk.Label(timeline, textvariable=self.preview_audio_time, style="CardMuted.TLabel", anchor="e").grid(row=1, column=0, sticky="e", pady=(6, 0))
+        volume = ttk.Frame(controls, style="Card.TFrame")
+        volume.grid(row=2, column=0, sticky="ew", pady=(18, 0))
+        volume.columnconfigure(1, weight=1)
+        ttk.Label(volume, text="音量", style="Card.TLabel").grid(row=0, column=0, padx=(0, 10))
         self.preview_volume_scale = ttk.Scale(
-            controls, from_=0, to=100, variable=self.preview_audio_volume,
-            orient="horizontal", length=180, style="Preview.Horizontal.TScale"
+            volume, from_=0, to=100, variable=self.preview_audio_volume,
+            orient="horizontal", style="Preview.Horizontal.TScale"
         )
-        self.preview_volume_scale.grid(row=1, column=2, sticky="w", pady=(10, 0))
+        self.preview_volume_scale.grid(row=0, column=1, sticky="ew")
         self.preview_volume_scale.bind("<ButtonPress-1>", self._begin_preview_volume)
         self.preview_volume_scale.bind("<B1-Motion>", self._drag_preview_volume)
         self.preview_volume_scale.bind("<ButtonRelease-1>", self._end_preview_volume)
-        ttk.Label(controls, textvariable=self.preview_audio_status, foreground="#555555").grid(
-            row=1, column=3, sticky="e", pady=(10, 0)
-        )
+        ttk.Label(controls, textvariable=self.preview_audio_status, style="CardMuted.TLabel", wraplength=360).grid(row=3, column=0, sticky="w", pady=(20, 0))
 
-        lyrics = ttk.LabelFrame(root, text="同步歌词", padding=10)
-        lyrics.grid(row=3, column=0, sticky="nsew")
+        lyrics = ttk.LabelFrame(body, text="同步歌词", padding=12, style="Card.TLabelframe")
+        lyrics.grid(row=0, column=1, sticky="nsew")
         lyrics.columnconfigure(0, weight=1)
         lyrics.rowconfigure(0, weight=1)
         self.preview_lyrics = tk.Text(
-            lyrics, wrap="word", font=("Microsoft YaHei UI", 11), state="disabled", spacing2=4
+            lyrics, wrap="word", font=("Microsoft YaHei UI", 11), state="disabled", spacing2=6,
+            relief="flat", borderwidth=0, background="#ffffff", foreground=COLORS["text"], padx=12, pady=12
         )
         self.preview_lyrics.grid(row=0, column=0, sticky="nsew")
         lyric_scroll = ttk.Scrollbar(lyrics, orient="vertical", command=self.preview_lyrics.yview)
@@ -209,7 +326,7 @@ class Sub2LRCApp(tk.Tk):
         self.preview_lyrics.bind("<Button-1>", self._click_preview_lyric)
         self.preview_lyrics.bind("<Motion>", self._hover_preview_lyric)
         self.preview_lyrics.bind("<Leave>", self._leave_preview_lyrics)
-        self.after(200, self._poll_preview_audio)
+        self._preview_poll_job = self.after(200, self._poll_preview_audio)
 
     def _create_preview_scale_style(self) -> None:
         large = Image.new("RGBA", (36, 36), (0, 0, 0, 0))
@@ -256,6 +373,9 @@ class Sub2LRCApp(tk.Tk):
             return
         self._preview_player = player
         self.preview_audio_path.set(selected)
+        selected_path = Path(selected)
+        self.preview_track_name.set(selected_path.stem)
+        self.preview_track_details.set(f"{selected_path.suffix.upper().lstrip('.')} 音频  ·  总时长 {self._format_preview_duration(duration)}")
         self.preview_audio_position.set(0.0)
         self.preview_audio_scale.configure(to=duration)
         self._preview_lyric_index = None
@@ -290,6 +410,12 @@ class Sub2LRCApp(tk.Tk):
             self._center_preview_lyric_line(f"{self._preview_padding_lines + 1}.0")
         self._update_preview_time(0.0, duration)
 
+    @staticmethod
+    def _format_preview_duration(value: float) -> str:
+        total = max(0, round(value))
+        minutes, seconds = divmod(total, 60)
+        return f"{minutes:02d}:{seconds:02d}"
+
     def play_preview_audio(self) -> None:
         if self._preview_player is None:
             messagebox.showinfo("Sub2LRC", "请先选择一首音频。")
@@ -311,7 +437,7 @@ class Sub2LRCApp(tk.Tk):
             messagebox.showerror("暂停失败", str(exc))
 
     def _toggle_preview_with_space(self, _event: tk.Event) -> str | None:
-        if self.main_notebook.select() != str(self.preview_tab):
+        if self.current_page != "preview":
             return None
         if self._preview_space_down:
             return "break"
@@ -326,7 +452,7 @@ class Sub2LRCApp(tk.Tk):
 
     def _release_preview_space(self, _event: tk.Event) -> str | None:
         self._preview_space_down = False
-        return "break" if self.main_notebook.select() == str(self.preview_tab) else None
+        return "break" if self.current_page == "preview" else None
 
     @staticmethod
     def _scale_value_from_x(scale: ttk.Scale, x: int, lower: float, upper: float) -> float:
@@ -384,6 +510,7 @@ class Sub2LRCApp(tk.Tk):
         return "break"
 
     def _poll_preview_audio(self) -> None:
+        self._preview_poll_job = None
         player = self._preview_player
         if player is not None:
             position = player.position
@@ -395,7 +522,7 @@ class Sub2LRCApp(tk.Tk):
             self._refresh_preview_hover()
             if player.state == PlaybackState.STOPPED and position >= player.duration:
                 self.preview_audio_status.set("播放完成")
-        self.after(200, self._poll_preview_audio)
+        self._preview_poll_job = self.after(200, self._poll_preview_audio)
 
     def _highlight_preview_lyric(self, index: int | None, *, force_scroll: bool = False) -> None:
         if index == self._preview_lyric_index and not force_scroll:
@@ -501,29 +628,37 @@ class Sub2LRCApp(tk.Tk):
     def _build_image_tab(self, root: ttk.Frame) -> None:
         root.columnconfigure(0, weight=1)
         root.rowconfigure(1, weight=1)
-        ttk.Label(root, text="图片格式转换", font=("Microsoft YaHei UI", 14, "bold")).grid(
-            row=0, column=0, sticky="w", pady=(0, 12)
-        )
+        self._page_header(root, "▧", "图片格式转换", "支持 JPG、PNG、WebP、BMP 批量互转")
 
-        files = ttk.LabelFrame(root, text="1. 输入图片", padding=10)
-        files.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
+        body = ttk.Frame(root, style="Page.TFrame")
+        body.grid(row=1, column=0, sticky="nsew", pady=(14, 10))
+        body.columnconfigure(0, weight=1, uniform="image")
+        body.columnconfigure(1, weight=1, uniform="image")
+        body.rowconfigure(0, weight=1)
+        files = ttk.LabelFrame(body, text="1  选择图片", padding=12, style="Card.TLabelframe")
+        files.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         files.columnconfigure(0, weight=1)
         files.rowconfigure(1, weight=1)
-        toolbar = ttk.Frame(files)
+        toolbar = ttk.Frame(files, style="Card.TFrame")
         toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        ttk.Button(toolbar, text="选择图片…", command=self.choose_image_files).pack(side="left")
+        ttk.Button(toolbar, text="选择图片…", command=self.choose_image_files, style="Accent.TButton").pack(side="left")
         ttk.Button(toolbar, text="移除选中", command=self.remove_selected_images).pack(side="left", padx=6)
-        ttk.Button(toolbar, text="清空", command=self.clear_image_files).pack(side="left")
-        self.image_file_list = tk.Listbox(files, height=10, selectmode="extended")
+        ttk.Button(toolbar, text="清空", command=self.clear_image_files, style="Danger.TButton").pack(side="left")
+        self.image_file_list = tk.Listbox(files, height=10, selectmode="extended", relief="flat", borderwidth=1, background="#ffffff", foreground=COLORS["text"])
         self.image_file_list.grid(row=1, column=0, sticky="nsew")
         scrollbar = ttk.Scrollbar(files, orient="vertical", command=self.image_file_list.yview)
         scrollbar.grid(row=1, column=1, sticky="ns")
         self.image_file_list.configure(yscrollcommand=scrollbar.set)
+        self.image_file_list.bind("<<ListboxSelect>>", self._show_selected_image_preview)
 
-        settings = ttk.LabelFrame(root, text="2. 转换设置", padding=10)
-        settings.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        right = ttk.Frame(body, style="Page.TFrame")
+        right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        right.columnconfigure(0, weight=1)
+        right.rowconfigure(1, weight=1)
+        settings = ttk.LabelFrame(right, text="2  转换设置", padding=12, style="Card.TLabelframe")
+        settings.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         settings.columnconfigure(1, weight=1)
-        ttk.Label(settings, text="输出格式：").grid(row=0, column=0, sticky="w", pady=6)
+        ttk.Label(settings, text="输出格式", style="Card.TLabel").grid(row=0, column=0, sticky="w", pady=5)
         format_box = ttk.Combobox(
             settings,
             textvariable=self.image_format_label,
@@ -531,40 +666,49 @@ class Sub2LRCApp(tk.Tk):
             state="readonly",
             width=18,
         )
-        format_box.grid(row=0, column=1, sticky="w", padx=8, pady=6)
+        format_box.grid(row=0, column=1, sticky="ew", padx=8, pady=5)
         format_box.bind("<<ComboboxSelected>>", self._update_image_parameter_ui)
-        self.image_quality_label = ttk.Label(settings, text="图片质量：")
-        self.image_quality_label.grid(row=1, column=0, sticky="w", pady=6)
+        self.image_quality_label = ttk.Label(settings, text="图片质量", style="Card.TLabel")
+        self.image_quality_label.grid(row=1, column=0, sticky="w", pady=5)
         self.image_quality_box = ttk.Spinbox(
             settings, from_=1, to=100, increment=1, textvariable=self.image_quality, width=10
         )
-        self.image_quality_box.grid(row=1, column=1, sticky="w", padx=8, pady=6)
-        ttk.Label(settings, text="输出目录：").grid(row=2, column=0, sticky="w", pady=6)
+        self.image_quality_box.grid(row=1, column=1, sticky="w", padx=8, pady=5)
+        ttk.Label(settings, text="输出目录", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=5)
         ttk.Entry(settings, textvariable=self.image_output_dir).grid(
-            row=2, column=1, sticky="ew", padx=8, pady=6
+            row=2, column=1, sticky="ew", padx=8, pady=5
         )
         ttk.Button(settings, text="浏览…", command=self.choose_image_output_dir).grid(row=2, column=2, pady=6)
         self.image_transparency_hint = ttk.Label(
             settings,
             text="保持原始宽高；透明图片转为 JPG 或 BMP 时使用白色背景。",
-            foreground="#666666",
+            style="CardMuted.TLabel",
         )
         self.image_transparency_hint.grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
-        progress_area = ttk.LabelFrame(root, text="3. 转换进度", padding=10)
-        progress_area.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        preview = ttk.LabelFrame(right, text="预览（当前选中）", padding=12, style="Card.TLabelframe")
+        preview.grid(row=1, column=0, sticky="nsew")
+        preview.columnconfigure(0, weight=1)
+        preview.rowconfigure(0, weight=1)
+        self.image_preview_label = ttk.Label(preview, text="尚未选择图片", anchor="center", style="Card.TLabel")
+        self.image_preview_label.grid(row=0, column=0, sticky="nsew")
+        ttk.Label(preview, textvariable=self.image_preview_name, style="Card.TLabel", font=("Microsoft YaHei UI", 10, "bold")).grid(row=1, column=0, sticky="w", pady=(10, 2))
+        ttk.Label(preview, textvariable=self.image_preview_details, style="CardMuted.TLabel").grid(row=2, column=0, sticky="w")
+
+        progress_area = ttk.LabelFrame(root, text="3  转换进度", padding=12, style="Card.TLabelframe")
+        progress_area.grid(row=2, column=0, sticky="ew")
         progress_area.columnconfigure(0, weight=1)
-        ttk.Label(progress_area, textvariable=self.image_current, anchor="w").grid(
+        ttk.Label(progress_area, textvariable=self.image_current, anchor="w", style="CardMuted.TLabel").grid(
             row=0, column=0, sticky="ew"
         )
         ttk.Progressbar(progress_area, variable=self.image_progress, maximum=100).grid(
             row=1, column=0, sticky="ew", pady=(8, 4)
         )
-        ttk.Label(progress_area, textvariable=self.image_summary, anchor="w", foreground="#555555").grid(
+        ttk.Label(progress_area, textvariable=self.image_summary, anchor="w", style="CardMuted.TLabel").grid(
             row=2, column=0, sticky="ew"
         )
-        self.image_start_button = ttk.Button(root, text="开始转换", command=self.start_image_conversion)
-        self.image_start_button.grid(row=4, column=0, sticky="e", ipadx=28, ipady=7)
+        self.image_start_button = ttk.Button(progress_area, text="开始转换", command=self.start_image_conversion, style="Accent.TButton")
+        self.image_start_button.grid(row=0, column=1, rowspan=3, sticky="ns", padx=(18, 0), ipadx=20)
         self._update_image_parameter_ui()
 
     def choose_image_files(self) -> None:
@@ -586,6 +730,9 @@ class Sub2LRCApp(tk.Tk):
         if names:
             self.image_output_dir.set(str(Path(names[0]).parent))
             self.image_current.set(f"已选择 {len(self.image_sources)} 张图片")
+            if not self.image_file_list.curselection():
+                self.image_file_list.selection_set(0)
+                self._show_selected_image_preview()
 
     def remove_selected_images(self) -> None:
         if self._image_running:
@@ -594,6 +741,7 @@ class Sub2LRCApp(tk.Tk):
             self.image_file_list.delete(index)
             del self.image_sources[index]
         self.image_current.set(f"当前有 {len(self.image_sources)} 张待转换图片")
+        self._show_selected_image_preview()
 
     def clear_image_files(self) -> None:
         if self._image_running:
@@ -603,6 +751,36 @@ class Sub2LRCApp(tk.Tk):
         self.image_current.set("已清空图片列表")
         self.image_progress.set(0.0)
         self.image_summary.set("")
+        self._clear_image_preview()
+
+    def _clear_image_preview(self) -> None:
+        self._image_preview_photo = None
+        self.image_preview_label.configure(image="", text="尚未选择图片")
+        self.image_preview_name.set("尚未选择图片")
+        self.image_preview_details.set("选择列表中的图片后显示预览")
+
+    def _show_selected_image_preview(self, _event: object | None = None) -> None:
+        selection = self.image_file_list.curselection()
+        if not selection or selection[0] >= len(self.image_sources):
+            self._clear_image_preview()
+            return
+        path = self.image_sources[selection[0]]
+        try:
+            with Image.open(path) as opened:
+                width, height = opened.size
+                format_name = opened.format or path.suffix.lstrip(".").upper()
+                image = opened.convert("RGBA")
+            image.thumbnail((360, 220), Image.Resampling.LANCZOS)
+            self._image_preview_photo = ImageTk.PhotoImage(image)
+            self.image_preview_label.configure(image=self._image_preview_photo, text="")
+            size_mb = path.stat().st_size / 1024 / 1024
+            self.image_preview_name.set(path.name)
+            self.image_preview_details.set(f"{width} × {height}  ·  {format_name}  ·  {size_mb:.2f} MB")
+        except (OSError, ValueError):
+            self._image_preview_photo = None
+            self.image_preview_label.configure(image="", text="无法预览此图片")
+            self.image_preview_name.set(path.name)
+            self.image_preview_details.set("图片无法读取，但批量转换时会给出明确错误。")
 
     def choose_image_output_dir(self) -> None:
         if self._image_running:
@@ -709,29 +887,28 @@ class Sub2LRCApp(tk.Tk):
     def _build_audio_tab(self, root: ttk.Frame) -> None:
         root.columnconfigure(0, weight=1)
         root.rowconfigure(1, weight=1)
+        self._page_header(root, "⇄", "音频格式转换", "批量转换 MP3、WAV、FLAC、M4A、AAC、OGG")
 
-        ttk.Label(root, text="音频格式转换", font=("Microsoft YaHei UI", 14, "bold")).grid(
-            row=0, column=0, sticky="w", pady=(0, 12)
-        )
-        files = ttk.LabelFrame(root, text="1. 输入音频", padding=10)
-        files.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
+        files = ttk.LabelFrame(root, text="1  添加音频文件", padding=12, style="Card.TLabelframe")
+        files.grid(row=1, column=0, sticky="nsew", pady=(14, 10))
         files.columnconfigure(0, weight=1)
         files.rowconfigure(1, weight=1)
-        toolbar = ttk.Frame(files)
+        toolbar = ttk.Frame(files, style="Card.TFrame")
         toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        ttk.Button(toolbar, text="选择音频…", command=self.choose_audio_files).pack(side="left")
+        ttk.Button(toolbar, text="选择音频文件…", command=self.choose_audio_files, style="Accent.TButton").pack(side="left")
         ttk.Button(toolbar, text="移除选中", command=self.remove_selected_audio).pack(side="left", padx=6)
-        ttk.Button(toolbar, text="清空", command=self.clear_audio_files).pack(side="left")
-        self.audio_file_list = tk.Listbox(files, height=10, selectmode="extended")
+        ttk.Button(toolbar, text="清空", command=self.clear_audio_files, style="Danger.TButton").pack(side="left")
+        self.audio_file_list = tk.Listbox(files, height=8, selectmode="extended", relief="flat", borderwidth=1, background="#ffffff", foreground=COLORS["text"])
         self.audio_file_list.grid(row=1, column=0, sticky="nsew")
         file_scroll = ttk.Scrollbar(files, orient="vertical", command=self.audio_file_list.yview)
         file_scroll.grid(row=1, column=1, sticky="ns")
         self.audio_file_list.configure(yscrollcommand=file_scroll.set)
 
-        settings = ttk.LabelFrame(root, text="2. 转换设置", padding=10)
+        settings = ttk.LabelFrame(root, text="2  转换设置", padding=12, style="Card.TLabelframe")
         settings.grid(row=2, column=0, sticky="ew", pady=(0, 10))
         settings.columnconfigure(1, weight=1)
-        ttk.Label(settings, text="输出格式：").grid(row=0, column=0, sticky="w", pady=6)
+        settings.columnconfigure(3, weight=1)
+        ttk.Label(settings, text="输出格式", style="Card.TLabel").grid(row=0, column=0, sticky="w", pady=5)
         format_box = ttk.Combobox(
             settings,
             textvariable=self.audio_format_label,
@@ -739,51 +916,50 @@ class Sub2LRCApp(tk.Tk):
             state="readonly",
             width=18,
         )
-        format_box.grid(row=0, column=1, sticky="w", padx=8, pady=6)
+        format_box.grid(row=0, column=1, sticky="ew", padx=(8, 24), pady=5)
         format_box.bind("<<ComboboxSelected>>", self._update_audio_parameter_ui)
-        self.audio_parameter_label = ttk.Label(settings, text="比特率：")
-        self.audio_parameter_label.grid(row=1, column=0, sticky="w", pady=6)
+        self.audio_parameter_label = ttk.Label(settings, text="比特率", style="Card.TLabel")
+        self.audio_parameter_label.grid(row=0, column=2, sticky="w", pady=5)
         self.audio_parameter_box = ttk.Combobox(
             settings, textvariable=self.audio_parameter, state="readonly", width=18
         )
-        self.audio_parameter_box.grid(row=1, column=1, sticky="w", padx=8, pady=6)
-        ttk.Label(settings, text="采样率：").grid(row=2, column=0, sticky="w", pady=6)
+        self.audio_parameter_box.grid(row=0, column=3, sticky="ew", padx=(8, 0), pady=5)
+        ttk.Label(settings, text="采样率", style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=5)
         ttk.Combobox(
             settings,
             textvariable=self.audio_sample_rate,
             values=("保持原始采样率", "44100 Hz", "48000 Hz", "96000 Hz"),
             state="readonly",
             width=18,
-        ).grid(row=2, column=1, sticky="w", padx=8, pady=6)
-        ttk.Label(settings, text="声道：").grid(row=3, column=0, sticky="w", pady=6)
+        ).grid(row=1, column=1, sticky="ew", padx=(8, 24), pady=5)
+        ttk.Label(settings, text="声道", style="Card.TLabel").grid(row=1, column=2, sticky="w", pady=5)
         ttk.Combobox(
             settings,
             textvariable=self.audio_channels,
             values=("保持原始声道", "单声道", "立体声"),
             state="readonly",
             width=18,
-        ).grid(row=3, column=1, sticky="w", padx=8, pady=6)
-        ttk.Label(settings, text="输出目录：").grid(row=4, column=0, sticky="w", pady=6)
-        ttk.Entry(settings, textvariable=self.audio_output_dir).grid(row=4, column=1, sticky="ew", padx=8, pady=6)
-        ttk.Button(settings, text="浏览…", command=self.choose_audio_output_dir).grid(row=4, column=2, pady=6)
+        ).grid(row=1, column=3, sticky="ew", padx=(8, 0), pady=5)
+        ttk.Label(settings, text="输出目录", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=5)
+        ttk.Entry(settings, textvariable=self.audio_output_dir).grid(row=2, column=1, columnspan=2, sticky="ew", padx=8, pady=5)
+        ttk.Button(settings, text="浏览…", command=self.choose_audio_output_dir).grid(row=2, column=3, sticky="e", pady=5)
         ttk.Label(
             settings,
             text="默认保持原采样率和声道；已有同名输出时会自动生成新文件名。",
-            foreground="#666666",
-        ).grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
+            style="CardMuted.TLabel",
+        ).grid(row=3, column=0, columnspan=4, sticky="w", pady=(6, 0))
 
-        progress_area = ttk.LabelFrame(root, text="3. 转换进度", padding=10)
+        progress_area = ttk.LabelFrame(root, text="3  转换进度", padding=12, style="Card.TLabelframe")
         progress_area.grid(row=3, column=0, sticky="ew", pady=(0, 10))
-        progress_area.columnconfigure(0, weight=1)
-        ttk.Label(progress_area, textvariable=self.audio_current, anchor="w").grid(row=0, column=0, sticky="ew")
-        ttk.Progressbar(progress_area, variable=self.audio_progress, maximum=100).grid(
-            row=1, column=0, sticky="ew", pady=(8, 4)
-        )
-        ttk.Label(progress_area, textvariable=self.audio_summary, anchor="w", foreground="#555555").grid(
-            row=2, column=0, sticky="ew"
-        )
-        self.audio_start_button = ttk.Button(root, text="开始转换", command=self.start_audio_conversion)
-        self.audio_start_button.grid(row=4, column=0, sticky="e", ipadx=28, ipady=7)
+        progress_area.columnconfigure(1, weight=1)
+        ttk.Label(progress_area, text="当前文件", style="Card.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 12))
+        ttk.Label(progress_area, textvariable=self.audio_current, anchor="w", style="CardMuted.TLabel").grid(row=0, column=1, sticky="ew")
+        ttk.Progressbar(progress_area, variable=self.audio_file_progress, maximum=100).grid(row=1, column=1, sticky="ew", pady=(6, 5))
+        ttk.Label(progress_area, text="总体进度", style="Card.TLabel").grid(row=2, column=0, sticky="w", padx=(0, 12))
+        ttk.Progressbar(progress_area, variable=self.audio_progress, maximum=100).grid(row=2, column=1, sticky="ew", pady=5)
+        ttk.Label(progress_area, textvariable=self.audio_summary, anchor="w", style="CardMuted.TLabel").grid(row=3, column=1, sticky="ew", pady=(5, 0))
+        self.audio_start_button = ttk.Button(progress_area, text="开始转换", command=self.start_audio_conversion, style="Accent.TButton")
+        self.audio_start_button.grid(row=0, column=2, rowspan=4, sticky="ns", padx=(18, 0), ipadx=20)
         self._update_audio_parameter_ui()
 
     def choose_audio_files(self) -> None:
@@ -820,6 +996,7 @@ class Sub2LRCApp(tk.Tk):
         self.audio_sources.clear()
         self.audio_file_list.delete(0, "end")
         self.audio_current.set("已清空音频文件列表")
+        self.audio_file_progress.set(0.0)
         self.audio_progress.set(0.0)
         self.audio_summary.set("")
 
@@ -854,6 +1031,7 @@ class Sub2LRCApp(tk.Tk):
             messagebox.showerror("转换设置错误", str(exc))
             return
         self._audio_running = True
+        self.audio_file_progress.set(0.0)
         self.audio_progress.set(0.0)
         self.audio_summary.set("")
         self.audio_start_button.configure(state="disabled")
@@ -874,6 +1052,7 @@ class Sub2LRCApp(tk.Tk):
     def _update_audio_progress(
         self, source: Path, index: int, total: int, file_percent: float, overall: float
     ) -> None:
+        self.audio_file_progress.set(file_percent)
         self.audio_progress.set(overall)
         self.audio_current.set(f"正在转换 {index}/{total}：{source.name}（{file_percent:.0f}%）")
 
@@ -891,6 +1070,7 @@ class Sub2LRCApp(tk.Tk):
         successes = len(result.outputs)
         failures = len(result.failures)
         self.audio_progress.set(100.0)
+        self.audio_file_progress.set(100.0)
         self.audio_current.set("转换完成")
         self.audio_summary.set(f"成功 {successes} 个，失败 {failures} 个")
         if result.failures:
@@ -937,116 +1117,111 @@ class Sub2LRCApp(tk.Tk):
 
     def _build_editor_tab(self, root: ttk.Frame) -> None:
         root.columnconfigure(0, weight=1)
-        root.rowconfigure(2, weight=1)
+        root.rowconfigure(3, weight=1)
+        self._page_header(root, "◇", "音频标签编辑", "查看和修改歌曲信息、歌词与封面")
 
-        file_area = ttk.LabelFrame(root, text="1. 音频文件", padding=10)
-        file_area.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        file_area = ttk.LabelFrame(root, text="音频文件", padding=12, style="Card.TLabelframe")
+        file_area.grid(row=1, column=0, sticky="ew", pady=(14, 10))
         file_area.columnconfigure(0, weight=1)
         ttk.Entry(file_area, textvariable=self.editor_mp3_path, state="readonly").grid(
             row=0, column=0, sticky="ew", padx=(0, 8)
         )
-        ttk.Button(file_area, text="选择音频…", command=self.choose_editor_mp3).grid(row=0, column=1)
-        ttk.Label(
-            file_area, textvariable=self.editor_audio_info, foreground="#555555", wraplength=820
-        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Button(file_area, text="选择音频文件…", command=self.choose_editor_mp3, style="Accent.TButton").grid(row=0, column=1)
 
-        upper = ttk.Frame(root)
-        upper.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
-        upper.columnconfigure(0, weight=3)
-        upper.columnconfigure(1, weight=2)
-        basic = ttk.LabelFrame(upper, text="2. 基础信息", padding=12)
-        basic.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-        basic.columnconfigure(1, weight=1)
+        overview = ttk.LabelFrame(root, text="音频概要", padding=(14, 10), style="Card.TLabelframe")
+        overview.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        ttk.Label(
+            overview, textvariable=self.editor_audio_info, style="CardMuted.TLabel", wraplength=920
+        ).pack(anchor="w")
+
+        editor = ttk.Frame(root, style="Page.TFrame")
+        editor.grid(row=3, column=0, sticky="nsew", pady=(0, 10))
+        editor.columnconfigure(0, weight=3, uniform="editor")
+        editor.columnconfigure(1, weight=4, uniform="editor")
+        editor.columnconfigure(2, weight=3, uniform="editor")
+        editor.rowconfigure(0, weight=1)
+
+        basic = ttk.LabelFrame(editor, text="1  基础信息", padding=16, style="Card.TLabelframe")
+        basic.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        basic.columnconfigure(0, weight=1)
         self.editor_basic_entries: list[ttk.Entry] = []
         for row, (label, variable) in enumerate(
-            (("歌名：", self.editor_title), ("歌手：", self.editor_artist), ("专辑：", self.editor_album))
+            (("歌名", self.editor_title), ("歌手", self.editor_artist), ("专辑", self.editor_album))
         ):
-            ttk.Label(basic, text=label).grid(row=row, column=0, sticky="w", pady=7)
+            ttk.Label(basic, text=label, style="Card.TLabel").grid(row=row * 2, column=0, sticky="w", pady=(7, 5))
             entry = ttk.Entry(basic, textvariable=variable)
-            entry.grid(row=row, column=1, sticky="ew", padx=(8, 0), pady=7)
+            entry.grid(row=row * 2 + 1, column=0, sticky="ew", pady=(0, 8))
             self.editor_basic_entries.append(entry)
-        ttk.Label(basic, text="留空并保存会移除对应信息。", foreground="#666666").grid(
-            row=3, column=0, columnspan=2, sticky="w", pady=(12, 0)
-        )
+        ttk.Label(basic, text="留空并保存会移除对应信息。", style="CardMuted.TLabel", wraplength=250).grid(row=6, column=0, sticky="w", pady=(14, 0))
 
-        cover = ttk.LabelFrame(upper, text="4. 封面", padding=10)
-        cover.grid(row=0, column=1, sticky="nsew")
-        cover.columnconfigure(0, weight=1)
-        preview_box = ttk.Frame(cover, width=190, height=145)
-        preview_box.grid(row=0, column=0, sticky="nsew")
-        preview_box.grid_propagate(False)
-        preview_box.columnconfigure(0, weight=1)
-        preview_box.rowconfigure(0, weight=1)
-        self.cover_preview = ttk.Label(preview_box, text="", anchor="center")
-        self.cover_preview.grid(row=0, column=0, sticky="nsew")
-        self.cover_state_label = ttk.Label(cover, textvariable=self.editor_cover_state, anchor="center")
-        self.cover_state_label.grid(
-            row=1, column=0, sticky="ew", pady=(6, 4)
-        )
-        cover_actions = ttk.Frame(cover)
-        cover_actions.grid(row=2, column=0)
-        self.editor_cover_choose_button = ttk.Button(
-            cover_actions, textvariable=self.cover_button_text, command=self.choose_editor_cover
-        )
-        self.editor_cover_choose_button.pack(
-            side="left", padx=3
-        )
-        ttk.Button(cover_actions, text="导出", command=self.export_editor_cover).pack(side="left", padx=3)
-        self.editor_cover_remove_button = ttk.Button(cover_actions, text="移除", command=self.mark_cover_for_removal)
-        self.editor_cover_remove_button.pack(side="left", padx=3)
-
-        lyrics = ttk.LabelFrame(root, text="3. 歌词", padding=10)
-        lyrics.grid(row=2, column=0, sticky="nsew", pady=(0, 10))
+        lyrics = ttk.LabelFrame(editor, text="2  歌词", padding=12, style="Card.TLabelframe")
+        lyrics.grid(row=0, column=1, sticky="nsew", padx=8)
         lyrics.columnconfigure(0, weight=1)
         lyrics.rowconfigure(1, weight=1)
-        lyrics_toolbar = ttk.Frame(lyrics)
-        lyrics_toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        self.lyrics_state_label = ttk.Label(lyrics_toolbar, textvariable=self.editor_lyrics_state)
-        self.lyrics_state_label.pack(side="left")
-        self.editor_lyrics_remove_button = ttk.Button(
-            lyrics_toolbar, text="移除歌词", command=self.mark_lyrics_for_removal
-        )
-        self.editor_lyrics_remove_button.pack(side="right")
-        ttk.Button(lyrics_toolbar, text="导出歌词…", command=self.export_editor_lyrics).pack(
-            side="right", padx=(0, 6)
-        )
-        self.editor_lyrics_choose_button = ttk.Button(
-            lyrics_toolbar, textvariable=self.lyrics_button_text, command=self.choose_editor_lrc
-        )
-        self.editor_lyrics_choose_button.pack(
-            side="right", padx=(0, 6)
-        )
+        self.lyrics_state_label = ttk.Label(lyrics, textvariable=self.editor_lyrics_state, style="CardMuted.TLabel")
+        self.lyrics_state_label.grid(row=0, column=0, sticky="w", pady=(0, 8))
         self.lyrics_preview = tk.Text(
-            lyrics, height=9, wrap="word", font=("Microsoft YaHei UI", 10), state="disabled"
+            lyrics, height=9, wrap="word", font=("Microsoft YaHei UI", 10), state="disabled",
+            relief="flat", borderwidth=1, background="#ffffff", foreground=COLORS["text"], padx=8, pady=8
         )
         self.lyrics_preview.grid(row=1, column=0, sticky="nsew")
         lyrics_scroll = ttk.Scrollbar(lyrics, orient="vertical", command=self.lyrics_preview.yview)
         lyrics_scroll.grid(row=1, column=1, sticky="ns")
         self.lyrics_preview.configure(yscrollcommand=lyrics_scroll.set)
+        lyrics_actions = ttk.Frame(lyrics, style="Card.TFrame")
+        lyrics_actions.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        self.editor_lyrics_choose_button = ttk.Button(lyrics_actions, textvariable=self.lyrics_button_text, command=self.choose_editor_lrc)
+        self.editor_lyrics_choose_button.pack(side="left")
+        ttk.Button(lyrics_actions, text="导出歌词…", command=self.export_editor_lyrics).pack(side="left", padx=6)
+        self.editor_lyrics_remove_button = ttk.Button(lyrics_actions, text="移除歌词", command=self.mark_lyrics_for_removal, style="Danger.TButton")
+        self.editor_lyrics_remove_button.pack(side="right")
 
-        save_area = ttk.Frame(root)
-        save_area.grid(row=3, column=0, sticky="sew")
-        save_mode = ttk.LabelFrame(save_area, text="5. 保存方式", padding=(10, 6))
-        save_mode.pack(fill="x")
+        cover = ttk.LabelFrame(editor, text="3  封面", padding=12, style="Card.TLabelframe")
+        cover.grid(row=0, column=2, sticky="nsew", padx=(8, 0))
+        cover.columnconfigure(0, weight=1)
+        cover.rowconfigure(0, weight=1)
+        preview_box = ttk.Frame(cover, width=230, height=220, style="Card.TFrame")
+        preview_box.grid(row=0, column=0, sticky="nsew")
+        preview_box.grid_propagate(False)
+        preview_box.columnconfigure(0, weight=1)
+        preview_box.rowconfigure(0, weight=1)
+        self.cover_preview = ttk.Label(preview_box, text="", anchor="center", style="Card.TLabel")
+        self.cover_preview.grid(row=0, column=0, sticky="nsew")
+        self.cover_state_label = ttk.Label(cover, textvariable=self.editor_cover_state, anchor="center", style="CardMuted.TLabel")
+        self.cover_state_label.grid(row=1, column=0, sticky="ew", pady=(8, 8))
+        cover_actions = ttk.Frame(cover, style="Card.TFrame")
+        cover_actions.grid(row=2, column=0, sticky="ew")
+        cover_actions.columnconfigure((0, 1), weight=1)
+        self.editor_cover_choose_button = ttk.Button(
+            cover_actions, textvariable=self.cover_button_text, command=self.choose_editor_cover,
+            style="Compact.TButton"
+        )
+        self.editor_cover_choose_button.grid(row=0, column=0, sticky="ew", padx=(0, 3))
+        ttk.Button(cover_actions, text="导出封面…", command=self.export_editor_cover, style="Compact.TButton").grid(row=0, column=1, sticky="ew", padx=(3, 0))
+        self.editor_cover_remove_button = ttk.Button(cover_actions, text="移除封面", command=self.mark_cover_for_removal, style="CompactDanger.TButton")
+        self.editor_cover_remove_button.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+
+        save_area = ttk.LabelFrame(root, text="4  保存方式", padding=12, style="Card.TLabelframe")
+        save_area.grid(row=4, column=0, sticky="ew")
+        save_mode = ttk.Frame(save_area, style="Card.TFrame")
+        save_mode.pack(side="left")
         ttk.Radiobutton(
             save_mode, text="覆盖原文件", variable=self.editor_output_mode, value="overwrite"
         ).pack(side="left", padx=(0, 20))
         ttk.Radiobutton(
             save_mode, text="另存为", variable=self.editor_output_mode, value="save_as"
         ).pack(side="left")
-        bottom = ttk.Frame(save_area)
-        bottom.pack(fill="x", pady=(10, 0))
-        ttk.Label(bottom, textvariable=self.editor_status, anchor="w", wraplength=650).pack(
+        bottom = ttk.Frame(save_area, style="Card.TFrame")
+        bottom.pack(side="right", fill="x", expand=True)
+        ttk.Label(bottom, textvariable=self.editor_status, anchor="w", wraplength=480, style="CardMuted.TLabel").pack(
             side="left", fill="x", expand=True
         )
         self.editor_save_button = ttk.Button(
             bottom, text="保存到音频", command=self.save_editor, style="Accent.TButton"
         )
-        self.editor_save_button.pack(
-            side="right", ipadx=28, ipady=7
-        )
+        self.editor_save_button.pack(side="right", padx=(8, 0))
         ttk.Button(bottom, text="取消修改", command=self.cancel_editor_changes).pack(
-            side="right", padx=(0, 8), ipadx=14, ipady=7
+            side="right", padx=(8, 0)
         )
 
     def choose_editor_mp3(self) -> None:
@@ -1386,6 +1561,12 @@ class Sub2LRCApp(tk.Tk):
         self._pending_cover_path = None
 
     def destroy(self) -> None:
+        if self._preview_poll_job is not None:
+            try:
+                self.after_cancel(self._preview_poll_job)
+            except tk.TclError:
+                pass
+            self._preview_poll_job = None
         if self._preview_player is not None:
             self._preview_player.close()
         self._cleanup_pending_cover()
@@ -1393,28 +1574,41 @@ class Sub2LRCApp(tk.Tk):
 
     def _build_converter_tab(self, root: ttk.Frame) -> None:
         root.columnconfigure(0, weight=1)
-        root.rowconfigure(3, weight=1)
-        toolbar = ttk.Frame(root)
-        toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        ttk.Button(toolbar, text="选择歌词 / 字幕…", command=self.choose_files).pack(side="left")
-        ttk.Button(toolbar, text="移除选中", command=self.remove_selected).pack(side="left", padx=6)
-        ttk.Button(toolbar, text="清空", command=self.clear_files).pack(side="left")
-        files_frame = ttk.LabelFrame(root, text="待转换文件", padding=8)
-        files_frame.grid(row=1, column=0, sticky="nsew", pady=(0, 8))
+        root.rowconfigure(1, weight=1)
+        self._page_header(root, "AA", "歌词 / 字幕转换", "支持 LRC、SRT、VTT 相互转换")
+
+        body = ttk.Frame(root, style="Page.TFrame")
+        body.grid(row=1, column=0, sticky="nsew", pady=(14, 0))
+        body.columnconfigure(0, weight=4, uniform="converter")
+        body.columnconfigure(1, weight=6, uniform="converter")
+        body.rowconfigure(0, weight=1)
+        left = ttk.Frame(body, style="Page.TFrame")
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        left.columnconfigure(0, weight=1)
+        left.rowconfigure(0, weight=1)
+
+        files_frame = ttk.LabelFrame(left, text="1  选择歌词 / 字幕文件", padding=12, style="Card.TLabelframe")
+        files_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
         files_frame.columnconfigure(0, weight=1)
-        self.file_list = tk.Listbox(files_frame, height=6, selectmode="extended")
-        self.file_list.grid(row=0, column=0, sticky="nsew")
+        files_frame.rowconfigure(1, weight=1)
+        toolbar = ttk.Frame(files_frame, style="Card.TFrame")
+        toolbar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        ttk.Button(toolbar, text="选择文件…", command=self.choose_files, style="Accent.TButton").pack(side="left")
+        ttk.Button(toolbar, text="移除选中", command=self.remove_selected).pack(side="left", padx=6)
+        ttk.Button(toolbar, text="清空", command=self.clear_files, style="Danger.TButton").pack(side="left")
+        self.file_list = tk.Listbox(files_frame, height=7, selectmode="extended", relief="flat", borderwidth=1, background="#ffffff", foreground=COLORS["text"])
+        self.file_list.grid(row=1, column=0, sticky="nsew")
         scrollbar = ttk.Scrollbar(files_frame, orient="vertical", command=self.file_list.yview)
-        scrollbar.grid(row=0, column=1, sticky="ns")
+        scrollbar.grid(row=1, column=1, sticky="ns")
         self.file_list.configure(yscrollcommand=scrollbar.set)
-        output = ttk.Frame(root)
-        output.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+
+        output = ttk.LabelFrame(left, text="2  转换设置", padding=12, style="Card.TLabelframe")
+        output.grid(row=1, column=0, sticky="ew")
         output.columnconfigure(1, weight=1)
-        ttk.Label(output, text="输出目录：").grid(row=0, column=0)
-        ttk.Entry(output, textvariable=self.output_dir).grid(row=0, column=1, sticky="ew", padx=6)
+        ttk.Label(output, text="输出目录", style="Card.TLabel").grid(row=0, column=0, sticky="w", pady=5)
+        ttk.Entry(output, textvariable=self.output_dir).grid(row=0, column=1, sticky="ew", padx=8, pady=5)
         ttk.Button(output, text="浏览…", command=self.choose_output_dir).grid(row=0, column=2)
-        ttk.Button(output, text="开始批量转换", command=self.convert_all).grid(row=0, column=3, padx=(12, 0))
-        ttk.Label(output, text="输出格式：").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(output, text="输出格式", style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=5)
         format_box = ttk.Combobox(
             output,
             textvariable=self.subtitle_output_format,
@@ -1422,35 +1616,57 @@ class Sub2LRCApp(tk.Tk):
             state="readonly",
             width=10,
         )
-        format_box.grid(row=1, column=1, sticky="w", padx=6, pady=(8, 0))
+        format_box.grid(row=1, column=1, sticky="w", padx=8, pady=5)
         format_box.bind("<<ComboboxSelected>>", self._update_subtitle_format_ui)
-        self.subtitle_duration_label = ttk.Label(output, text="最后一句持续时间：")
-        self.subtitle_duration_label.grid(row=1, column=2, sticky="e", pady=(8, 0))
+        ttk.Checkbutton(
+            output, text="高级设置（可选）", variable=self.subtitle_advanced_visible,
+            command=self._toggle_subtitle_advanced
+        ).grid(row=2, column=0, columnspan=3, sticky="w", pady=(8, 4))
+        self.subtitle_advanced_frame = ttk.Frame(output, style="Card.TFrame")
+        self.subtitle_advanced_frame.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(2, 6))
+        self.subtitle_duration_label = ttk.Label(self.subtitle_advanced_frame, text="最后一句持续时间", style="Card.TLabel")
+        self.subtitle_duration_label.pack(side="left")
         self.subtitle_duration_box = ttk.Spinbox(
-            output, from_=0.1, to=3600, increment=0.5,
+            self.subtitle_advanced_frame, from_=0.1, to=3600, increment=0.5,
             textvariable=self.subtitle_final_duration, width=7
         )
-        self.subtitle_duration_box.grid(row=1, column=3, sticky="w", padx=(6, 0), pady=(8, 0))
-        self.subtitle_duration_unit = ttk.Label(output, text="秒（仅补全无结束时间的歌词）")
-        self.subtitle_duration_unit.grid(row=1, column=4, sticky="w", padx=(4, 0), pady=(8, 0))
+        self.subtitle_duration_box.pack(side="left", padx=(10, 5))
+        self.subtitle_duration_unit = ttk.Label(self.subtitle_advanced_frame, text="秒（仅补全无结束时间的歌词）", style="CardMuted.TLabel")
+        self.subtitle_duration_unit.pack(side="left")
+        ttk.Button(output, text="开始批量转换", command=self.convert_all, style="Accent.TButton").grid(
+            row=4, column=0, columnspan=3, sticky="ew", pady=(10, 0)
+        )
+        self._toggle_subtitle_advanced()
         self._update_subtitle_format_ui()
-        preview_frame = ttk.LabelFrame(root, text="转换结果预览", padding=8)
-        preview_frame.grid(row=3, column=0, sticky="nsew")
+
+        preview_frame = ttk.LabelFrame(body, text="3  转换结果预览", padding=12, style="Card.TLabelframe")
+        preview_frame.grid(row=0, column=1, sticky="nsew")
         preview_frame.columnconfigure(1, weight=1)
         preview_frame.rowconfigure(1, weight=1)
-        ttk.Label(preview_frame, text="结果：").grid(row=0, column=0, sticky="w")
+        ttk.Label(preview_frame, text="结果", style="Card.TLabel").grid(row=0, column=0, sticky="w")
         self.result_box = ttk.Combobox(preview_frame, state="readonly")
         self.result_box.grid(row=0, column=1, sticky="ew", padx=(6, 6), pady=(0, 6))
         self.result_box.bind("<<ComboboxSelected>>", self.show_selected_result)
         ttk.Button(preview_frame, text="当前结果另存为…", command=self.save_current).grid(
             row=0, column=2, pady=(0, 6)
         )
-        self.preview = tk.Text(preview_frame, wrap="word", font=("Microsoft YaHei UI", 10), undo=False)
+        self.preview = tk.Text(
+            preview_frame, wrap="word", font=("Consolas", 10), undo=False,
+            relief="flat", borderwidth=1, background="#ffffff", foreground=COLORS["text"], padx=10, pady=10
+        )
         self.preview.grid(row=1, column=0, columnspan=3, sticky="nsew")
         preview_scroll = ttk.Scrollbar(preview_frame, orient="vertical", command=self.preview.yview)
         preview_scroll.grid(row=1, column=3, sticky="ns")
         self.preview.configure(yscrollcommand=preview_scroll.set, state="disabled")
-        ttk.Label(root, textvariable=self.status, anchor="w").grid(row=4, column=0, sticky="ew", pady=(8, 0))
+        ttk.Label(preview_frame, textvariable=self.status, anchor="w", style="CardMuted.TLabel", wraplength=650).grid(
+            row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0)
+        )
+
+    def _toggle_subtitle_advanced(self) -> None:
+        if self.subtitle_advanced_visible.get():
+            self.subtitle_advanced_frame.grid()
+        else:
+            self.subtitle_advanced_frame.grid_remove()
 
     def choose_files(self) -> None:
         names = filedialog.askopenfilenames(
