@@ -9,6 +9,7 @@ from sub2lrc.audio_preview import (
     PlaybackState,
     current_lyric_index,
     load_audio_lyrics,
+    lyric_index_from_display_line,
     parse_lrc_timeline,
 )
 
@@ -46,6 +47,8 @@ class AudioPreviewTests(unittest.TestCase):
         self.assertIsNone(current_lyric_index(timeline, 0.5))
         self.assertEqual(current_lyric_index(timeline, 2.6), 1)
         self.assertEqual(timeline[current_lyric_index(timeline, 6.0) or 0].text, "第二句")
+        self.assertEqual(lyric_index_from_display_line(timeline, 2), 1)
+        self.assertIsNone(lyric_index_from_display_line(timeline, 99))
 
     def test_same_name_external_lrc_is_loaded_without_changing_audio(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

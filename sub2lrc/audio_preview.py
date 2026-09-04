@@ -62,6 +62,12 @@ def current_lyric_index(timeline: tuple[LyricLine, ...], position: float) -> int
     return index if index >= 0 else None
 
 
+def lyric_index_from_display_line(timeline: tuple[LyricLine, ...], line_number: int) -> int | None:
+    """Map a one-based line in the clean lyric view back to its timeline item."""
+    index = line_number - 1
+    return index if 0 <= index < len(timeline) else None
+
+
 def load_audio_lyrics(path: str | Path) -> tuple[str, tuple[LyricLine, ...]]:
     """Prefer a same-name external LRC, then a timed embedded MP3 lyric."""
     audio_path = Path(path)

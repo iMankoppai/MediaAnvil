@@ -27,6 +27,7 @@ from .audio_preview import (
     PlaybackState,
     current_lyric_index,
     load_audio_lyrics,
+    lyric_index_from_display_line,
 )
 from .converter import SubtitleError, convert_file, read_subtitle, unique_output_path
 from .cropper import CoverCropDialog
@@ -180,6 +181,7 @@ class Sub2LRCApp(tk.Tk):
         lyric_scroll.grid(row=0, column=1, sticky="ns")
         self.preview_lyrics.configure(yscrollcommand=lyric_scroll.set)
         self.preview_lyrics.tag_configure("current", background="#fff2a8", foreground="#9a3b00")
+        self.preview_lyrics.bind("<Button-1>", self._click_preview_lyric)
         self.after(200, self._poll_preview_audio)
 
     def choose_preview_audio(self) -> None:
@@ -208,16 +210,16 @@ class Sub2LRCApp(tk.Tk):
         self.preview_audio_scale.configure(to=duration)
         self._preview_lyric_index = None
         try:
-            lyrics, self._preview_timeline = load_audio_lyrics(selected)
+            _lyrics, self._preview_timeline = load_audio_lyrics(selected)
         except (OSError, SubtitleError) as exc:
-            lyrics, self._preview_timeline = "", ()
+            self._preview_timeline = ()
             self.preview_audio_status.set(f"音频已载入，歌词读取失败：{exc}")
         else:
             self.preview_audio_status.set("音频与歌词已载入" if self._preview_timeline else "音频已载入（没有同步歌词）")
         self.preview_lyrics.configure(state="normal")
         self.preview_lyrics.delete("1.0", "end")
-        if lyrics:
-            self.preview_lyrics.insert("1.0", lyrics)
+        if self._preview_timeline:
+            self.preview_lyrics.insert("1.0", "\n".join(line.text for line in self._preview_timeline))
         self.preview_lyrics.configure(state="disabled")
         self._update_preview_time(0.0, duration)
 
@@ -286,11 +288,36 @@ class Sub2LRCApp(tk.Tk):
         self.preview_lyrics.configure(state="normal")
         self.preview_lyrics.tag_remove("current", "1.0", "end")
         if index is not None:
-            line = self._preview_timeline[index].source_line + 1
+            line = index + 1
             start, end = f"{line}.0", f"{line}.end"
             self.preview_lyrics.tag_add("current", start, end)
             self.preview_lyrics.see(start)
+            total_lines = max(1, len(self._preview_timeline))
+            self.preview_lyrics.yview_moveto(max(0.0, min(1.0, (line - 1) / total_lines - 0.35)))
         self.preview_lyrics.configure(state="disabled")
+
+    def _click_preview_lyric(self, event: tk.Event) -> str | None:
+        player = self._preview_player
+        if player is None or not self._preview_timeline:
+            return None
+        clicked_line = int(self.preview_lyrics.index(f"@{event.x},{event.y}").split(".")[0])
+        index = lyric_index_from_display_line(self._preview_timeline, clicked_line)
+        if index is None:
+            return None
+        was_stopped = player.state == PlaybackState.STOPPED
+        target = self._preview_timeline[index].time_seconds
+        player.seek(target)
+        if was_stopped:
+            try:
+                player.play()
+            except AudioPreviewError as exc:
+                messagebox.showerror("播放失败", str(exc))
+                return "break"
+        self.preview_audio_position.set(target)
+        self._update_preview_time(target, player.duration)
+        self._highlight_preview_lyric(index)
+        self.preview_audio_status.set("已跳转到所选歌词")
+        return "break"
 
     def _update_preview_time(self, position: float, duration: float) -> None:
         def format_time(value: float) -> str:
