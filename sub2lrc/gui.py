@@ -32,6 +32,13 @@ from .image_converter import (
     convert_image_batch,
 )
 from .metadata import MetadataError
+from .mp3_exporter import (
+    Mp3AudioInfo,
+    Mp3ExportError,
+    export_embedded_cover,
+    export_embedded_lyrics,
+    inspect_mp3,
+)
 
 
 class Sub2LRCApp(tk.Tk):
@@ -73,6 +80,7 @@ class Sub2LRCApp(tk.Tk):
         self.editor_cover_state = tk.StringVar(value="尚未读取封面")
         self.editor_output_mode = tk.StringVar(value="save_as")
         self.editor_status = tk.StringVar(value="请选择一个 MP3 文件开始编辑")
+        self.editor_audio_info = tk.StringVar(value="选择 MP3 后显示格式、时长、码率、采样率、声道和大小")
         self.lyrics_button_text = tk.StringVar(value="导入 LRC…")
         self.cover_button_text = tk.StringVar(value="选择图片…")
         self._original_editor_state: Mp3EditorState | None = None
@@ -549,6 +557,9 @@ class Sub2LRCApp(tk.Tk):
             row=0, column=0, sticky="ew", padx=(0, 8)
         )
         ttk.Button(file_area, text="选择 MP3…", command=self.choose_editor_mp3).grid(row=0, column=1)
+        ttk.Label(
+            file_area, textvariable=self.editor_audio_info, foreground="#555555", wraplength=820
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
         upper = ttk.Frame(root)
         upper.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
@@ -585,6 +596,7 @@ class Sub2LRCApp(tk.Tk):
         ttk.Button(cover_actions, textvariable=self.cover_button_text, command=self.choose_editor_cover).pack(
             side="left", padx=3
         )
+        ttk.Button(cover_actions, text="导出", command=self.export_editor_cover).pack(side="left", padx=3)
         ttk.Button(cover_actions, text="移除", command=self.mark_cover_for_removal).pack(side="left", padx=3)
 
         lyrics = ttk.LabelFrame(root, text="3. 歌词", padding=10)
@@ -596,6 +608,9 @@ class Sub2LRCApp(tk.Tk):
         self.lyrics_state_label = ttk.Label(lyrics_toolbar, textvariable=self.editor_lyrics_state)
         self.lyrics_state_label.pack(side="left")
         ttk.Button(lyrics_toolbar, text="移除歌词", command=self.mark_lyrics_for_removal).pack(side="right")
+        ttk.Button(lyrics_toolbar, text="导出歌词…", command=self.export_editor_lyrics).pack(
+            side="right", padx=(0, 6)
+        )
         ttk.Button(lyrics_toolbar, textvariable=self.lyrics_button_text, command=self.choose_editor_lrc).pack(
             side="right", padx=(0, 6)
         )
@@ -641,7 +656,8 @@ class Sub2LRCApp(tk.Tk):
     def _load_editor_file(self, path: Path, show_error: bool) -> bool:
         try:
             state = read_mp3_editor_state(path)
-        except (OSError, MetadataError, Mp3EditorError) as exc:
+            audio_info = inspect_mp3(path)
+        except (OSError, MetadataError, Mp3EditorError, Mp3ExportError) as exc:
             self.editor_status.set(f"读取失败：{exc}")
             if show_error:
                 messagebox.showerror("读取 MP3 失败", str(exc))
@@ -655,6 +671,7 @@ class Sub2LRCApp(tk.Tk):
         self.editor_title.set(state.title)
         self.editor_artist.set(state.artist)
         self.editor_album.set(state.album)
+        self.editor_audio_info.set(self._format_audio_info(audio_info))
         self.editor_lyrics_state.set("已内嵌歌词" if state.has_lyrics else "未检测到内嵌歌词")
         self.lyrics_state_label.configure(foreground="#26734d" if state.has_lyrics else "#c62828")
         self.lyrics_button_text.set("更换歌词…" if state.has_lyrics else "导入 LRC…")
@@ -665,6 +682,72 @@ class Sub2LRCApp(tk.Tk):
         self._show_cover_data(state.cover_data)
         self.editor_status.set("信息读取完成；修改需要调整的内容后统一保存")
         return True
+
+    @staticmethod
+    def _format_audio_info(info: Mp3AudioInfo) -> str:
+        total_seconds = max(0, round(info.duration_seconds))
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        duration = f"{hours}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes}:{seconds:02d}"
+        channels = {1: "单声道", 2: "立体声"}.get(info.channels, f"{info.channels} 声道")
+        size_mb = info.file_size_bytes / 1024 / 1024
+        return (
+            f"MP3  ·  {duration}  ·  {info.bitrate_kbps} kbps  ·  "
+            f"{info.sample_rate_hz:,} Hz  ·  {channels}  ·  {size_mb:.1f} MB  ·  "
+            f"{info.id3_version}（{info.tag_count} 个标签）"
+        )
+
+    def export_editor_lyrics(self) -> None:
+        state = self._original_editor_state
+        source_text = self.editor_mp3_path.get().strip()
+        if state is None or not source_text:
+            messagebox.showinfo("Sub2LRC", "请先选择 MP3 文件。")
+            return
+        if not state.has_lyrics:
+            messagebox.showinfo("没有内嵌歌词", "当前 MP3 没有可导出的内嵌歌词。")
+            return
+        selected = filedialog.askdirectory(title="选择歌词导出目录", initialdir=str(Path(source_text).parent))
+        if not selected:
+            return
+        try:
+            output, frame_count = export_embedded_lyrics(source_text, selected)
+        except (OSError, Mp3ExportError) as exc:
+            messagebox.showerror("导出歌词失败", str(exc))
+            return
+        self.editor_status.set(f"已导出歌词：{output}")
+        if frame_count > 1:
+            messagebox.showwarning(
+                "歌词已导出",
+                f"检测到 {frame_count} 个歌词标签，已优先导出本软件写入的歌词。\n输出文件：{output}",
+            )
+        else:
+            messagebox.showinfo("歌词已导出", f"输出文件：{output}")
+
+    def export_editor_cover(self) -> None:
+        state = self._original_editor_state
+        source_text = self.editor_mp3_path.get().strip()
+        if state is None or not source_text:
+            messagebox.showinfo("Sub2LRC", "请先选择 MP3 文件。")
+            return
+        if not state.has_cover:
+            messagebox.showinfo("没有内嵌封面", "当前 MP3 没有可导出的内嵌封面。")
+            return
+        selected = filedialog.askdirectory(title="选择封面导出目录", initialdir=str(Path(source_text).parent))
+        if not selected:
+            return
+        try:
+            output, frame_count = export_embedded_cover(source_text, selected)
+        except (OSError, Mp3ExportError) as exc:
+            messagebox.showerror("导出封面失败", str(exc))
+            return
+        self.editor_status.set(f"已导出封面：{output}")
+        if frame_count > 1:
+            messagebox.showwarning(
+                "封面已导出",
+                f"检测到 {frame_count} 张内嵌图片，已优先导出正面封面。\n输出文件：{output}",
+            )
+        else:
+            messagebox.showinfo("封面已导出", f"输出文件：{output}")
 
     def choose_editor_lrc(self) -> None:
         if self._original_editor_state is None:
