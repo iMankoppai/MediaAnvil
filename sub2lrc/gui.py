@@ -90,6 +90,7 @@ class Sub2LRCApp(tk.Tk):
         self._preview_timeline: tuple[LyricLine, ...] = ()
         self._preview_seeking = False
         self._preview_lyric_index: int | None = None
+        self._preview_hover_line: int | None = None
         self._preview_space_down = False
         self.editor_mp3_path = tk.StringVar()
         self.editor_title = tk.StringVar()
@@ -191,7 +192,10 @@ class Sub2LRCApp(tk.Tk):
         self.preview_lyrics.configure(yscrollcommand=lyric_scroll.set)
         self.preview_lyrics.tag_configure("center", justify="center", spacing1=3, spacing3=3)
         self.preview_lyrics.tag_configure("current", foreground="#b8860b")
+        self.preview_lyrics.tag_configure("hover", background="#fff4cc")
         self.preview_lyrics.bind("<Button-1>", self._click_preview_lyric)
+        self.preview_lyrics.bind("<Motion>", self._hover_preview_lyric)
+        self.preview_lyrics.bind("<Leave>", self._leave_preview_lyrics)
         self.after(200, self._poll_preview_audio)
 
     def choose_preview_audio(self) -> None:
@@ -219,6 +223,7 @@ class Sub2LRCApp(tk.Tk):
         self.preview_audio_position.set(0.0)
         self.preview_audio_scale.configure(to=duration)
         self._preview_lyric_index = None
+        self._preview_hover_line = None
         try:
             _lyrics, self._preview_timeline = load_audio_lyrics(selected)
         except (OSError, SubtitleError) as exc:
@@ -301,8 +306,8 @@ class Sub2LRCApp(tk.Tk):
                 self.preview_audio_status.set("播放完成")
         self.after(200, self._poll_preview_audio)
 
-    def _highlight_preview_lyric(self, index: int | None) -> None:
-        if index == self._preview_lyric_index:
+    def _highlight_preview_lyric(self, index: int | None, *, force_scroll: bool = False) -> None:
+        if index == self._preview_lyric_index and not force_scroll:
             return
         self._preview_lyric_index = index
         self.preview_lyrics.configure(state="normal")
@@ -311,16 +316,62 @@ class Sub2LRCApp(tk.Tk):
             line = index + 1
             start, end = f"{line}.0", f"{line}.end"
             self.preview_lyrics.tag_add("current", start, end)
-            self.preview_lyrics.see(start)
-            total_lines = max(1, len(self._preview_timeline))
-            self.preview_lyrics.yview_moveto(max(0.0, min(1.0, (line - 1) / total_lines - 0.35)))
+            self._center_preview_lyric_line(start)
         self.preview_lyrics.configure(state="disabled")
+
+    def _center_preview_lyric_line(self, text_index: str) -> None:
+        """Center a visible lyric using its actual rendered position, not a line estimate."""
+        self.preview_lyrics.see(text_index)
+        self.preview_lyrics.update_idletasks()
+        for _attempt in range(2):
+            line_info = self.preview_lyrics.dlineinfo(text_index)
+            if line_info is None:
+                return
+            _x, y, _width, line_height, _baseline = line_info
+            offset = y + line_height / 2 - self.preview_lyrics.winfo_height() / 2
+            display_lines = round(offset / max(1, line_height))
+            if display_lines == 0:
+                return
+            self.preview_lyrics.yview_scroll(display_lines, "units")
+            self.preview_lyrics.update_idletasks()
+
+    def _hover_preview_lyric(self, event: tk.Event) -> None:
+        hover_line = self._preview_line_at_pointer(event)
+        if hover_line == self._preview_hover_line:
+            return
+        self._preview_hover_line = hover_line
+        self.preview_lyrics.configure(state="normal")
+        self.preview_lyrics.tag_remove("hover", "1.0", "end")
+        if hover_line is not None:
+            self.preview_lyrics.tag_add("hover", f"{hover_line}.0", f"{hover_line + 1}.0")
+            self.preview_lyrics.configure(cursor="hand2")
+        else:
+            self.preview_lyrics.configure(cursor="arrow")
+        self.preview_lyrics.configure(state="disabled")
+
+    def _leave_preview_lyrics(self, _event: tk.Event) -> None:
+        self._preview_hover_line = None
+        self.preview_lyrics.configure(state="normal")
+        self.preview_lyrics.tag_remove("hover", "1.0", "end")
+        self.preview_lyrics.configure(state="disabled", cursor="arrow")
+
+    def _preview_line_at_pointer(self, event: tk.Event) -> int | None:
+        line = int(self.preview_lyrics.index(f"@{event.x},{event.y}").split(".")[0])
+        if lyric_index_from_display_line(self._preview_timeline, line) is None:
+            return None
+        line_info = self.preview_lyrics.dlineinfo(f"{line}.0")
+        if line_info is None:
+            return None
+        _x, y, _width, height, _baseline = line_info
+        return line if y <= event.y < y + height else None
 
     def _click_preview_lyric(self, event: tk.Event) -> str | None:
         player = self._preview_player
         if player is None or not self._preview_timeline:
             return None
-        clicked_line = int(self.preview_lyrics.index(f"@{event.x},{event.y}").split(".")[0])
+        clicked_line = self._preview_line_at_pointer(event)
+        if clicked_line is None:
+            return None
         index = lyric_index_from_display_line(self._preview_timeline, clicked_line)
         if index is None:
             return None
@@ -335,7 +386,7 @@ class Sub2LRCApp(tk.Tk):
                 return "break"
         self.preview_audio_position.set(target)
         self._update_preview_time(target, player.duration)
-        self._highlight_preview_lyric(index)
+        self._highlight_preview_lyric(index, force_scroll=True)
         self.preview_audio_status.set("已跳转到所选歌词")
         return "break"
 
