@@ -104,7 +104,13 @@ def find_ffmpeg(explicit: str | Path | None = None) -> Path:
         raise FfmpegNotFoundError(f"找不到指定的 FFmpeg：{candidate}")
     names = ("ffmpeg.exe", "ffmpeg") if os.name == "nt" else ("ffmpeg", "ffmpeg.exe")
     bundled_folder = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
-    folders = (bundled_folder, Path(sys.executable).resolve().parent, Path(__file__).resolve().parent.parent)
+    project_folder = Path(__file__).resolve().parent.parent
+    folders = (
+        bundled_folder,
+        Path(sys.executable).resolve().parent,
+        project_folder / "vendor" / "ffmpeg",
+        project_folder,
+    )
     for folder in folders:
         for name in names:
             candidate = folder / name

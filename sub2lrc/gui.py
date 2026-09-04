@@ -20,6 +20,14 @@ from .audio_converter import (
     convert_audio_batch,
     find_ffmpeg,
 )
+from .audio_preview import (
+    AudioPreviewError,
+    AudioPreviewPlayer,
+    LyricLine,
+    PlaybackState,
+    current_lyric_index,
+    load_audio_lyrics,
+)
 from .converter import SubtitleError, convert_file, read_subtitle, unique_output_path
 from .cropper import CoverCropDialog
 from .editor import Mp3Edits, Mp3EditorError, Mp3EditorState, read_mp3_editor_state, save_mp3_edits
@@ -72,6 +80,15 @@ class Sub2LRCApp(tk.Tk):
         self.image_summary = tk.StringVar(value="")
         self.image_progress = tk.DoubleVar(value=0.0)
         self._image_running = False
+        self.preview_audio_path = tk.StringVar()
+        self.preview_audio_status = tk.StringVar(value="请选择一首音频进行预览")
+        self.preview_audio_time = tk.StringVar(value="00:00 / 00:00")
+        self.preview_audio_position = tk.DoubleVar(value=0.0)
+        self.preview_audio_volume = tk.DoubleVar(value=80.0)
+        self._preview_player: AudioPreviewPlayer | None = None
+        self._preview_timeline: tuple[LyricLine, ...] = ()
+        self._preview_seeking = False
+        self._preview_lyric_index: int | None = None
         self.editor_mp3_path = tk.StringVar()
         self.editor_title = tk.StringVar()
         self.editor_artist = tk.StringVar()
@@ -100,14 +117,187 @@ class Sub2LRCApp(tk.Tk):
         editor_tab = ttk.Frame(notebook, padding=14)
         audio_tab = ttk.Frame(notebook, padding=14)
         image_tab = ttk.Frame(notebook, padding=14)
+        preview_tab = ttk.Frame(notebook, padding=14)
         notebook.add(converter_tab, text="歌词 / 字幕转换")
         notebook.add(editor_tab, text="音频标签编辑")
+        notebook.add(preview_tab, text="音频预览")
         notebook.add(audio_tab, text="音频格式转换")
         notebook.add(image_tab, text="图片格式转换")
         self._build_converter_tab(converter_tab)
         self._build_editor_tab(editor_tab)
         self._build_audio_tab(audio_tab)
         self._build_image_tab(image_tab)
+        self._build_preview_tab(preview_tab)
+
+    def _build_preview_tab(self, root: ttk.Frame) -> None:
+        root.columnconfigure(0, weight=1)
+        root.rowconfigure(3, weight=1)
+        ttk.Label(root, text="音频预览", font=("Microsoft YaHei UI", 14, "bold")).grid(
+            row=0, column=0, sticky="w", pady=(0, 12)
+        )
+        source = ttk.LabelFrame(root, text="音频文件", padding=10)
+        source.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        source.columnconfigure(0, weight=1)
+        ttk.Entry(source, textvariable=self.preview_audio_path, state="readonly").grid(
+            row=0, column=0, sticky="ew", padx=(0, 8)
+        )
+        ttk.Button(source, text="选择音频…", command=self.choose_preview_audio).grid(row=0, column=1)
+
+        controls = ttk.LabelFrame(root, text="播放控制", padding=10)
+        controls.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        controls.columnconfigure(3, weight=1)
+        ttk.Button(controls, text="播放", command=self.play_preview_audio).grid(row=0, column=0, padx=(0, 6))
+        ttk.Button(controls, text="暂停", command=self.pause_preview_audio).grid(row=0, column=1, padx=6)
+        ttk.Button(controls, text="停止", command=self.stop_preview_audio).grid(row=0, column=2, padx=(6, 12))
+        self.preview_audio_scale = ttk.Scale(
+            controls, from_=0, to=1, variable=self.preview_audio_position, orient="horizontal"
+        )
+        self.preview_audio_scale.grid(row=0, column=3, sticky="ew")
+        self.preview_audio_scale.bind("<ButtonPress-1>", self._begin_preview_seek)
+        self.preview_audio_scale.bind("<ButtonRelease-1>", self._end_preview_seek)
+        ttk.Label(controls, textvariable=self.preview_audio_time, width=15, anchor="e").grid(
+            row=0, column=4, padx=(10, 0)
+        )
+        ttk.Label(controls, text="音量：").grid(row=1, column=0, columnspan=2, sticky="e", pady=(10, 0))
+        self.preview_volume_scale = ttk.Scale(
+            controls, from_=0, to=100, variable=self.preview_audio_volume, orient="horizontal", length=180
+        )
+        self.preview_volume_scale.grid(row=1, column=2, columnspan=2, sticky="w", pady=(10, 0))
+        self.preview_volume_scale.bind("<ButtonRelease-1>", self._apply_preview_volume)
+        ttk.Label(controls, textvariable=self.preview_audio_status, foreground="#555555").grid(
+            row=1, column=4, sticky="e", pady=(10, 0)
+        )
+
+        lyrics = ttk.LabelFrame(root, text="同步歌词", padding=10)
+        lyrics.grid(row=3, column=0, sticky="nsew")
+        lyrics.columnconfigure(0, weight=1)
+        lyrics.rowconfigure(0, weight=1)
+        self.preview_lyrics = tk.Text(
+            lyrics, wrap="word", font=("Microsoft YaHei UI", 11), state="disabled", spacing2=4
+        )
+        self.preview_lyrics.grid(row=0, column=0, sticky="nsew")
+        lyric_scroll = ttk.Scrollbar(lyrics, orient="vertical", command=self.preview_lyrics.yview)
+        lyric_scroll.grid(row=0, column=1, sticky="ns")
+        self.preview_lyrics.configure(yscrollcommand=lyric_scroll.set)
+        self.preview_lyrics.tag_configure("current", background="#fff2a8", foreground="#9a3b00")
+        self.after(200, self._poll_preview_audio)
+
+    def choose_preview_audio(self) -> None:
+        selected = filedialog.askopenfilename(
+            title="选择预览音频",
+            filetypes=[
+                ("支持的音频", "*.mp3 *.wav *.flac *.m4a *.aac *.ogg"),
+                ("MP3", "*.mp3"), ("WAV", "*.wav"), ("FLAC", "*.flac"),
+                ("M4A / AAC", "*.m4a *.aac"), ("OGG", "*.ogg"),
+            ],
+        )
+        if not selected:
+            return
+        if self._preview_player is not None:
+            self._preview_player.close()
+        try:
+            player = AudioPreviewPlayer()
+            duration = player.load(selected)
+        except AudioPreviewError as exc:
+            self._preview_player = None
+            messagebox.showerror("无法预览音频", str(exc))
+            return
+        self._preview_player = player
+        self.preview_audio_path.set(selected)
+        self.preview_audio_position.set(0.0)
+        self.preview_audio_scale.configure(to=duration)
+        self._preview_lyric_index = None
+        try:
+            lyrics, self._preview_timeline = load_audio_lyrics(selected)
+        except (OSError, SubtitleError) as exc:
+            lyrics, self._preview_timeline = "", ()
+            self.preview_audio_status.set(f"音频已载入，歌词读取失败：{exc}")
+        else:
+            self.preview_audio_status.set("音频与歌词已载入" if self._preview_timeline else "音频已载入（没有同步歌词）")
+        self.preview_lyrics.configure(state="normal")
+        self.preview_lyrics.delete("1.0", "end")
+        if lyrics:
+            self.preview_lyrics.insert("1.0", lyrics)
+        self.preview_lyrics.configure(state="disabled")
+        self._update_preview_time(0.0, duration)
+
+    def play_preview_audio(self) -> None:
+        if self._preview_player is None:
+            messagebox.showinfo("Sub2LRC", "请先选择一首音频。")
+            return
+        try:
+            self._preview_player.play()
+            self.preview_audio_status.set("正在播放")
+        except AudioPreviewError as exc:
+            messagebox.showerror("播放失败", str(exc))
+
+    def pause_preview_audio(self) -> None:
+        if self._preview_player is None:
+            return
+        try:
+            self._preview_player.pause()
+            if self._preview_player.state == PlaybackState.PAUSED:
+                self.preview_audio_status.set("已暂停")
+        except AudioPreviewError as exc:
+            messagebox.showerror("暂停失败", str(exc))
+
+    def stop_preview_audio(self) -> None:
+        if self._preview_player is None:
+            return
+        self._preview_player.stop()
+        self.preview_audio_position.set(0.0)
+        self.preview_audio_status.set("已停止")
+        self._highlight_preview_lyric(None)
+        self._update_preview_time(0.0, self._preview_player.duration)
+
+    def _begin_preview_seek(self, _event: object) -> None:
+        self._preview_seeking = True
+
+    def _end_preview_seek(self, _event: object) -> None:
+        self._preview_seeking = False
+        if self._preview_player is not None:
+            self._preview_player.seek(self.preview_audio_position.get())
+
+    def _apply_preview_volume(self, _event: object) -> None:
+        if self._preview_player is None:
+            return
+        try:
+            self._preview_player.set_volume(round(self.preview_audio_volume.get()))
+        except AudioPreviewError as exc:
+            messagebox.showerror("音量调整失败", str(exc))
+
+    def _poll_preview_audio(self) -> None:
+        player = self._preview_player
+        if player is not None:
+            position = player.position
+            if not self._preview_seeking:
+                self.preview_audio_position.set(position)
+            self._update_preview_time(position, player.duration)
+            lyric_index = current_lyric_index(self._preview_timeline, position)
+            self._highlight_preview_lyric(lyric_index)
+            if player.state == PlaybackState.STOPPED and position >= player.duration:
+                self.preview_audio_status.set("播放完成")
+        self.after(200, self._poll_preview_audio)
+
+    def _highlight_preview_lyric(self, index: int | None) -> None:
+        if index == self._preview_lyric_index:
+            return
+        self._preview_lyric_index = index
+        self.preview_lyrics.configure(state="normal")
+        self.preview_lyrics.tag_remove("current", "1.0", "end")
+        if index is not None:
+            line = self._preview_timeline[index].source_line + 1
+            start, end = f"{line}.0", f"{line}.end"
+            self.preview_lyrics.tag_add("current", start, end)
+            self.preview_lyrics.see(start)
+        self.preview_lyrics.configure(state="disabled")
+
+    def _update_preview_time(self, position: float, duration: float) -> None:
+        def format_time(value: float) -> str:
+            total = max(0, round(value))
+            minutes, seconds = divmod(total, 60)
+            return f"{minutes:02d}:{seconds:02d}"
+        self.preview_audio_time.set(f"{format_time(position)} / {format_time(duration)}")
 
     def _build_image_tab(self, root: ttk.Frame) -> None:
         root.columnconfigure(0, weight=1)
@@ -955,6 +1145,8 @@ class Sub2LRCApp(tk.Tk):
         self._pending_cover_path = None
 
     def destroy(self) -> None:
+        if self._preview_player is not None:
+            self._preview_player.close()
         self._cleanup_pending_cover()
         super().destroy()
 
