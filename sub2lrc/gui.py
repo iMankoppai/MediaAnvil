@@ -113,6 +113,8 @@ class Sub2LRCApp(tk.Tk):
         self._cover_action = "unchanged"
         self._pending_cover_path: Path | None = None
         self._cover_photo: ImageTk.PhotoImage | None = None
+        self._active_tool_tab_id: str | None = None
+        self._converter_selected_result = ""
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -132,13 +134,106 @@ class Sub2LRCApp(tk.Tk):
         notebook.add(converter_tab, text="歌词 / 字幕转换")
         notebook.add(audio_tab, text="音频格式转换")
         notebook.add(image_tab, text="图片格式转换")
-        self._build_converter_tab(converter_tab)
-        self._build_editor_tab(editor_tab)
-        self._build_audio_tab(audio_tab)
-        self._build_image_tab(image_tab)
         self._build_preview_tab(preview_tab)
+        self._tool_tab_builders = {
+            str(editor_tab): self._build_editor_tab,
+            str(converter_tab): self._build_converter_tab,
+            str(audio_tab): self._build_audio_tab,
+            str(image_tab): self._build_image_tab,
+        }
+        self._tool_tab_kinds = {
+            str(editor_tab): "editor",
+            str(converter_tab): "converter",
+            str(audio_tab): "audio",
+            str(image_tab): "image",
+        }
+        notebook.bind("<<NotebookTabChanged>>", self._on_main_tab_changed, add="+")
         self.bind("<KeyPress-space>", self._toggle_preview_with_space)
         self.bind("<KeyRelease-space>", self._release_preview_space)
+
+    def _on_main_tab_changed(self, _event: tk.Event | None = None) -> None:
+        selected = self.main_notebook.select()
+        if selected == self._active_tool_tab_id:
+            return
+        if self._active_tool_tab_id and (self._audio_running or self._image_running):
+            self.main_notebook.select(self._active_tool_tab_id)
+            return
+        self._destroy_active_tool_tab()
+        builder = self._tool_tab_builders.get(selected)
+        if builder is None:
+            return
+        root = self.nametowidget(selected)
+        builder(root)
+        self._active_tool_tab_id = selected
+        self._restore_active_tool_tab(self._tool_tab_kinds[selected])
+
+    def _destroy_active_tool_tab(self) -> None:
+        tab_id = self._active_tool_tab_id
+        if tab_id is None:
+            return
+        kind = self._tool_tab_kinds[tab_id]
+        if kind == "converter":
+            self._converter_selected_result = self.result_box.get()
+        root = self.nametowidget(tab_id)
+        for child in root.winfo_children():
+            child.destroy()
+        self._active_tool_tab_id = None
+
+    def _restore_active_tool_tab(self, kind: str) -> None:
+        if kind == "converter":
+            for path in self.sources:
+                self.file_list.insert("end", str(path))
+            names = list(self.results)
+            self.result_box["values"] = names
+            selected = self._converter_selected_result
+            if selected not in self.results and names:
+                selected = names[0]
+            if selected:
+                self.result_box.set(selected)
+                self.show_selected_result()
+        elif kind == "audio":
+            for path in self.audio_sources:
+                self.audio_file_list.insert("end", str(path))
+        elif kind == "image":
+            for path in self.image_sources:
+                self.image_file_list.insert("end", str(path))
+        elif kind == "editor":
+            self._restore_editor_widgets()
+
+    def _restore_editor_widgets(self) -> None:
+        state = self._original_editor_state
+        if state is None:
+            return
+        if self._lyrics_action == "remove":
+            lyrics = ""
+        elif self._lyrics_action == "replace" and self._pending_lrc_path is not None:
+            try:
+                lyrics = read_lrc(self._pending_lrc_path)
+            except (OSError, LyricsEmbedError):
+                lyrics = state.lyrics
+        else:
+            lyrics = state.lyrics
+        self._set_lyrics_preview(lyrics)
+
+        if self._cover_action == "remove":
+            self._show_cover_data(None, "保存后移除封面")
+        elif self._cover_action == "replace" and self._pending_cover_path is not None:
+            try:
+                self._show_cover_data(self._pending_cover_path.read_bytes())
+            except OSError:
+                self._show_cover_data(None, "待保存封面无法读取")
+        else:
+            self._show_cover_data(state.cover_data)
+
+        lyrics_color = "#c62828" if self._lyrics_action == "remove" else (
+            "#8a5a00" if self._lyrics_action == "replace" else ("#26734d" if state.has_lyrics else "#c62828")
+        )
+        cover_color = "#c62828" if self._cover_action == "remove" else (
+            "#8a5a00" if self._cover_action == "replace" else ("#26734d" if state.has_cover else "#c62828")
+        )
+        self.lyrics_state_label.configure(foreground=lyrics_color)
+        self.cover_state_label.configure(foreground=cover_color)
+        self._set_editor_writable(state.writable)
 
     def _build_preview_tab(self, root: ttk.Frame) -> None:
         self._create_preview_scale_style()
@@ -584,7 +679,7 @@ class Sub2LRCApp(tk.Tk):
         )
         self.image_start_button = ttk.Button(root, text="开始转换", command=self.start_image_conversion)
         self.image_start_button.grid(row=4, column=0, sticky="e", ipadx=28, ipady=7)
-        self._update_image_parameter_ui()
+        self._update_image_parameter_ui(reset_value=False)
 
     def choose_image_files(self) -> None:
         names = filedialog.askopenfilenames(
@@ -636,10 +731,13 @@ class Sub2LRCApp(tk.Tk):
                 return key
         raise ImageConversionError("请选择有效的图片输出格式。")
 
-    def _update_image_parameter_ui(self, _event: object | None = None) -> None:
+    def _update_image_parameter_ui(
+        self, _event: object | None = None, *, reset_value: bool = True
+    ) -> None:
         spec = IMAGE_FORMAT_SPECS[self._selected_image_format_key()]
         if spec.supports_quality:
-            self.image_quality.set(str(spec.default_quality))
+            if reset_value:
+                self.image_quality.set(str(spec.default_quality))
             self.image_quality_label.grid()
             self.image_quality_box.grid()
         else:
@@ -803,7 +901,7 @@ class Sub2LRCApp(tk.Tk):
         )
         self.audio_start_button = ttk.Button(root, text="开始转换", command=self.start_audio_conversion)
         self.audio_start_button.grid(row=4, column=0, sticky="e", ipadx=28, ipady=7)
-        self._update_audio_parameter_ui()
+        self._update_audio_parameter_ui(reset_value=False)
 
     def choose_audio_files(self) -> None:
         names = filedialog.askopenfilenames(
@@ -924,7 +1022,9 @@ class Sub2LRCApp(tk.Tk):
                 return key
         raise AudioConversionError("请选择有效的输出格式。")
 
-    def _update_audio_parameter_ui(self, _event: object | None = None) -> None:
+    def _update_audio_parameter_ui(
+        self, _event: object | None = None, *, reset_value: bool = True
+    ) -> None:
         spec = FORMAT_SPECS[self._selected_audio_format_key()]
         if spec.parameter_label is None:
             self.audio_parameter_label.grid_remove()
@@ -933,7 +1033,8 @@ class Sub2LRCApp(tk.Tk):
             return
         self.audio_parameter_label.configure(text=f"{spec.parameter_label}：")
         self.audio_parameter_box.configure(values=tuple(str(value) for value in spec.parameter_options))
-        self.audio_parameter.set(str(spec.default_parameter))
+        if reset_value or not self.audio_parameter.get():
+            self.audio_parameter.set(str(spec.default_parameter))
         self.audio_parameter_label.grid()
         self.audio_parameter_box.grid()
 
