@@ -91,6 +91,7 @@ class Sub2LRCApp(tk.Tk):
         self._preview_seeking = False
         self._preview_lyric_index: int | None = None
         self._preview_hover_line: int | None = None
+        self._preview_padding_lines = 0
         self._preview_space_down = False
         self.editor_mp3_path = tk.StringVar()
         self.editor_title = tk.StringVar()
@@ -235,8 +236,22 @@ class Sub2LRCApp(tk.Tk):
         self.preview_lyrics.delete("1.0", "end")
         if self._preview_timeline:
             self.preview_lyrics.insert("1.0", "\n".join(line.text for line in self._preview_timeline))
+            self.preview_lyrics.update_idletasks()
+            line_info = self.preview_lyrics.dlineinfo("1.0")
+            line_height = line_info[3] if line_info is not None else 24
+            self._preview_padding_lines = max(
+                1, round(self.preview_lyrics.winfo_height() / max(1, line_height) / 2)
+            )
+            clean_lyrics = "\n".join(line.text for line in self._preview_timeline)
+            padding = "\n" * self._preview_padding_lines
+            self.preview_lyrics.delete("1.0", "end")
+            self.preview_lyrics.insert("1.0", f"{padding}{clean_lyrics}{padding}")
             self.preview_lyrics.tag_add("center", "1.0", "end")
+        else:
+            self._preview_padding_lines = 0
         self.preview_lyrics.configure(state="disabled")
+        if self._preview_timeline:
+            self._center_preview_lyric_line(f"{self._preview_padding_lines + 1}.0")
         self._update_preview_time(0.0, duration)
 
     def play_preview_audio(self) -> None:
@@ -313,7 +328,7 @@ class Sub2LRCApp(tk.Tk):
         self.preview_lyrics.configure(state="normal")
         self.preview_lyrics.tag_remove("current", "1.0", "end")
         if index is not None:
-            line = index + 1
+            line = self._preview_padding_lines + index + 1
             start, end = f"{line}.0", f"{line}.end"
             self.preview_lyrics.tag_add("current", start, end)
             self._center_preview_lyric_line(start)
@@ -328,7 +343,8 @@ class Sub2LRCApp(tk.Tk):
             if line_info is None:
                 return
             _x, y, _width, line_height, _baseline = line_info
-            offset = y + line_height / 2 - self.preview_lyrics.winfo_height() / 2
+            anchor_y = self.preview_lyrics.winfo_height() * 0.48
+            offset = y + line_height / 2 - anchor_y
             display_lines = round(offset / max(1, line_height))
             if display_lines == 0:
                 return
@@ -356,14 +372,15 @@ class Sub2LRCApp(tk.Tk):
         self.preview_lyrics.configure(state="disabled", cursor="arrow")
 
     def _preview_line_at_pointer(self, event: tk.Event) -> int | None:
-        line = int(self.preview_lyrics.index(f"@{event.x},{event.y}").split(".")[0])
-        if lyric_index_from_display_line(self._preview_timeline, line) is None:
+        display_line = int(self.preview_lyrics.index(f"@{event.x},{event.y}").split(".")[0])
+        lyric_line = display_line - self._preview_padding_lines
+        if lyric_index_from_display_line(self._preview_timeline, lyric_line) is None:
             return None
-        line_info = self.preview_lyrics.dlineinfo(f"{line}.0")
+        line_info = self.preview_lyrics.dlineinfo(f"{display_line}.0")
         if line_info is None:
             return None
         _x, y, _width, height, _baseline = line_info
-        return line if y <= event.y < y + height else None
+        return display_line if y <= event.y < y + height else None
 
     def _click_preview_lyric(self, event: tk.Event) -> str | None:
         player = self._preview_player
@@ -372,7 +389,8 @@ class Sub2LRCApp(tk.Tk):
         clicked_line = self._preview_line_at_pointer(event)
         if clicked_line is None:
             return None
-        index = lyric_index_from_display_line(self._preview_timeline, clicked_line)
+        lyric_line = clicked_line - self._preview_padding_lines
+        index = lyric_index_from_display_line(self._preview_timeline, lyric_line)
         if index is None:
             return None
         was_stopped = player.state == PlaybackState.STOPPED
