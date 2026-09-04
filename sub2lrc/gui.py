@@ -90,6 +90,7 @@ class Sub2LRCApp(tk.Tk):
         self._preview_timeline: tuple[LyricLine, ...] = ()
         self._preview_seeking = False
         self._preview_lyric_index: int | None = None
+        self._preview_space_down = False
         self.editor_mp3_path = tk.StringVar()
         self.editor_title = tk.StringVar()
         self.editor_artist = tk.StringVar()
@@ -113,12 +114,14 @@ class Sub2LRCApp(tk.Tk):
         container = ttk.Frame(self, padding=8)
         container.pack(fill="both", expand=True)
         notebook = ttk.Notebook(container)
+        self.main_notebook = notebook
         notebook.pack(fill="both", expand=True)
         converter_tab = ttk.Frame(notebook, padding=12)
         editor_tab = ttk.Frame(notebook, padding=14)
         audio_tab = ttk.Frame(notebook, padding=14)
         image_tab = ttk.Frame(notebook, padding=14)
         preview_tab = ttk.Frame(notebook, padding=14)
+        self.preview_tab = preview_tab
         notebook.add(preview_tab, text="音频预览")
         notebook.add(editor_tab, text="音频标签编辑")
         notebook.add(converter_tab, text="歌词 / 字幕转换")
@@ -129,6 +132,8 @@ class Sub2LRCApp(tk.Tk):
         self._build_audio_tab(audio_tab)
         self._build_image_tab(image_tab)
         self._build_preview_tab(preview_tab)
+        self.bind("<KeyPress-space>", self._toggle_preview_with_space)
+        self.bind("<KeyRelease-space>", self._release_preview_space)
 
     def _build_preview_tab(self, root: ttk.Frame) -> None:
         root.columnconfigure(0, weight=1)
@@ -146,27 +151,31 @@ class Sub2LRCApp(tk.Tk):
 
         controls = ttk.LabelFrame(root, text="播放控制", padding=10)
         controls.grid(row=2, column=0, sticky="ew", pady=(0, 10))
-        controls.columnconfigure(3, weight=1)
-        ttk.Button(controls, text="播放", command=self.play_preview_audio).grid(row=0, column=0, padx=(0, 6))
-        ttk.Button(controls, text="暂停", command=self.pause_preview_audio).grid(row=0, column=1, padx=6)
-        ttk.Button(controls, text="停止", command=self.stop_preview_audio).grid(row=0, column=2, padx=(6, 12))
+        controls.columnconfigure(2, weight=1)
+        self.preview_play_button = ttk.Button(controls, text="播放", command=self.play_preview_audio)
+        self.preview_play_button.grid(row=0, column=0, padx=(0, 6))
+        self.preview_pause_button = ttk.Button(controls, text="暂停", command=self.pause_preview_audio)
+        self.preview_pause_button.grid(row=0, column=1, padx=6)
+        for button in (self.preview_play_button, self.preview_pause_button):
+            button.bind("<KeyPress-space>", self._toggle_preview_with_space)
+            button.bind("<KeyRelease-space>", self._release_preview_space)
         self.preview_audio_scale = ttk.Scale(
             controls, from_=0, to=1, variable=self.preview_audio_position, orient="horizontal"
         )
-        self.preview_audio_scale.grid(row=0, column=3, sticky="ew")
+        self.preview_audio_scale.grid(row=0, column=2, sticky="ew", padx=(12, 0))
         self.preview_audio_scale.bind("<ButtonPress-1>", self._begin_preview_seek)
         self.preview_audio_scale.bind("<ButtonRelease-1>", self._end_preview_seek)
         ttk.Label(controls, textvariable=self.preview_audio_time, width=15, anchor="e").grid(
-            row=0, column=4, padx=(10, 0)
+            row=0, column=3, padx=(10, 0)
         )
         ttk.Label(controls, text="音量：").grid(row=1, column=0, columnspan=2, sticky="e", pady=(10, 0))
         self.preview_volume_scale = ttk.Scale(
             controls, from_=0, to=100, variable=self.preview_audio_volume, orient="horizontal", length=180
         )
-        self.preview_volume_scale.grid(row=1, column=2, columnspan=2, sticky="w", pady=(10, 0))
+        self.preview_volume_scale.grid(row=1, column=2, sticky="w", pady=(10, 0))
         self.preview_volume_scale.bind("<ButtonRelease-1>", self._apply_preview_volume)
         ttk.Label(controls, textvariable=self.preview_audio_status, foreground="#555555").grid(
-            row=1, column=4, sticky="e", pady=(10, 0)
+            row=1, column=3, sticky="e", pady=(10, 0)
         )
 
         lyrics = ttk.LabelFrame(root, text="同步歌词", padding=10)
@@ -181,7 +190,7 @@ class Sub2LRCApp(tk.Tk):
         lyric_scroll.grid(row=0, column=1, sticky="ns")
         self.preview_lyrics.configure(yscrollcommand=lyric_scroll.set)
         self.preview_lyrics.tag_configure("center", justify="center", spacing1=3, spacing3=3)
-        self.preview_lyrics.tag_configure("current", background="#fff2a8", foreground="#9a3b00")
+        self.preview_lyrics.tag_configure("current", foreground="#b8860b")
         self.preview_lyrics.bind("<Button-1>", self._click_preview_lyric)
         self.after(200, self._poll_preview_audio)
 
@@ -245,14 +254,23 @@ class Sub2LRCApp(tk.Tk):
         except AudioPreviewError as exc:
             messagebox.showerror("暂停失败", str(exc))
 
-    def stop_preview_audio(self) -> None:
+    def _toggle_preview_with_space(self, _event: tk.Event) -> str | None:
+        if self.main_notebook.select() != str(self.preview_tab):
+            return None
+        if self._preview_space_down:
+            return "break"
+        self._preview_space_down = True
         if self._preview_player is None:
-            return
-        self._preview_player.stop()
-        self.preview_audio_position.set(0.0)
-        self.preview_audio_status.set("已停止")
-        self._highlight_preview_lyric(None)
-        self._update_preview_time(0.0, self._preview_player.duration)
+            return "break"
+        if self._preview_player.state == PlaybackState.PLAYING:
+            self.pause_preview_audio()
+        else:
+            self.play_preview_audio()
+        return "break"
+
+    def _release_preview_space(self, _event: tk.Event) -> str | None:
+        self._preview_space_down = False
+        return "break" if self.main_notebook.select() == str(self.preview_tab) else None
 
     def _begin_preview_seek(self, _event: object) -> None:
         self._preview_seeking = True
