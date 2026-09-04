@@ -91,6 +91,7 @@ class Sub2LRCApp(tk.Tk):
         self._preview_seeking = False
         self._preview_lyric_index: int | None = None
         self._preview_hover_line: int | None = None
+        self._preview_pointer_xy: tuple[int, int] | None = None
         self._preview_padding_lines = 0
         self._preview_space_down = False
         self.editor_mp3_path = tk.StringVar()
@@ -190,7 +191,10 @@ class Sub2LRCApp(tk.Tk):
         self.preview_lyrics.grid(row=0, column=0, sticky="nsew")
         lyric_scroll = ttk.Scrollbar(lyrics, orient="vertical", command=self.preview_lyrics.yview)
         lyric_scroll.grid(row=0, column=1, sticky="ns")
-        self.preview_lyrics.configure(yscrollcommand=lyric_scroll.set)
+        def update_lyric_scroll(first: str, last: str) -> None:
+            lyric_scroll.set(first, last)
+            self.after_idle(self._refresh_preview_hover)
+        self.preview_lyrics.configure(yscrollcommand=update_lyric_scroll)
         self.preview_lyrics.tag_configure("center", justify="center", spacing1=3, spacing3=3)
         self.preview_lyrics.tag_configure("current", foreground="#b8860b")
         self.preview_lyrics.tag_configure("hover", background="#fff4cc")
@@ -225,6 +229,7 @@ class Sub2LRCApp(tk.Tk):
         self.preview_audio_scale.configure(to=duration)
         self._preview_lyric_index = None
         self._preview_hover_line = None
+        self._preview_pointer_xy = None
         try:
             _lyrics, self._preview_timeline = load_audio_lyrics(selected)
         except (OSError, SubtitleError) as exc:
@@ -317,6 +322,7 @@ class Sub2LRCApp(tk.Tk):
             self._update_preview_time(position, player.duration)
             lyric_index = current_lyric_index(self._preview_timeline, position)
             self._highlight_preview_lyric(lyric_index)
+            self._refresh_preview_hover()
             if player.state == PlaybackState.STOPPED and position >= player.duration:
                 self.preview_audio_status.set("播放完成")
         self.after(200, self._poll_preview_audio)
@@ -352,7 +358,13 @@ class Sub2LRCApp(tk.Tk):
             self.preview_lyrics.update_idletasks()
 
     def _hover_preview_lyric(self, event: tk.Event) -> None:
-        hover_line = self._preview_line_at_pointer(event)
+        self._preview_pointer_xy = (event.x, event.y)
+        self._refresh_preview_hover()
+
+    def _refresh_preview_hover(self) -> None:
+        hover_line = None
+        if self._preview_pointer_xy is not None:
+            hover_line = self._preview_line_at_coordinates(*self._preview_pointer_xy)
         if hover_line == self._preview_hover_line:
             return
         self._preview_hover_line = hover_line
@@ -366,13 +378,14 @@ class Sub2LRCApp(tk.Tk):
         self.preview_lyrics.configure(state="disabled")
 
     def _leave_preview_lyrics(self, _event: tk.Event) -> None:
+        self._preview_pointer_xy = None
         self._preview_hover_line = None
         self.preview_lyrics.configure(state="normal")
         self.preview_lyrics.tag_remove("hover", "1.0", "end")
         self.preview_lyrics.configure(state="disabled", cursor="arrow")
 
-    def _preview_line_at_pointer(self, event: tk.Event) -> int | None:
-        display_line = int(self.preview_lyrics.index(f"@{event.x},{event.y}").split(".")[0])
+    def _preview_line_at_coordinates(self, x: int, y_pointer: int) -> int | None:
+        display_line = int(self.preview_lyrics.index(f"@{x},{y_pointer}").split(".")[0])
         lyric_line = display_line - self._preview_padding_lines
         if lyric_index_from_display_line(self._preview_timeline, lyric_line) is None:
             return None
@@ -380,13 +393,13 @@ class Sub2LRCApp(tk.Tk):
         if line_info is None:
             return None
         _x, y, _width, height, _baseline = line_info
-        return display_line if y <= event.y < y + height else None
+        return display_line if y <= y_pointer < y + height else None
 
     def _click_preview_lyric(self, event: tk.Event) -> str | None:
         player = self._preview_player
         if player is None or not self._preview_timeline:
             return None
-        clicked_line = self._preview_line_at_pointer(event)
+        clicked_line = self._preview_line_at_coordinates(event.x, event.y)
         if clicked_line is None:
             return None
         lyric_line = clicked_line - self._preview_padding_lines
