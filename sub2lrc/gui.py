@@ -6,7 +6,6 @@ from io import BytesIO
 from pathlib import Path
 import tempfile
 import threading
-import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -96,7 +95,7 @@ class Sub2LRCApp(tk.Tk):
         self._preview_pointer_xy: tuple[int, int] | None = None
         self._preview_padding_lines = 0
         self._preview_space_down = False
-        self._last_window_configure = 0.0
+        self._preview_poll_job: str | None = None
         self.editor_mp3_path = tk.StringVar()
         self.editor_title = tk.StringVar()
         self.editor_artist = tk.StringVar()
@@ -140,11 +139,6 @@ class Sub2LRCApp(tk.Tk):
         self._build_preview_tab(preview_tab)
         self.bind("<KeyPress-space>", self._toggle_preview_with_space)
         self.bind("<KeyRelease-space>", self._release_preview_space)
-        self.bind("<Configure>", self._note_window_configure, add="+")
-
-    def _note_window_configure(self, event: tk.Event) -> None:
-        if event.widget is self:
-            self._last_window_configure = time.monotonic()
 
     def _build_preview_tab(self, root: ttk.Frame) -> None:
         self._create_preview_scale_style()
@@ -217,7 +211,6 @@ class Sub2LRCApp(tk.Tk):
         self.preview_lyrics.bind("<Button-1>", self._click_preview_lyric)
         self.preview_lyrics.bind("<Motion>", self._hover_preview_lyric)
         self.preview_lyrics.bind("<Leave>", self._leave_preview_lyrics)
-        self.after(200, self._poll_preview_audio)
 
     def _create_preview_scale_style(self) -> None:
         large = Image.new("RGBA", (36, 36), (0, 0, 0, 0))
@@ -252,6 +245,7 @@ class Sub2LRCApp(tk.Tk):
         )
         if not selected:
             return
+        self._cancel_preview_poll()
         if self._preview_player is not None:
             self._preview_player.close()
         try:
@@ -305,6 +299,7 @@ class Sub2LRCApp(tk.Tk):
         try:
             self._preview_player.play()
             self.preview_audio_status.set("正在播放")
+            self._schedule_preview_poll()
         except AudioPreviewError as exc:
             messagebox.showerror("播放失败", str(exc))
 
@@ -313,6 +308,7 @@ class Sub2LRCApp(tk.Tk):
             return
         try:
             self._preview_player.pause()
+            self._cancel_preview_poll()
             if self._preview_player.state == PlaybackState.PAUSED:
                 self.preview_audio_status.set("已暂停")
         except AudioPreviewError as exc:
@@ -391,24 +387,34 @@ class Sub2LRCApp(tk.Tk):
             messagebox.showerror("音量调整失败", str(exc))
         return "break"
 
-    def _poll_preview_audio(self) -> None:
-        if time.monotonic() - self._last_window_configure < 0.2:
-            self.after(250, self._poll_preview_audio)
+    def _schedule_preview_poll(self) -> None:
+        if self._preview_poll_job is None:
+            self._preview_poll_job = self.after(100, self._poll_preview_audio)
+
+    def _cancel_preview_poll(self) -> None:
+        if self._preview_poll_job is None:
             return
+        try:
+            self.after_cancel(self._preview_poll_job)
+        except tk.TclError:
+            pass
+        self._preview_poll_job = None
+
+    def _poll_preview_audio(self) -> None:
+        self._preview_poll_job = None
         player = self._preview_player
-        if player is not None:
-            position = player.position
-            if not self._preview_seeking:
-                self.preview_audio_position.set(position)
-                self._update_preview_time(position, player.duration)
-                lyric_index = current_lyric_index(self._preview_timeline, position)
-                self._highlight_preview_lyric(lyric_index)
-            if self._preview_pointer_xy is not None:
-                self._refresh_preview_hover()
-            if player.state == PlaybackState.STOPPED and position >= player.duration:
-                self.preview_audio_status.set("播放完成")
-        delay = 100 if player is not None and player.state == PlaybackState.PLAYING else 500
-        self.after(delay, self._poll_preview_audio)
+        if player is None:
+            return
+        position = player.position
+        if not self._preview_seeking:
+            self.preview_audio_position.set(position)
+            self._update_preview_time(position, player.duration)
+            lyric_index = current_lyric_index(self._preview_timeline, position)
+            self._highlight_preview_lyric(lyric_index)
+        if player.state == PlaybackState.PLAYING:
+            self._schedule_preview_poll()
+        elif player.state == PlaybackState.STOPPED and position >= player.duration:
+            self.preview_audio_status.set("播放完成")
 
     def _highlight_preview_lyric(self, index: int | None, *, force_scroll: bool = False) -> None:
         if index == self._preview_lyric_index and not force_scroll:
@@ -1399,6 +1405,7 @@ class Sub2LRCApp(tk.Tk):
         self._pending_cover_path = None
 
     def destroy(self) -> None:
+        self._cancel_preview_poll()
         if self._preview_player is not None:
             self._preview_player.close()
         self._cleanup_pending_cover()
