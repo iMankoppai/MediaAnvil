@@ -9,7 +9,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from PIL import Image, ImageTk
+from PIL import Image, ImageDraw, ImageTk
 
 from .audio_converter import (
     AudioConversionError,
@@ -139,6 +139,7 @@ class Sub2LRCApp(tk.Tk):
         self.bind("<KeyRelease-space>", self._release_preview_space)
 
     def _build_preview_tab(self, root: ttk.Frame) -> None:
+        self._create_preview_scale_style()
         root.columnconfigure(0, weight=1)
         root.rowconfigure(3, weight=1)
         ttk.Label(root, text="音频预览", font=("Microsoft YaHei UI", 14, "bold")).grid(
@@ -163,20 +164,25 @@ class Sub2LRCApp(tk.Tk):
             button.bind("<KeyPress-space>", self._toggle_preview_with_space)
             button.bind("<KeyRelease-space>", self._release_preview_space)
         self.preview_audio_scale = ttk.Scale(
-            controls, from_=0, to=1, variable=self.preview_audio_position, orient="horizontal"
+            controls, from_=0, to=1, variable=self.preview_audio_position,
+            orient="horizontal", style="Preview.Horizontal.TScale"
         )
         self.preview_audio_scale.grid(row=0, column=2, sticky="ew", padx=(12, 0))
         self.preview_audio_scale.bind("<ButtonPress-1>", self._begin_preview_seek)
+        self.preview_audio_scale.bind("<B1-Motion>", self._drag_preview_seek)
         self.preview_audio_scale.bind("<ButtonRelease-1>", self._end_preview_seek)
         ttk.Label(controls, textvariable=self.preview_audio_time, width=15, anchor="e").grid(
             row=0, column=3, padx=(10, 0)
         )
         ttk.Label(controls, text="音量：").grid(row=1, column=0, columnspan=2, sticky="e", pady=(10, 0))
         self.preview_volume_scale = ttk.Scale(
-            controls, from_=0, to=100, variable=self.preview_audio_volume, orient="horizontal", length=180
+            controls, from_=0, to=100, variable=self.preview_audio_volume,
+            orient="horizontal", length=180, style="Preview.Horizontal.TScale"
         )
         self.preview_volume_scale.grid(row=1, column=2, sticky="w", pady=(10, 0))
-        self.preview_volume_scale.bind("<ButtonRelease-1>", self._apply_preview_volume)
+        self.preview_volume_scale.bind("<ButtonPress-1>", self._begin_preview_volume)
+        self.preview_volume_scale.bind("<B1-Motion>", self._drag_preview_volume)
+        self.preview_volume_scale.bind("<ButtonRelease-1>", self._end_preview_volume)
         ttk.Label(controls, textvariable=self.preview_audio_status, foreground="#555555").grid(
             row=1, column=3, sticky="e", pady=(10, 0)
         )
@@ -203,6 +209,28 @@ class Sub2LRCApp(tk.Tk):
         self.preview_lyrics.bind("<Leave>", self._leave_preview_lyrics)
         self.after(200, self._poll_preview_audio)
 
+    def _create_preview_scale_style(self) -> None:
+        large = Image.new("RGBA", (36, 36), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(large)
+        draw.ellipse((2, 2, 33, 33), fill="#168ce5", outline="#0b69ad", width=2)
+        thumb = large.resize((18, 18), Image.Resampling.LANCZOS)
+        self._preview_scale_thumb_photo = ImageTk.PhotoImage(thumb)
+        style = ttk.Style(self)
+        element = "Preview.Horizontal.Scale.slider"
+        try:
+            style.element_create(element, "image", self._preview_scale_thumb_photo, border=0)
+        except tk.TclError:
+            pass
+        style.layout(
+            "Preview.Horizontal.TScale",
+            [("Scale.focus", {"sticky": "nswe", "children": [
+                ("Horizontal.Scale.trough", {"sticky": "nswe", "children": [
+                    ("Horizontal.Scale.track", {"sticky": "we"}),
+                    (element, {"side": "left", "sticky": ""}),
+                ]}),
+            ]})],
+        )
+
     def choose_preview_audio(self) -> None:
         selected = filedialog.askopenfilename(
             title="选择预览音频",
@@ -219,6 +247,7 @@ class Sub2LRCApp(tk.Tk):
         try:
             player = AudioPreviewPlayer()
             duration = player.load(selected)
+            player.set_volume(round(self.preview_audio_volume.get()))
         except AudioPreviewError as exc:
             self._preview_player = None
             messagebox.showerror("无法预览音频", str(exc))
@@ -297,21 +326,60 @@ class Sub2LRCApp(tk.Tk):
         self._preview_space_down = False
         return "break" if self.main_notebook.select() == str(self.preview_tab) else None
 
-    def _begin_preview_seek(self, _event: object) -> None:
-        self._preview_seeking = True
+    @staticmethod
+    def _scale_value_from_x(scale: ttk.Scale, x: int, lower: float, upper: float) -> float:
+        thumb_radius = 9
+        usable_width = max(1, scale.winfo_width() - thumb_radius * 2)
+        fraction = min(1.0, max(0.0, (x - thumb_radius) / usable_width))
+        return lower + fraction * (upper - lower)
 
-    def _end_preview_seek(self, _event: object) -> None:
+    def _preview_seek_position_from_x(self, x: int) -> float:
+        duration = self._preview_player.duration if self._preview_player is not None else 0.0
+        position = self._scale_value_from_x(self.preview_audio_scale, x, 0.0, duration)
+        self.preview_audio_position.set(position)
+        self._update_preview_time(position, duration)
+        self._highlight_preview_lyric(current_lyric_index(self._preview_timeline, position))
+        return position
+
+    def _begin_preview_seek(self, event: tk.Event) -> str:
+        self._preview_seeking = True
+        self._preview_seek_position_from_x(event.x)
+        return "break"
+
+    def _drag_preview_seek(self, event: tk.Event) -> str:
+        self._preview_seek_position_from_x(event.x)
+        return "break"
+
+    def _end_preview_seek(self, event: tk.Event) -> str:
+        position = self._preview_seek_position_from_x(event.x)
         self._preview_seeking = False
         if self._preview_player is not None:
-            self._preview_player.seek(self.preview_audio_position.get())
+            self._preview_player.seek(position)
+            self.preview_audio_status.set("已跳转到所选进度")
+        return "break"
 
-    def _apply_preview_volume(self, _event: object) -> None:
+    def _preview_volume_from_x(self, x: int) -> int:
+        volume = round(self._scale_value_from_x(self.preview_volume_scale, x, 0.0, 100.0))
+        self.preview_audio_volume.set(volume)
+        return volume
+
+    def _begin_preview_volume(self, event: tk.Event) -> str:
+        self._preview_volume_from_x(event.x)
+        return "break"
+
+    def _drag_preview_volume(self, event: tk.Event) -> str:
+        self._preview_volume_from_x(event.x)
+        return "break"
+
+    def _end_preview_volume(self, event: tk.Event) -> str:
+        volume = self._preview_volume_from_x(event.x)
         if self._preview_player is None:
-            return
+            return "break"
         try:
-            self._preview_player.set_volume(round(self.preview_audio_volume.get()))
+            self._preview_player.set_volume(volume)
         except AudioPreviewError as exc:
             messagebox.showerror("音量调整失败", str(exc))
+        return "break"
 
     def _poll_preview_audio(self) -> None:
         player = self._preview_player
@@ -319,9 +387,9 @@ class Sub2LRCApp(tk.Tk):
             position = player.position
             if not self._preview_seeking:
                 self.preview_audio_position.set(position)
-            self._update_preview_time(position, player.duration)
-            lyric_index = current_lyric_index(self._preview_timeline, position)
-            self._highlight_preview_lyric(lyric_index)
+                self._update_preview_time(position, player.duration)
+                lyric_index = current_lyric_index(self._preview_timeline, position)
+                self._highlight_preview_lyric(lyric_index)
             self._refresh_preview_hover()
             if player.state == PlaybackState.STOPPED and position >= player.duration:
                 self.preview_audio_status.set("播放完成")
