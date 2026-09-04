@@ -1057,6 +1057,7 @@ class Sub2LRCApp(tk.Tk):
 
     def _build_editor_tab(self, root: ttk.Frame) -> None:
         root.columnconfigure(0, weight=1)
+        root.rowconfigure(1, weight=0)
         root.rowconfigure(2, weight=1)
 
         file_area = ttk.LabelFrame(root, text="1. 音频文件", padding=10)
@@ -1069,6 +1070,20 @@ class Sub2LRCApp(tk.Tk):
         ttk.Label(
             file_area, textvariable=self.editor_audio_info, foreground="#555555", wraplength=820
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+
+        self._editor_details_built = self._original_editor_state is not None
+        if not self._editor_details_built:
+            root.rowconfigure(1, weight=1)
+            root.rowconfigure(2, weight=0)
+            ttk.Label(
+                root,
+                textvariable=self.editor_status,
+                anchor="center",
+                justify="center",
+                foreground="#555555",
+                font=("Microsoft YaHei UI", 11),
+            ).grid(row=1, column=0, sticky="nsew")
+            return
 
         upper = ttk.Frame(root)
         upper.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
@@ -1203,6 +1218,13 @@ class Sub2LRCApp(tk.Tk):
         self.editor_artist.set(state.artist)
         self.editor_album.set(state.album)
         self.editor_audio_info.set(self._format_audio_info(state.info))
+        if not getattr(self, "_editor_details_built", False):
+            tab_id = self._active_tool_tab_id
+            if tab_id is not None and self._tool_tab_kinds.get(tab_id) == "editor":
+                root = self.nametowidget(tab_id)
+                for child in root.winfo_children():
+                    child.destroy()
+                self._build_editor_tab(root)
         self.editor_lyrics_state.set("已内嵌歌词" if state.has_lyrics else "未检测到内嵌歌词")
         self.lyrics_state_label.configure(foreground="#26734d" if state.has_lyrics else "#c62828")
         self.lyrics_button_text.set("更换歌词…" if state.has_lyrics else "导入 LRC…")
