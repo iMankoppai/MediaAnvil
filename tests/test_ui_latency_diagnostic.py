@@ -1,20 +1,33 @@
 import unittest
 
-from tools.ui_latency_diagnostic import summarize_latency
+from tools.ui_latency_diagnostic import analyze_drag_tracking
 
 
 class UiLatencyDiagnosticTests(unittest.TestCase):
-    def test_summary_reports_distribution_and_threshold_counts(self) -> None:
-        report = summarize_latency([0.5, 2.0, 17.0, 34.0, 60.0])
-        self.assertIn("样本 5", report)
-        self.assertIn("平均 22.70 ms", report)
-        self.assertIn("P95 60.00 ms", report)
-        self.assertIn(">16 ms: 3", report)
-        self.assertIn(">33 ms: 2", report)
-        self.assertIn(">50 ms: 1", report)
+    def test_reports_stable_cursor_to_window_tracking(self) -> None:
+        samples = [
+            (index * 0.01, True, 100 + index * 5, 80, 50 + index * 5, 20)
+            for index in range(20)
+        ]
+        summary, detail = analyze_drag_tracking(samples)
+        self.assertIn("有效拖动 1 次", summary)
+        self.assertIn("偏离 P95 0.0 px", summary)
+        self.assertIn("最大 0.0 px", summary)
+        self.assertIn("采样间隔 P95 10.0 ms", detail)
 
-    def test_empty_summary_is_clear(self) -> None:
-        self.assertEqual(summarize_latency([]), "没有采集到数据。")
+    def test_reports_cursor_window_separation(self) -> None:
+        samples = [
+            (index * 0.01, True, 100 + index * 5, 80, 50 + index * 4, 20)
+            for index in range(20)
+        ]
+        summary, _ = analyze_drag_tracking(samples)
+        self.assertIn("偏离 P95 18.0 px", summary)
+        self.assertIn("最大 19.0 px", summary)
+
+    def test_no_drag_is_clear(self) -> None:
+        summary, detail = analyze_drag_tracking([])
+        self.assertEqual(summary, "没有识别到有效的窗口拖动。")
+        self.assertIn("标题栏", detail)
 
 
 if __name__ == "__main__":

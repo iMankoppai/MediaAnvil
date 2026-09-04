@@ -1,136 +1,180 @@
-"""Diagnostic Sub2LRC build that records Tk event-loop scheduling latency."""
+"""Diagnostic Sub2LRC build that measures cursor-to-window tracking while dragging."""
 
 from __future__ import annotations
 
+import ctypes
 import math
-import statistics
-import sys
 import threading
 import time
 import tkinter as tk
 from tkinter import ttk
-import traceback
 
 from sub2lrc.gui import Sub2LRCApp
 
 
-def summarize_latency(samples: list[float]) -> str:
-    if not samples:
-        return "没有采集到数据。"
-    ordered = sorted(samples)
-    p95_index = min(len(ordered) - 1, math.ceil(len(ordered) * 0.95) - 1)
-    return (
-        f"样本 {len(samples)}｜平均 {statistics.fmean(samples):.2f} ms｜"
-        f"P95 {ordered[p95_index]:.2f} ms｜最大 {max(samples):.2f} ms｜"
-        f">16 ms: {sum(value > 16 for value in samples)}｜"
-        f">33 ms: {sum(value > 33 for value in samples)}｜"
-        f">50 ms: {sum(value > 50 for value in samples)}"
+DragSample = tuple[float, bool, int, int, int, int]
+
+
+def _percentile(values: list[float], percentile: float) -> float:
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, math.ceil(len(ordered) * percentile) - 1)
+    return ordered[index]
+
+
+def _split_pressed_segments(samples: list[DragSample]) -> list[list[DragSample]]:
+    segments: list[list[DragSample]] = []
+    current: list[DragSample] = []
+    for sample in samples:
+        if sample[1]:
+            current.append(sample)
+        elif current:
+            segments.append(current)
+            current = []
+    if current:
+        segments.append(current)
+    return segments
+
+
+def _path_length(segment: list[DragSample], x_index: int, y_index: int) -> float:
+    return sum(
+        math.hypot(current[x_index] - previous[x_index], current[y_index] - previous[y_index])
+        for previous, current in zip(segment, segment[1:])
     )
 
 
+def analyze_drag_tracking(samples: list[DragSample]) -> tuple[str, str]:
+    """Summarize cursor/window tracking for real window-drag segments."""
+    drag_segments = []
+    for segment in _split_pressed_segments(samples):
+        duration = segment[-1][0] - segment[0][0]
+        cursor_travel = _path_length(segment, 2, 3)
+        window_travel = _path_length(segment, 4, 5)
+        if duration >= 0.15 and cursor_travel >= 40 and window_travel >= 40:
+            drag_segments.append(segment)
+
+    if not drag_segments:
+        return (
+            "没有识别到有效的窗口拖动。",
+            "请从标题栏按住鼠标左键，连续移动窗口后再松开。",
+        )
+
+    tracking_errors: list[float] = []
+    sample_gaps: list[float] = []
+    total_travel = 0.0
+    for segment in drag_segments:
+        # The mouse-down cursor-to-window offset is the grab point. It should
+        # remain nearly fixed during a correctly tracked native window drag.
+        reference_x = segment[0][2] - segment[0][4]
+        reference_y = segment[0][3] - segment[0][5]
+        total_travel += _path_length(segment, 4, 5)
+        for sample in segment:
+            offset_x = sample[2] - sample[4]
+            offset_y = sample[3] - sample[5]
+            tracking_errors.append(math.hypot(offset_x - reference_x, offset_y - reference_y))
+        sample_gaps.extend(
+            (current[0] - previous[0]) * 1000
+            for previous, current in zip(segment, segment[1:])
+        )
+
+    p95_error = _percentile(tracking_errors, 0.95)
+    max_error = max(tracking_errors)
+    p95_gap = _percentile(sample_gaps, 0.95) if sample_gaps else 0.0
+    max_gap = max(sample_gaps, default=0.0)
+    summary = (
+        f"有效拖动 {len(drag_segments)} 次｜采样 {len(tracking_errors)}｜"
+        f"窗口移动 {total_travel:.0f} px｜偏离 P95 {p95_error:.1f} px｜最大 {max_error:.1f} px"
+    )
+    detail = f"采样间隔 P95 {p95_gap:.1f} ms｜最大 {max_gap:.1f} ms"
+    return summary, detail
+
+
+class _Point(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+
+class _Rect(ctypes.Structure):
+    _fields_ = [
+        ("left", ctypes.c_long),
+        ("top", ctypes.c_long),
+        ("right", ctypes.c_long),
+        ("bottom", ctypes.c_long),
+    ]
+
+
 class DiagnosticApp(Sub2LRCApp):
-    INTERVAL_MS = 16
+    SAMPLE_INTERVAL_SECONDS = 0.005
 
     def _build_ui(self) -> None:
-        self._latency_samples: list[float] = []
-        self._latency_job: str | None = None
-        self._latency_expected = 0.0
-        self._latency_heartbeat = 0.0
-        self._watchdog_generation = 0
-        self._stall_stacks: list[str] = []
-        self._main_thread_id = threading.get_ident()
-        self.latency_result = tk.StringVar(
-            value="点击“开始记录”，拖动窗口约 5～8 秒，然后点击“停止记录”。"
+        self._tracking_samples: list[DragSample] = []
+        self._tracking_generation = 0
+        self.tracking_result = tk.StringVar(
+            value="点击“开始记录”，从标题栏连续拖动窗口约 5～8 秒。"
         )
-        self.latency_cause = tk.StringVar(value="出现超过 100 ms 的停顿时，这里会显示主线程位置。")
+        self.tracking_detail = tk.StringVar(
+            value="此版本直接比较 Windows 鼠标位置与窗口位置。"
+        )
 
-        panel = ttk.LabelFrame(self, text="UI 响应延迟诊断", padding=(8, 6))
+        panel = ttk.LabelFrame(self, text="窗口拖动跟随诊断", padding=(8, 6))
         panel.pack(side="bottom", fill="x", padx=8, pady=(0, 8))
         buttons = ttk.Frame(panel)
         buttons.pack(side="left", padx=(0, 10))
-        ttk.Button(buttons, text="开始记录", command=self._start_latency_recording).pack(side="left")
-        ttk.Button(buttons, text="停止记录", command=self._stop_latency_recording).pack(
+        ttk.Button(buttons, text="开始记录", command=self._start_tracking).pack(side="left")
+        ttk.Button(buttons, text="停止记录", command=self._stop_tracking).pack(
             side="left", padx=(6, 10)
         )
         report = ttk.Frame(panel)
         report.pack(side="left", fill="x", expand=True)
-        ttk.Label(report, textvariable=self.latency_result, anchor="w").pack(
-            fill="x", expand=True
-        )
-        ttk.Label(report, textvariable=self.latency_cause, anchor="w", foreground="#7a4d00").pack(
-            fill="x", expand=True
-        )
+        ttk.Label(report, textvariable=self.tracking_result, anchor="w").pack(fill="x")
+        ttk.Label(
+            report,
+            textvariable=self.tracking_detail,
+            anchor="w",
+            foreground="#7a4d00",
+        ).pack(fill="x")
         super()._build_ui()
 
-    def _start_latency_recording(self) -> None:
-        self._cancel_latency_job()
-        self._latency_samples.clear()
-        self._stall_stacks.clear()
-        self.latency_result.set("正在记录……请连续拖动窗口 5～8 秒。")
-        self.latency_cause.set("看门狗正在等待超过 100 ms 的停顿……")
-        self._latency_expected = time.perf_counter() + self.INTERVAL_MS / 1000
-        self._latency_heartbeat = time.perf_counter()
-        self._latency_job = self.after(self.INTERVAL_MS, self._sample_latency)
-        self._watchdog_generation += 1
-        generation = self._watchdog_generation
+    def _start_tracking(self) -> None:
+        self._tracking_generation += 1
+        generation = self._tracking_generation
+        self._tracking_samples.clear()
+        self.tracking_result.set("正在记录……请从标题栏连续拖动窗口 5～8 秒。")
+        self.tracking_detail.set("记录时可以多次按住、移动和松开鼠标。")
+        hwnd = int(self.winfo_id())
         threading.Thread(
-            target=self._watch_for_stall,
-            args=(generation,),
-            name="Sub2LRC-UI-Latency-Watchdog",
+            target=self._sample_windows_positions,
+            args=(generation, hwnd),
+            name="Sub2LRC-Window-Tracking-Diagnostic",
             daemon=True,
         ).start()
 
-    def _sample_latency(self) -> None:
-        self._latency_job = None
-        now = time.perf_counter()
-        self._latency_heartbeat = now
-        self._latency_samples.append(max(0.0, (now - self._latency_expected) * 1000))
-        self._latency_expected = now + self.INTERVAL_MS / 1000
-        self._latency_job = self.after(self.INTERVAL_MS, self._sample_latency)
+    def _sample_windows_positions(self, generation: int, hwnd: int) -> None:
+        user32 = ctypes.windll.user32
+        while generation == self._tracking_generation:
+            point = _Point()
+            rect = _Rect()
+            if user32.GetCursorPos(ctypes.byref(point)) and user32.GetWindowRect(
+                hwnd, ctypes.byref(rect)
+            ):
+                left_pressed = bool(user32.GetAsyncKeyState(0x01) & 0x8000)
+                self._tracking_samples.append(
+                    (time.perf_counter(), left_pressed, point.x, point.y, rect.left, rect.top)
+                )
+            time.sleep(self.SAMPLE_INTERVAL_SECONDS)
 
-    def _stop_latency_recording(self) -> None:
-        self._cancel_latency_job()
-        self._watchdog_generation += 1
-        self.latency_result.set(summarize_latency(self._latency_samples))
-        if self._stall_stacks:
-            self.latency_cause.set(f"停顿时主线程：{self._stall_stacks[-1]}")
-        else:
-            self.latency_cause.set("没有捕获到超过 100 ms 的主线程停顿。")
-
-    def _watch_for_stall(self, generation: int) -> None:
-        captured_current_stall = False
-        while generation == self._watchdog_generation:
-            time.sleep(0.02)
-            delay = time.perf_counter() - self._latency_heartbeat
-            if delay < 0.05:
-                captured_current_stall = False
-                continue
-            if delay < 0.1 or captured_current_stall:
-                continue
-            frame = sys._current_frames().get(self._main_thread_id)
-            if frame is not None:
-                names = [entry.name for entry in traceback.extract_stack(frame)]
-                self._stall_stacks.append(" → ".join(names[-7:]))
-            captured_current_stall = True
-
-    def _cancel_latency_job(self) -> None:
-        if self._latency_job is None:
-            return
-        try:
-            self.after_cancel(self._latency_job)
-        except tk.TclError:
-            pass
-        self._latency_job = None
+    def _stop_tracking(self) -> None:
+        self._tracking_generation += 1
+        summary, detail = analyze_drag_tracking(list(self._tracking_samples))
+        self.tracking_result.set(summary)
+        self.tracking_detail.set(detail)
 
     def destroy(self) -> None:
-        self._watchdog_generation += 1
-        self._cancel_latency_job()
+        self._tracking_generation += 1
         super().destroy()
 
 
 def main() -> None:
     app = DiagnosticApp()
-    app.title("Sub2LRC - UI 延迟诊断版")
+    app.title("Sub2LRC - 窗口拖动诊断版")
     app.mainloop()
 
 
