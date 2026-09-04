@@ -2,6 +2,7 @@ from pathlib import Path
 import tempfile
 import tkinter as tk
 import unittest
+from unittest.mock import patch
 
 from sub2lrc.gui import Sub2LRCApp
 
@@ -10,7 +11,7 @@ MP3_FRAME = b"\xff\xfb\x90\x64" + b"\x00" * 413
 
 
 class LazyTabGuiTests(unittest.TestCase):
-    def test_only_current_tool_page_exists_and_state_is_restored(self) -> None:
+    def make_app(self) -> Sub2LRCApp:
         try:
             app = Sub2LRCApp()
         except tk.TclError as exc:
@@ -18,6 +19,10 @@ class LazyTabGuiTests(unittest.TestCase):
         self.addCleanup(app.destroy)
         app.withdraw()
         app.update()
+        return app
+
+    def test_only_current_tool_page_exists_and_state_is_restored(self) -> None:
+        app = self.make_app()
 
         preview, editor, converter, audio, image = app.main_notebook.tabs()
         self.assertTrue(app.nametowidget(preview).winfo_children())
@@ -65,6 +70,31 @@ class LazyTabGuiTests(unittest.TestCase):
         app.main_notebook.select(preview)
         app.update()
         self.assertFalse(app.nametowidget(audio).winfo_children())
+
+    def test_primary_file_dialogs_are_owned_by_the_main_window(self) -> None:
+        app = self.make_app()
+        preview, editor, converter, audio, image = app.main_notebook.tabs()
+
+        with patch("sub2lrc.gui.filedialog.askopenfilename", return_value="") as dialog:
+            app.choose_preview_audio()
+            self.assertIs(dialog.call_args.kwargs["parent"], app)
+
+        app.main_notebook.select(editor)
+        app.update()
+        with patch("sub2lrc.gui.filedialog.askopenfilename", return_value="") as dialog:
+            app.choose_editor_mp3()
+            self.assertIs(dialog.call_args.kwargs["parent"], app)
+
+        for tab_id, method_name in (
+            (converter, "choose_files"),
+            (audio, "choose_audio_files"),
+            (image, "choose_image_files"),
+        ):
+            app.main_notebook.select(tab_id)
+            app.update()
+            with patch("sub2lrc.gui.filedialog.askopenfilenames", return_value=()) as dialog:
+                getattr(app, method_name)()
+                self.assertIs(dialog.call_args.kwargs["parent"], app)
 
 
 if __name__ == "__main__":

@@ -331,6 +331,7 @@ class Sub2LRCApp(tk.Tk):
 
     def choose_preview_audio(self) -> None:
         selected = filedialog.askopenfilename(
+            parent=self,
             title="选择预览音频",
             filetypes=[
                 ("支持的音频", "*.mp3 *.wav *.flac *.m4a *.aac *.ogg"),
@@ -683,6 +684,7 @@ class Sub2LRCApp(tk.Tk):
 
     def choose_image_files(self) -> None:
         names = filedialog.askopenfilenames(
+            parent=self,
             title="选择图片文件",
             filetypes=[
                 ("支持的图片", "*.jpg *.jpeg *.png *.webp *.bmp"),
@@ -721,7 +723,9 @@ class Sub2LRCApp(tk.Tk):
     def choose_image_output_dir(self) -> None:
         if self._image_running:
             return
-        selected = filedialog.askdirectory(title="选择图片输出目录", initialdir=self.image_output_dir.get())
+        selected = filedialog.askdirectory(
+            parent=self, title="选择图片输出目录", initialdir=self.image_output_dir.get()
+        )
         if selected:
             self.image_output_dir.set(selected)
 
@@ -905,6 +909,7 @@ class Sub2LRCApp(tk.Tk):
 
     def choose_audio_files(self) -> None:
         names = filedialog.askopenfilenames(
+            parent=self,
             title="选择音频文件",
             filetypes=[
                 ("支持的音频", "*.mp3 *.wav *.flac *.m4a *.aac *.ogg"),
@@ -943,7 +948,9 @@ class Sub2LRCApp(tk.Tk):
     def choose_audio_output_dir(self) -> None:
         if self._audio_running:
             return
-        selected = filedialog.askdirectory(title="选择音频输出目录", initialdir=self.audio_output_dir.get())
+        selected = filedialog.askdirectory(
+            parent=self, title="选择音频输出目录", initialdir=self.audio_output_dir.get()
+        )
         if selected:
             self.audio_output_dir.set(selected)
 
@@ -1190,6 +1197,7 @@ class Sub2LRCApp(tk.Tk):
         ):
             return
         selected = filedialog.askopenfilename(
+            parent=self,
             title="选择音频文件",
             filetypes=[
                 ("支持的音频标签", "*.mp3 *.flac *.m4a *.ogg *.opus *.wav"),
@@ -1273,7 +1281,9 @@ class Sub2LRCApp(tk.Tk):
         if not state.has_lyrics:
             messagebox.showinfo("没有内嵌歌词", "当前音频没有可导出的内嵌歌词。")
             return
-        selected = filedialog.askdirectory(title="选择歌词导出目录", initialdir=str(Path(source_text).parent))
+        selected = filedialog.askdirectory(
+            parent=self, title="选择歌词导出目录", initialdir=str(Path(source_text).parent)
+        )
         if not selected:
             return
         try:
@@ -1299,7 +1309,9 @@ class Sub2LRCApp(tk.Tk):
         if not state.has_cover:
             messagebox.showinfo("没有内嵌封面", "当前音频没有可导出的内嵌封面。")
             return
-        selected = filedialog.askdirectory(title="选择封面导出目录", initialdir=str(Path(source_text).parent))
+        selected = filedialog.askdirectory(
+            parent=self, title="选择封面导出目录", initialdir=str(Path(source_text).parent)
+        )
         if not selected:
             return
         try:
@@ -1323,7 +1335,9 @@ class Sub2LRCApp(tk.Tk):
         if not self._original_editor_state.writable:
             messagebox.showinfo("只读格式", "当前格式暂时只支持读取标签。")
             return
-        selected = filedialog.askopenfilename(title="选择 LRC 歌词", filetypes=[("LRC 歌词", "*.lrc")])
+        selected = filedialog.askopenfilename(
+            parent=self, title="选择 LRC 歌词", filetypes=[("LRC 歌词", "*.lrc")]
+        )
         if not selected:
             return
         try:
@@ -1359,6 +1373,7 @@ class Sub2LRCApp(tk.Tk):
             messagebox.showinfo("Sub2LRC", "请先选择音频文件。")
             return
         selected = filedialog.askopenfilename(
+            parent=self,
             title="选择封面图片",
             filetypes=[("封面图片", "*.jpg *.jpeg *.png"), ("JPEG 图片", "*.jpg *.jpeg"), ("PNG 图片", "*.png")],
         )
@@ -1510,6 +1525,7 @@ class Sub2LRCApp(tk.Tk):
             return True, None
         source_path = Path(source)
         selected = filedialog.asksaveasfilename(
+            parent=self,
             title="另存音频标签文件",
             initialdir=str(source_path.parent),
             initialfile=source_path.name,
@@ -1597,6 +1613,7 @@ class Sub2LRCApp(tk.Tk):
 
     def choose_files(self) -> None:
         names = filedialog.askopenfilenames(
+            parent=self,
             title="选择歌词 / 字幕文件",
             filetypes=[
                 ("支持的文件", "*.lrc *.srt *.vtt"),
@@ -1626,7 +1643,9 @@ class Sub2LRCApp(tk.Tk):
         self.status.set("已清空文件列表")
 
     def choose_output_dir(self) -> None:
-        selected = filedialog.askdirectory(title="选择输出目录", initialdir=self.output_dir.get())
+        selected = filedialog.askdirectory(
+            parent=self, title="选择输出目录", initialdir=self.output_dir.get()
+        )
         if selected:
             self.output_dir.set(selected)
 
@@ -1700,6 +1719,7 @@ class Sub2LRCApp(tk.Tk):
         suffix = original_path.suffix.lower()
         labels = {".lrc": "LRC 歌词", ".srt": "SRT 字幕", ".vtt": "VTT 字幕"}
         selected = filedialog.asksaveasfilename(
+            parent=self,
             title="保存转换结果",
             initialfile=original_path.name,
             defaultextension=suffix,
