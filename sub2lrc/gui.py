@@ -24,13 +24,20 @@ from .converter import SubtitleError, convert_file, read_subtitle, unique_output
 from .cropper import CoverCropDialog
 from .editor import Mp3Edits, Mp3EditorError, Mp3EditorState, read_mp3_editor_state, save_mp3_edits
 from .embedder import LyricsEmbedError, read_lrc
+from .image_converter import (
+    IMAGE_FORMAT_SPECS,
+    ImageBatchConversionResult,
+    ImageConversionError,
+    ImageConversionSettings,
+    convert_image_batch,
+)
 from .metadata import MetadataError
 
 
 class Sub2LRCApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("Sub2LRC - 字幕与 MP3 工具")
+        self.title("Sub2LRC - 本地多媒体工具箱")
         self.geometry("940x720")
         self.minsize(800, 650)
 
@@ -50,6 +57,14 @@ class Sub2LRCApp(tk.Tk):
         self.audio_summary = tk.StringVar(value="")
         self.audio_progress = tk.DoubleVar(value=0.0)
         self._audio_running = False
+        self.image_sources: list[Path] = []
+        self.image_output_dir = tk.StringVar(value=str(Path.home() / "Desktop"))
+        self.image_format_label = tk.StringVar(value="JPG / JPEG")
+        self.image_quality = tk.StringVar(value="90")
+        self.image_current = tk.StringVar(value="请选择一张或多张图片")
+        self.image_summary = tk.StringVar(value="")
+        self.image_progress = tk.DoubleVar(value=0.0)
+        self._image_running = False
         self.editor_mp3_path = tk.StringVar()
         self.editor_title = tk.StringVar()
         self.editor_artist = tk.StringVar()
@@ -76,12 +91,223 @@ class Sub2LRCApp(tk.Tk):
         converter_tab = ttk.Frame(notebook, padding=12)
         editor_tab = ttk.Frame(notebook, padding=14)
         audio_tab = ttk.Frame(notebook, padding=14)
+        image_tab = ttk.Frame(notebook, padding=14)
         notebook.add(converter_tab, text="歌词 / 字幕转换")
-        notebook.add(editor_tab, text="MP3 编辑")
-        notebook.add(audio_tab, text="音频转换")
+        notebook.add(editor_tab, text="音频标签编辑")
+        notebook.add(audio_tab, text="音频格式转换")
+        notebook.add(image_tab, text="图片格式转换")
         self._build_converter_tab(converter_tab)
         self._build_editor_tab(editor_tab)
         self._build_audio_tab(audio_tab)
+        self._build_image_tab(image_tab)
+
+    def _build_image_tab(self, root: ttk.Frame) -> None:
+        root.columnconfigure(0, weight=1)
+        root.rowconfigure(1, weight=1)
+        ttk.Label(root, text="图片格式转换", font=("Microsoft YaHei UI", 14, "bold")).grid(
+            row=0, column=0, sticky="w", pady=(0, 12)
+        )
+
+        files = ttk.LabelFrame(root, text="1. 输入图片", padding=10)
+        files.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
+        files.columnconfigure(0, weight=1)
+        files.rowconfigure(1, weight=1)
+        toolbar = ttk.Frame(files)
+        toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(toolbar, text="选择图片…", command=self.choose_image_files).pack(side="left")
+        ttk.Button(toolbar, text="移除选中", command=self.remove_selected_images).pack(side="left", padx=6)
+        ttk.Button(toolbar, text="清空", command=self.clear_image_files).pack(side="left")
+        self.image_file_list = tk.Listbox(files, height=10, selectmode="extended")
+        self.image_file_list.grid(row=1, column=0, sticky="nsew")
+        scrollbar = ttk.Scrollbar(files, orient="vertical", command=self.image_file_list.yview)
+        scrollbar.grid(row=1, column=1, sticky="ns")
+        self.image_file_list.configure(yscrollcommand=scrollbar.set)
+
+        settings = ttk.LabelFrame(root, text="2. 转换设置", padding=10)
+        settings.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        settings.columnconfigure(1, weight=1)
+        ttk.Label(settings, text="输出格式：").grid(row=0, column=0, sticky="w", pady=6)
+        format_box = ttk.Combobox(
+            settings,
+            textvariable=self.image_format_label,
+            values=tuple(spec.label for spec in IMAGE_FORMAT_SPECS.values()),
+            state="readonly",
+            width=18,
+        )
+        format_box.grid(row=0, column=1, sticky="w", padx=8, pady=6)
+        format_box.bind("<<ComboboxSelected>>", self._update_image_parameter_ui)
+        self.image_quality_label = ttk.Label(settings, text="图片质量：")
+        self.image_quality_label.grid(row=1, column=0, sticky="w", pady=6)
+        self.image_quality_box = ttk.Spinbox(
+            settings, from_=1, to=100, increment=1, textvariable=self.image_quality, width=10
+        )
+        self.image_quality_box.grid(row=1, column=1, sticky="w", padx=8, pady=6)
+        ttk.Label(settings, text="输出目录：").grid(row=2, column=0, sticky="w", pady=6)
+        ttk.Entry(settings, textvariable=self.image_output_dir).grid(
+            row=2, column=1, sticky="ew", padx=8, pady=6
+        )
+        ttk.Button(settings, text="浏览…", command=self.choose_image_output_dir).grid(row=2, column=2, pady=6)
+        self.image_transparency_hint = ttk.Label(
+            settings,
+            text="保持原始宽高；透明图片转为 JPG 或 BMP 时使用白色背景。",
+            foreground="#666666",
+        )
+        self.image_transparency_hint.grid(row=3, column=0, columnspan=3, sticky="w", pady=(6, 0))
+
+        progress_area = ttk.LabelFrame(root, text="3. 转换进度", padding=10)
+        progress_area.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        progress_area.columnconfigure(0, weight=1)
+        ttk.Label(progress_area, textvariable=self.image_current, anchor="w").grid(
+            row=0, column=0, sticky="ew"
+        )
+        ttk.Progressbar(progress_area, variable=self.image_progress, maximum=100).grid(
+            row=1, column=0, sticky="ew", pady=(8, 4)
+        )
+        ttk.Label(progress_area, textvariable=self.image_summary, anchor="w", foreground="#555555").grid(
+            row=2, column=0, sticky="ew"
+        )
+        self.image_start_button = ttk.Button(root, text="开始转换", command=self.start_image_conversion)
+        self.image_start_button.grid(row=4, column=0, sticky="e", ipadx=28, ipady=7)
+        self._update_image_parameter_ui()
+
+    def choose_image_files(self) -> None:
+        names = filedialog.askopenfilenames(
+            title="选择图片文件",
+            filetypes=[
+                ("支持的图片", "*.jpg *.jpeg *.png *.webp *.bmp"),
+                ("JPG / JPEG", "*.jpg *.jpeg"), ("PNG", "*.png"),
+                ("WebP", "*.webp"), ("BMP", "*.bmp"),
+            ],
+        )
+        existing = {path.resolve() for path in self.image_sources}
+        for name in names:
+            path = Path(name)
+            if path.resolve() not in existing:
+                self.image_sources.append(path)
+                self.image_file_list.insert("end", str(path))
+                existing.add(path.resolve())
+        if names:
+            self.image_output_dir.set(str(Path(names[0]).parent))
+            self.image_current.set(f"已选择 {len(self.image_sources)} 张图片")
+
+    def remove_selected_images(self) -> None:
+        if self._image_running:
+            return
+        for index in reversed(self.image_file_list.curselection()):
+            self.image_file_list.delete(index)
+            del self.image_sources[index]
+        self.image_current.set(f"当前有 {len(self.image_sources)} 张待转换图片")
+
+    def clear_image_files(self) -> None:
+        if self._image_running:
+            return
+        self.image_sources.clear()
+        self.image_file_list.delete(0, "end")
+        self.image_current.set("已清空图片列表")
+        self.image_progress.set(0.0)
+        self.image_summary.set("")
+
+    def choose_image_output_dir(self) -> None:
+        if self._image_running:
+            return
+        selected = filedialog.askdirectory(title="选择图片输出目录", initialdir=self.image_output_dir.get())
+        if selected:
+            self.image_output_dir.set(selected)
+
+    def _selected_image_format_key(self) -> str:
+        for key, spec in IMAGE_FORMAT_SPECS.items():
+            if spec.label == self.image_format_label.get():
+                return key
+        raise ImageConversionError("请选择有效的图片输出格式。")
+
+    def _update_image_parameter_ui(self, _event: object | None = None) -> None:
+        spec = IMAGE_FORMAT_SPECS[self._selected_image_format_key()]
+        if spec.supports_quality:
+            self.image_quality.set(str(spec.default_quality))
+            self.image_quality_label.grid()
+            self.image_quality_box.grid()
+        else:
+            self.image_quality_label.grid_remove()
+            self.image_quality_box.grid_remove()
+        color = "#a05a00" if not spec.supports_transparency else "#666666"
+        self.image_transparency_hint.configure(foreground=color)
+
+    def _current_image_settings(self) -> ImageConversionSettings:
+        format_key = self._selected_image_format_key()
+        spec = IMAGE_FORMAT_SPECS[format_key]
+        try:
+            quality = int(self.image_quality.get()) if spec.supports_quality else None
+        except ValueError as exc:
+            raise ImageConversionError("图片质量必须是 1 到 100 的整数。") from exc
+        settings = ImageConversionSettings(format_key, quality)
+        settings.validate()
+        return settings
+
+    def start_image_conversion(self) -> None:
+        if self._image_running:
+            return
+        if not self.image_sources:
+            messagebox.showinfo("Sub2LRC", "请至少选择一张图片。")
+            return
+        output_dir = Path(self.image_output_dir.get().strip())
+        if not output_dir.is_dir():
+            messagebox.showerror("输出目录错误", "输出目录不存在或无法访问。")
+            return
+        try:
+            settings = self._current_image_settings()
+        except ImageConversionError as exc:
+            messagebox.showerror("转换设置错误", str(exc))
+            return
+        sources = tuple(self.image_sources)
+        self._image_running = True
+        self.image_progress.set(0.0)
+        self.image_summary.set("")
+        self.image_start_button.configure(state="disabled")
+
+        def report(source: Path, index: int, total: int, overall: float) -> None:
+            self.after(0, self._update_image_progress, source, index, total, overall)
+
+        def worker() -> None:
+            try:
+                result = convert_image_batch(sources, output_dir, settings, report)
+            except ImageConversionError as exc:
+                self.after(0, self._finish_image_conversion, None, exc)
+                return
+            self.after(0, self._finish_image_conversion, result, None)
+
+        threading.Thread(target=worker, name="Sub2LRC-Image-Conversion", daemon=True).start()
+
+    def _update_image_progress(self, source: Path, index: int, total: int, overall: float) -> None:
+        self.image_progress.set(overall)
+        self.image_current.set(f"正在转换 {index}/{total}：{source.name}")
+
+    def _finish_image_conversion(
+        self, result: ImageBatchConversionResult | None, error: ImageConversionError | None
+    ) -> None:
+        self._image_running = False
+        self.image_start_button.configure(state="normal")
+        if error is not None:
+            self.image_current.set("转换失败")
+            messagebox.showerror("图片转换失败", str(error))
+            return
+        if result is None:
+            return
+        successes = len(result.outputs)
+        failures = len(result.failures)
+        transparency_count = sum(output.transparency_removed for output in result.outputs)
+        self.image_progress.set(100.0)
+        self.image_current.set("转换完成")
+        self.image_summary.set(f"成功 {successes} 张，失败 {failures} 张")
+        messages: list[str] = []
+        if transparency_count:
+            messages.append(f"有 {transparency_count} 张图片包含透明区域，已使用白色背景。")
+        messages.extend(f"{failure.source.name}：{failure.message}" for failure in result.failures[:10])
+        if messages:
+            messagebox.showwarning("图片转换提示", "\n".join(messages))
+        else:
+            messagebox.showinfo(
+                "转换完成", f"已生成 {successes} 张图片。\n保存位置：{self.image_output_dir.get()}"
+            )
 
     def _build_audio_tab(self, root: ttk.Frame) -> None:
         root.columnconfigure(0, weight=1)

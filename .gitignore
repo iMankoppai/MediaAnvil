@@ -23,3 +23,8 @@ vendor/ffmpeg/ffmpeg.exe
 /*.vtt
 /*.srt
 /*.lrc
+/*.jpg
+/*.jpeg
+/*.png
+/*.webp
+/*.bmp
