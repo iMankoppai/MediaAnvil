@@ -13,9 +13,11 @@ from PIL import Image, ImageTk
 
 from .audio_converter import (
     AudioConversionError,
+    AudioConversionSettings,
     BatchConversionResult,
+    FORMAT_SPECS,
     FfmpegNotFoundError,
-    convert_wav_batch,
+    convert_audio_batch,
     find_ffmpeg,
 )
 from .converter import SubtitleError, convert_file, read_subtitle, convert_text, unique_output_path
@@ -38,8 +40,11 @@ class Sub2LRCApp(tk.Tk):
         self.status = tk.StringVar(value="请选择 VTT 或 SRT 字幕文件")
         self.audio_sources: list[Path] = []
         self.audio_output_dir = tk.StringVar(value=str(Path.home() / "Desktop"))
-        self.audio_bitrate = tk.StringVar(value="192")
-        self.audio_current = tk.StringVar(value="请选择一个或多个 WAV 文件")
+        self.audio_format_label = tk.StringVar(value="MP3")
+        self.audio_parameter = tk.StringVar(value="192")
+        self.audio_sample_rate = tk.StringVar(value="保持原始采样率")
+        self.audio_channels = tk.StringVar(value="保持原始声道")
+        self.audio_current = tk.StringVar(value="请选择一个或多个音频文件")
         self.audio_summary = tk.StringVar(value="")
         self.audio_progress = tk.DoubleVar(value=0.0)
         self._audio_running = False
@@ -80,16 +85,16 @@ class Sub2LRCApp(tk.Tk):
         root.columnconfigure(0, weight=1)
         root.rowconfigure(1, weight=1)
 
-        ttk.Label(root, text="WAV 转 MP3", font=("Microsoft YaHei UI", 14, "bold")).grid(
+        ttk.Label(root, text="音频格式转换", font=("Microsoft YaHei UI", 14, "bold")).grid(
             row=0, column=0, sticky="w", pady=(0, 12)
         )
-        files = ttk.LabelFrame(root, text="1. WAV 文件", padding=10)
+        files = ttk.LabelFrame(root, text="1. 输入音频", padding=10)
         files.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
         files.columnconfigure(0, weight=1)
         files.rowconfigure(1, weight=1)
         toolbar = ttk.Frame(files)
         toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        ttk.Button(toolbar, text="选择 WAV…", command=self.choose_audio_files).pack(side="left")
+        ttk.Button(toolbar, text="选择音频…", command=self.choose_audio_files).pack(side="left")
         ttk.Button(toolbar, text="移除选中", command=self.remove_selected_audio).pack(side="left", padx=6)
         ttk.Button(toolbar, text="清空", command=self.clear_audio_files).pack(side="left")
         self.audio_file_list = tk.Listbox(files, height=10, selectmode="extended")
@@ -101,23 +106,46 @@ class Sub2LRCApp(tk.Tk):
         settings = ttk.LabelFrame(root, text="2. 转换设置", padding=10)
         settings.grid(row=2, column=0, sticky="ew", pady=(0, 10))
         settings.columnconfigure(1, weight=1)
-        ttk.Label(settings, text="MP3 比特率：").grid(row=0, column=0, sticky="w", pady=6)
+        ttk.Label(settings, text="输出格式：").grid(row=0, column=0, sticky="w", pady=6)
+        format_box = ttk.Combobox(
+            settings,
+            textvariable=self.audio_format_label,
+            values=tuple(spec.label for spec in FORMAT_SPECS.values()),
+            state="readonly",
+            width=18,
+        )
+        format_box.grid(row=0, column=1, sticky="w", padx=8, pady=6)
+        format_box.bind("<<ComboboxSelected>>", self._update_audio_parameter_ui)
+        self.audio_parameter_label = ttk.Label(settings, text="比特率：")
+        self.audio_parameter_label.grid(row=1, column=0, sticky="w", pady=6)
+        self.audio_parameter_box = ttk.Combobox(
+            settings, textvariable=self.audio_parameter, state="readonly", width=18
+        )
+        self.audio_parameter_box.grid(row=1, column=1, sticky="w", padx=8, pady=6)
+        ttk.Label(settings, text="采样率：").grid(row=2, column=0, sticky="w", pady=6)
         ttk.Combobox(
             settings,
-            textvariable=self.audio_bitrate,
-            values=("128", "192", "256", "320"),
+            textvariable=self.audio_sample_rate,
+            values=("保持原始采样率", "44100 Hz", "48000 Hz", "96000 Hz"),
             state="readonly",
-            width=10,
-        ).grid(row=0, column=1, sticky="w", padx=8, pady=6)
-        ttk.Label(settings, text="kbps").grid(row=0, column=2, sticky="w", pady=6)
-        ttk.Label(settings, text="输出目录：").grid(row=1, column=0, sticky="w", pady=6)
-        ttk.Entry(settings, textvariable=self.audio_output_dir).grid(row=1, column=1, sticky="ew", padx=8, pady=6)
-        ttk.Button(settings, text="浏览…", command=self.choose_audio_output_dir).grid(row=1, column=2, pady=6)
+            width=18,
+        ).grid(row=2, column=1, sticky="w", padx=8, pady=6)
+        ttk.Label(settings, text="声道：").grid(row=3, column=0, sticky="w", pady=6)
+        ttk.Combobox(
+            settings,
+            textvariable=self.audio_channels,
+            values=("保持原始声道", "单声道", "立体声"),
+            state="readonly",
+            width=18,
+        ).grid(row=3, column=1, sticky="w", padx=8, pady=6)
+        ttk.Label(settings, text="输出目录：").grid(row=4, column=0, sticky="w", pady=6)
+        ttk.Entry(settings, textvariable=self.audio_output_dir).grid(row=4, column=1, sticky="ew", padx=8, pady=6)
+        ttk.Button(settings, text="浏览…", command=self.choose_audio_output_dir).grid(row=4, column=2, pady=6)
         ttk.Label(
             settings,
-            text="输出文件保持原名并改为 .mp3；已有同名 MP3 时会自动生成新文件名。",
+            text="默认保持原采样率和声道；已有同名输出时会自动生成新文件名。",
             foreground="#666666",
-        ).grid(row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        ).grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
         progress_area = ttk.LabelFrame(root, text="3. 转换进度", padding=10)
         progress_area.grid(row=3, column=0, sticky="ew", pady=(0, 10))
@@ -131,9 +159,17 @@ class Sub2LRCApp(tk.Tk):
         )
         self.audio_start_button = ttk.Button(root, text="开始转换", command=self.start_audio_conversion)
         self.audio_start_button.grid(row=4, column=0, sticky="e", ipadx=28, ipady=7)
+        self._update_audio_parameter_ui()
 
     def choose_audio_files(self) -> None:
-        names = filedialog.askopenfilenames(title="选择 WAV 文件", filetypes=[("WAV 音频", "*.wav")])
+        names = filedialog.askopenfilenames(
+            title="选择音频文件",
+            filetypes=[
+                ("支持的音频", "*.mp3 *.wav *.flac *.m4a *.aac *.ogg"),
+                ("MP3", "*.mp3"), ("WAV", "*.wav"), ("FLAC", "*.flac"),
+                ("M4A / AAC", "*.m4a *.aac"), ("OGG", "*.ogg"),
+            ],
+        )
         existing = {path.resolve() for path in self.audio_sources}
         for name in names:
             path = Path(name)
@@ -143,7 +179,7 @@ class Sub2LRCApp(tk.Tk):
                 existing.add(path.resolve())
         if names:
             self.audio_output_dir.set(str(Path(names[0]).parent))
-            self.audio_current.set(f"已选择 {len(self.audio_sources)} 个 WAV 文件")
+            self.audio_current.set(f"已选择 {len(self.audio_sources)} 个音频文件")
 
     def remove_selected_audio(self) -> None:
         if self._audio_running:
@@ -158,14 +194,14 @@ class Sub2LRCApp(tk.Tk):
             return
         self.audio_sources.clear()
         self.audio_file_list.delete(0, "end")
-        self.audio_current.set("已清空 WAV 文件列表")
+        self.audio_current.set("已清空音频文件列表")
         self.audio_progress.set(0.0)
         self.audio_summary.set("")
 
     def choose_audio_output_dir(self) -> None:
         if self._audio_running:
             return
-        selected = filedialog.askdirectory(title="选择 MP3 输出目录", initialdir=self.audio_output_dir.get())
+        selected = filedialog.askdirectory(title="选择音频输出目录", initialdir=self.audio_output_dir.get())
         if selected:
             self.audio_output_dir.set(selected)
 
@@ -173,7 +209,7 @@ class Sub2LRCApp(tk.Tk):
         if self._audio_running:
             return
         if not self.audio_sources:
-            messagebox.showinfo("Sub2LRC", "请至少选择一个 WAV 文件。")
+            messagebox.showinfo("Sub2LRC", "请至少选择一个音频文件。")
             return
         output_dir = Path(self.audio_output_dir.get().strip())
         if not output_dir.is_dir():
@@ -187,7 +223,11 @@ class Sub2LRCApp(tk.Tk):
             return
 
         sources = tuple(self.audio_sources)
-        bitrate = int(self.audio_bitrate.get())
+        try:
+            settings = self._current_audio_settings()
+        except AudioConversionError as exc:
+            messagebox.showerror("转换设置错误", str(exc))
+            return
         self._audio_running = True
         self.audio_progress.set(0.0)
         self.audio_summary.set("")
@@ -198,13 +238,13 @@ class Sub2LRCApp(tk.Tk):
 
         def worker() -> None:
             try:
-                result = convert_wav_batch(sources, output_dir, bitrate, report, ffmpeg)
+                result = convert_audio_batch(sources, output_dir, settings, report, ffmpeg)
             except AudioConversionError as exc:
                 self.after(0, self._finish_audio_conversion, None, exc)
                 return
             self.after(0, self._finish_audio_conversion, result, None)
 
-        threading.Thread(target=worker, name="Sub2LRC-WAV-Conversion", daemon=True).start()
+        threading.Thread(target=worker, name="Sub2LRC-Audio-Conversion", daemon=True).start()
 
     def _update_audio_progress(
         self, source: Path, index: int, total: int, file_percent: float, overall: float
@@ -232,7 +272,43 @@ class Sub2LRCApp(tk.Tk):
             details = "\n".join(f"{failure.source.name}：{failure.message}" for failure in result.failures[:10])
             messagebox.showwarning("部分文件转换失败", details)
         else:
-            messagebox.showinfo("转换完成", f"已生成 {successes} 个 MP3 文件。\n保存位置：{self.audio_output_dir.get()}")
+            messagebox.showinfo("转换完成", f"已生成 {successes} 个音频文件。\n保存位置：{self.audio_output_dir.get()}")
+
+    def _selected_audio_format_key(self) -> str:
+        for key, spec in FORMAT_SPECS.items():
+            if spec.label == self.audio_format_label.get():
+                return key
+        raise AudioConversionError("请选择有效的输出格式。")
+
+    def _update_audio_parameter_ui(self, _event: object | None = None) -> None:
+        spec = FORMAT_SPECS[self._selected_audio_format_key()]
+        if spec.parameter_label is None:
+            self.audio_parameter_label.grid_remove()
+            self.audio_parameter_box.grid_remove()
+            self.audio_parameter.set("")
+            return
+        self.audio_parameter_label.configure(text=f"{spec.parameter_label}：")
+        self.audio_parameter_box.configure(values=tuple(str(value) for value in spec.parameter_options))
+        self.audio_parameter.set(str(spec.default_parameter))
+        self.audio_parameter_label.grid()
+        self.audio_parameter_box.grid()
+
+    def _current_audio_settings(self) -> AudioConversionSettings:
+        format_key = self._selected_audio_format_key()
+        spec = FORMAT_SPECS[format_key]
+        parameter = int(self.audio_parameter.get()) if spec.parameter_label else None
+        sample_rate_values = {
+            "保持原始采样率": None, "44100 Hz": 44_100, "48000 Hz": 48_000, "96000 Hz": 96_000,
+        }
+        channel_values = {"保持原始声道": None, "单声道": 1, "立体声": 2}
+        settings = AudioConversionSettings(
+            format_key,
+            parameter,
+            sample_rate_values[self.audio_sample_rate.get()],
+            channel_values[self.audio_channels.get()],
+        )
+        settings.validate()
+        return settings
 
     def _build_editor_tab(self, root: ttk.Frame) -> None:
         root.columnconfigure(0, weight=1)

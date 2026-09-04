@@ -1,3 +1,3 @@
 """Sub2LRC - convert VTT/SRT subtitles to LRC lyrics."""
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"

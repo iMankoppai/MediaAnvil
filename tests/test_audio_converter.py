@@ -8,11 +8,21 @@ import unittest
 from unittest.mock import patch
 import wave
 
+from mutagen import File as MutagenFile
+from mutagen.id3 import ID3, TALB, TIT2, TPE1
 from mutagen.mp3 import MP3
 
 from sub2lrc.audio_converter import (
+    AAC_BITRATES,
+    FLAC_COMPRESSION_LEVELS,
+    FORMAT_SPECS,
+    OGG_QUALITY_LEVELS,
+    AudioConversionSettings,
     AudioConversionError,
     FfmpegNotFoundError,
+    build_ffmpeg_command,
+    convert_audio,
+    convert_audio_batch,
     convert_wav,
     convert_wav_batch,
     find_ffmpeg,
@@ -132,10 +142,9 @@ class AudioConverterTests(unittest.TestCase):
             ffmpeg.write_bytes(b"fake")
             calls: list[tuple[Path, float]] = []
 
-            def fake_convert(source: Path, *_args: object, **kwargs: object) -> Path:
-                report = kwargs.get("progress")
-                if report:
-                    report(100.0)
+            def fake_convert(source: Path, *args: object, **_kwargs: object) -> Path:
+                report = args[2]
+                report(100.0)
                 if source == first:
                     raise AudioConversionError("测试失败")
                 output = root / "second.mp3"
@@ -145,13 +154,60 @@ class AudioConverterTests(unittest.TestCase):
             def report(path: Path, _index: int, _total: int, _file: float, overall: float) -> None:
                 calls.append((path, overall))
 
-            with patch("sub2lrc.audio_converter.convert_wav", side_effect=fake_convert):
+            with patch("sub2lrc.audio_converter.convert_audio", side_effect=fake_convert):
                 result = convert_wav_batch((first, second), root, 192, report, ffmpeg)
 
             self.assertEqual(result.outputs, (root / "second.mp3",))
             self.assertEqual(len(result.failures), 1)
             self.assertEqual(result.failures[0].source, first)
             self.assertTrue(calls)
+
+    def test_all_formats_use_one_central_command_builder(self) -> None:
+        source = Path("输入.mp3")
+        expected = {
+            "mp3": ("libmp3lame", "-b:a", "192k"),
+            "wav": ("pcm_s16le", None, None),
+            "flac": ("flac", "-compression_level", "5"),
+            "m4a": ("aac", "-b:a", "192k"),
+            "aac": ("aac", "-b:a", "192k"),
+            "ogg": ("libvorbis", "-q:a", "5"),
+        }
+        for format_key, (codec, option, value) in expected.items():
+            with self.subTest(format=format_key):
+                settings = AudioConversionSettings(format_key)
+                command = build_ffmpeg_command("ffmpeg.exe", source, Path(f"输出.{format_key}"), settings)
+                self.assertIn(codec, command)
+                self.assertIn("-map_metadata", command)
+                if option:
+                    index = command.index(option)
+                    self.assertEqual(command[index + 1], value)
+                else:
+                    self.assertNotIn("-b:a", command)
+                    self.assertNotIn("-q:a", command)
+                    self.assertNotIn("-compression_level", command)
+
+    def test_format_parameter_options_and_sample_channel_controls(self) -> None:
+        self.assertEqual(FORMAT_SPECS["mp3"].parameter_options, (128, 192, 256, 320))
+        self.assertEqual(FORMAT_SPECS["m4a"].parameter_options, AAC_BITRATES)
+        self.assertEqual(FORMAT_SPECS["aac"].parameter_options, AAC_BITRATES)
+        self.assertEqual(FORMAT_SPECS["flac"].parameter_options, FLAC_COMPRESSION_LEVELS)
+        self.assertEqual(FORMAT_SPECS["ogg"].parameter_options, OGG_QUALITY_LEVELS)
+        command = build_ffmpeg_command(
+            "ffmpeg.exe",
+            "input.wav",
+            "output.mp3",
+            AudioConversionSettings("mp3", 256, sample_rate=48_000, channels=2),
+        )
+        self.assertEqual(command[command.index("-ar") + 1], "48000")
+        self.assertEqual(command[command.index("-ac") + 1], "2")
+
+    def test_rejects_same_input_and_output_format(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "same.flac"
+            source.write_bytes(b"fake")
+            with self.assertRaisesRegex(AudioConversionError, "不能与源文件格式相同"):
+                convert_audio(source, root, AudioConversionSettings("flac"))
 
     @unittest.skipUnless(os.environ.get("SUB2LRC_TEST_FFMPEG"), "real FFmpeg path not provided")
     def test_real_ffmpeg_converts_chinese_wav_at_all_supported_bitrates(self) -> None:
@@ -180,6 +236,58 @@ class AudioConverterTests(unittest.TestCase):
                     self.assertAlmostEqual(info.bitrate, target_bitrate * 1000, delta=2000)
                     self.assertEqual(progress[0], 0.0)
                     self.assertEqual(progress[-1], 100.0)
+
+    @unittest.skipUnless(os.environ.get("SUB2LRC_TEST_FFMPEG"), "real FFmpeg path not provided")
+    def test_real_ffmpeg_converts_every_supported_input_and_output_format(self) -> None:
+        ffmpeg = Path(os.environ["SUB2LRC_TEST_FFMPEG"])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "中文 通用输入.wav"
+            sample_rate = 44_100
+            samples = b"".join(
+                struct.pack("<h", int(10_000 * math.sin(2 * math.pi * 330 * index / sample_rate)))
+                for index in range(sample_rate)
+            )
+            with wave.open(str(source), "wb") as output:
+                output.setnchannels(1)
+                output.setsampwidth(2)
+                output.setframerate(sample_rate)
+                output.writeframes(samples)
+
+            converted: dict[str, Path] = {}
+            for output_format in ("mp3", "flac", "m4a", "aac", "ogg"):
+                with self.subTest(output=output_format):
+                    path = convert_audio(source, root, AudioConversionSettings(output_format), ffmpeg_path=ffmpeg)
+                    media = MutagenFile(path)
+                    self.assertIsNotNone(media)
+                    self.assertGreater(path.stat().st_size, 0)
+                    self.assertAlmostEqual(media.info.length, 1.0, delta=0.15)
+                    self.assertEqual(media.info.sample_rate, sample_rate)
+                    self.assertEqual(media.info.channels, 1)
+                    converted[output_format] = path
+
+            decoded = root / "decoded"
+            decoded.mkdir()
+            for input_format, path in converted.items():
+                with self.subTest(input=input_format):
+                    wav_output = convert_audio(path, decoded, AudioConversionSettings("wav"), ffmpeg_path=ffmpeg)
+                    with wave.open(str(wav_output), "rb") as decoded_wave:
+                        self.assertEqual(decoded_wave.getframerate(), sample_rate)
+                        self.assertEqual(decoded_wave.getnchannels(), 1)
+
+            tagged_mp3 = converted["mp3"]
+            tags = ID3()
+            tags.add(TIT2(encoding=3, text=["中文标题"]))
+            tags.add(TPE1(encoding=3, text=["日本語歌手"]))
+            tags.add(TALB(encoding=3, text=["English Album"]))
+            tags.save(tagged_mp3, v2_version=3)
+            metadata_output = root / "metadata"
+            metadata_output.mkdir()
+            flac = convert_audio(tagged_mp3, metadata_output, AudioConversionSettings("flac"), ffmpeg_path=ffmpeg)
+            metadata = MutagenFile(flac, easy=True)
+            self.assertEqual(metadata["title"], ["中文标题"])
+            self.assertEqual(metadata["artist"], ["日本語歌手"])
+            self.assertEqual(metadata["album"], ["English Album"])
 
 
 if __name__ == "__main__":
