@@ -71,19 +71,19 @@ class LazyTabGuiTests(unittest.TestCase):
         app.update()
         self.assertFalse(app.nametowidget(audio).winfo_children())
 
-    def test_primary_file_dialogs_are_owned_by_the_main_window(self) -> None:
+    def test_primary_file_actions_use_the_in_app_picker(self) -> None:
         app = self.make_app()
         preview, editor, converter, audio, image = app.main_notebook.tabs()
 
-        with patch("sub2lrc.gui.filedialog.askopenfilename", return_value="") as dialog:
+        with patch("sub2lrc.gui.ask_open_file", return_value="") as dialog:
             app.choose_preview_audio()
-            self.assertIs(dialog.call_args.kwargs["parent"], app)
+            self.assertIs(dialog.call_args.args[0], app)
 
         app.main_notebook.select(editor)
         app.update()
-        with patch("sub2lrc.gui.filedialog.askopenfilename", return_value="") as dialog:
+        with patch("sub2lrc.gui.ask_open_file", return_value="") as dialog:
             app.choose_editor_mp3()
-            self.assertIs(dialog.call_args.kwargs["parent"], app)
+            self.assertIs(dialog.call_args.args[0], app)
 
         for tab_id, method_name in (
             (converter, "choose_files"),
@@ -92,9 +92,9 @@ class LazyTabGuiTests(unittest.TestCase):
         ):
             app.main_notebook.select(tab_id)
             app.update()
-            with patch("sub2lrc.gui.filedialog.askopenfilenames", return_value=()) as dialog:
+            with patch("sub2lrc.gui.ask_open_files", return_value=()) as dialog:
                 getattr(app, method_name)()
-                self.assertIs(dialog.call_args.kwargs["parent"], app)
+                self.assertIs(dialog.call_args.args[0], app)
 
 
 if __name__ == "__main__":
