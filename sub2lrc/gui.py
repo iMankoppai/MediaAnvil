@@ -151,7 +151,8 @@ class Sub2LRCApp(tk.Tk):
         ttk.Entry(source, textvariable=self.preview_audio_path, state="readonly").grid(
             row=0, column=0, sticky="ew", padx=(0, 8)
         )
-        ttk.Button(source, text="选择音频…", command=self.choose_preview_audio).grid(row=0, column=1)
+        self.preview_select_button = ttk.Button(source, text="选择音频…", command=self.choose_preview_audio)
+        self.preview_select_button.grid(row=0, column=1)
 
         controls = ttk.LabelFrame(root, text="播放控制", padding=10)
         controls.grid(row=2, column=0, sticky="ew", pady=(0, 10))
@@ -160,7 +161,7 @@ class Sub2LRCApp(tk.Tk):
         self.preview_play_button.grid(row=0, column=0, padx=(0, 6))
         self.preview_pause_button = ttk.Button(controls, text="暂停", command=self.pause_preview_audio)
         self.preview_pause_button.grid(row=0, column=1, padx=6)
-        for button in (self.preview_play_button, self.preview_pause_button):
+        for button in (self.preview_select_button, self.preview_play_button, self.preview_pause_button):
             button.bind("<KeyPress-space>", self._toggle_preview_with_space)
             button.bind("<KeyRelease-space>", self._release_preview_space)
         self.preview_audio_scale = ttk.Scale(
