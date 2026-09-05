@@ -425,6 +425,12 @@ class Sub2LRCApp(tk.Tk):
         ImageDraw.Draw(track).rounded_rectangle((0, 1, 11, 6), radius=3, fill="#e2eaf3")
         self._preview_scale_track_photo = ImageTk.PhotoImage(track)
         style = ttk.Style(self)
+        style.configure(
+            "Preview.Horizontal.TScale",
+            background="#ffffff",
+            troughcolor="#ffffff",
+            bordercolor="#ffffff",
+        )
         slider_element = "Preview.Horizontal.Scale.slider"
         track_element = "Preview.Horizontal.Scale.track"
         try:
