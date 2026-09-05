@@ -157,15 +157,12 @@ class Sub2LRCApp(tk.Tk):
         sidebar.grid_propagate(False)
         sidebar.columnconfigure(0, weight=1)
         brand = ttk.Frame(sidebar, style="Sidebar.TFrame")
-        brand.grid(row=0, column=0, rowspan=2, sticky="ew", padx=6, pady=(0, 22))
+        brand.grid(row=0, column=0, rowspan=2, sticky="ew", padx=6, pady=(0, 16))
         if self._sidebar_icon is not None:
             ttk.Label(brand, image=self._sidebar_icon, style="BrandSub.TLabel").pack(side="left", padx=(0, 10))
         else:
             ttk.Label(brand, text="▰", style="Brand.TLabel").pack(side="left", padx=(0, 10))
-        brand_text = ttk.Frame(brand, style="Sidebar.TFrame")
-        brand_text.pack(side="left", fill="x", expand=True)
-        ttk.Label(brand_text, text=PRODUCT_NAME, style="Brand.TLabel").pack(anchor="w")
-        ttk.Label(brand_text, text="本地媒体工具箱", style="BrandSub.TLabel").pack(anchor="w", pady=(2, 0))
+        ttk.Label(brand, text=PRODUCT_NAME, style="Brand.TLabel").pack(side="left", anchor="w")
 
         content = ttk.Frame(
             shell,
@@ -179,7 +176,7 @@ class Sub2LRCApp(tk.Tk):
         page_specs = (
             ("preview", "♫", "音频预览", self._build_preview_tab),
             ("editor", "◇", "音频标签编辑", self._build_editor_tab),
-            ("converter", "AA", "歌词 / 字幕转换", self._build_converter_tab),
+            ("converter", "A", "歌词 / 字幕转换", self._build_converter_tab),
             ("audio", "⇄", "音频格式转换", self._build_audio_tab),
             ("image", "▧", "图片格式转换", self._build_image_tab),
             ("settings", "⚙", "设置", self._build_settings_page),
@@ -370,26 +367,24 @@ class Sub2LRCApp(tk.Tk):
             button.bind("<KeyRelease-space>", self._release_preview_space)
         timeline = ttk.Frame(controls, style="Card.TFrame")
         timeline.grid(row=1, column=0, sticky="ew", pady=(22, 0))
-        timeline.columnconfigure(1, weight=1)
         ttk.Label(timeline, textvariable=self.preview_current_time, style="CardMuted.TLabel").grid(row=0, column=0, padx=(0, 8))
         self.preview_audio_scale = ttk.Scale(
             timeline, from_=0, to=1, variable=self.preview_audio_position,
-            orient="horizontal", style="Preview.Horizontal.TScale"
+            orient="horizontal", style="Preview.Horizontal.TScale", length=240
         )
-        self.preview_audio_scale.grid(row=0, column=1, sticky="ew")
+        self.preview_audio_scale.grid(row=0, column=1)
         self.preview_audio_scale.bind("<ButtonPress-1>", self._begin_preview_seek)
         self.preview_audio_scale.bind("<B1-Motion>", self._drag_preview_seek)
         self.preview_audio_scale.bind("<ButtonRelease-1>", self._end_preview_seek)
         ttk.Label(timeline, textvariable=self.preview_total_time, style="CardMuted.TLabel", anchor="e").grid(row=0, column=2, padx=(8, 0))
         volume = ttk.Frame(controls, style="Card.TFrame")
         volume.grid(row=2, column=0, sticky="ew", pady=(18, 0))
-        volume.columnconfigure(1, weight=1)
         ttk.Label(volume, text="音量", style="Card.TLabel").grid(row=0, column=0, padx=(0, 10))
         self.preview_volume_scale = ttk.Scale(
             volume, from_=0, to=100, variable=self.preview_audio_volume,
-            orient="horizontal", style="Preview.Horizontal.TScale"
+            orient="horizontal", style="Preview.Horizontal.TScale", length=240
         )
-        self.preview_volume_scale.grid(row=0, column=1, sticky="ew")
+        self.preview_volume_scale.grid(row=0, column=1)
         self.preview_volume_scale.bind("<ButtonPress-1>", self._begin_preview_volume)
         self.preview_volume_scale.bind("<B1-Motion>", self._drag_preview_volume)
         self.preview_volume_scale.bind("<ButtonRelease-1>", self._end_preview_volume)
@@ -423,21 +418,26 @@ class Sub2LRCApp(tk.Tk):
     def _create_preview_scale_style(self) -> None:
         large = Image.new("RGBA", (36, 36), (0, 0, 0, 0))
         draw = ImageDraw.Draw(large)
-        draw.ellipse((2, 2, 33, 33), fill="#168ce5", outline="#0b69ad", width=2)
+        draw.ellipse((2, 2, 33, 33), fill="#6faee5", outline="#5596cb", width=2)
         thumb = large.resize((18, 18), Image.Resampling.LANCZOS)
         self._preview_scale_thumb_photo = ImageTk.PhotoImage(thumb)
+        track = Image.new("RGBA", (12, 8), (0, 0, 0, 0))
+        ImageDraw.Draw(track).rounded_rectangle((0, 1, 11, 6), radius=3, fill="#e2eaf3")
+        self._preview_scale_track_photo = ImageTk.PhotoImage(track)
         style = ttk.Style(self)
-        element = "Preview.Horizontal.Scale.slider"
+        slider_element = "Preview.Horizontal.Scale.slider"
+        track_element = "Preview.Horizontal.Scale.track"
         try:
-            style.element_create(element, "image", self._preview_scale_thumb_photo, border=0)
+            style.element_create(slider_element, "image", self._preview_scale_thumb_photo, border=0)
+            style.element_create(track_element, "image", self._preview_scale_track_photo, border=5, sticky="ew")
         except tk.TclError:
             pass
         style.layout(
             "Preview.Horizontal.TScale",
             [("Scale.focus", {"sticky": "nswe", "children": [
                 ("Horizontal.Scale.trough", {"sticky": "nswe", "children": [
-                    ("Horizontal.Scale.track", {"sticky": "we"}),
-                    (element, {"side": "left", "sticky": ""}),
+                    (track_element, {"sticky": "we"}),
+                    (slider_element, {"side": "left", "sticky": ""}),
                 ]}),
             ]})],
         )
@@ -1791,7 +1791,7 @@ class Sub2LRCApp(tk.Tk):
     def _build_converter_tab(self, root: ttk.Frame) -> None:
         root.columnconfigure(0, weight=1)
         root.rowconfigure(1, weight=1)
-        self._page_header(root, "AA", "歌词 / 字幕转换", "支持 LRC、SRT、VTT 相互转换")
+        self._page_header(root, "A", "歌词 / 字幕转换", "支持 LRC、SRT、VTT 相互转换")
 
         body = ttk.Frame(root, style="Page.TFrame")
         body.grid(row=1, column=0, sticky="nsew", pady=(14, 0))
@@ -1826,7 +1826,7 @@ class Sub2LRCApp(tk.Tk):
         subtitle_horizontal = ttk.Scrollbar(files_frame, orient="horizontal", command=self.file_list.xview)
         subtitle_horizontal.grid(row=3, column=0, sticky="ew")
         self.file_list.configure(yscrollcommand=scrollbar.set, xscrollcommand=subtitle_horizontal.set)
-        self.subtitle_files_empty = ttk.Label(files_frame, text="AA\n尚未选择转换文件\n支持批量添加 LRC、SRT 和 VTT", justify="center", style="CardMuted.TLabel")
+        self.subtitle_files_empty = ttk.Label(files_frame, text="A\n尚未选择转换文件\n支持批量添加 LRC、SRT 和 VTT", justify="center", style="CardMuted.TLabel")
         self._show_empty_overlay(self.subtitle_files_empty, True, self.file_list)
 
         output = ttk.LabelFrame(left, text="2  转换设置", padding=12, style="Card.TLabelframe")

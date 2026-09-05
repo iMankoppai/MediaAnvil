@@ -117,6 +117,14 @@ def configure_theme(root: tk.Misc) -> ttk.Style:
     style.configure("TCombobox", padding=6, fieldbackground="#ffffff", bordercolor=COLORS["border"])
     style.configure("TSpinbox", padding=6, fieldbackground="#ffffff", bordercolor=COLORS["border"])
     style.configure("TProgressbar", background=COLORS["blue"], troughcolor="#e7edf5", thickness=8)
+    style.configure(
+        "TScrollbar",
+        background="#d9e3ef",
+        troughcolor="#f6f8fb",
+        bordercolor=COLORS["border"],
+        arrowcolor="#8ea0b5",
+    )
+    style.map("TScrollbar", background=[("active", "#c9d8e8"), ("disabled", "#eef2f6")])
     style.configure("TRadiobutton", background=COLORS["card"])
     style.configure("TCheckbutton", background=COLORS["card"])
     style.configure("TLabelframe", background=COLORS["card"], bordercolor=COLORS["border"], relief="solid")
