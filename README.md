@@ -2,6 +2,10 @@
 
 MediaAnvil 是一个 Windows 本地多媒体工具箱，支持歌词/字幕、音频标签、音频格式和图片格式处理，支持中文与批量转换。
 
+## V0.3.1
+
+V0.3.1 统一了 GitHub 仓库名称、程序窗口标题与下载链接，使发布页面、源码仓库和安装包都使用 **MediaAnvil** 名称。
+
 ## V0.3
 
 V0.3 将软件正式命名为 **MediaAnvil**，使用全新的透明铁砧图标，并将音频预览、音频标签编辑、歌词/字幕转换、音频格式转换和图片格式转换组织为固定左侧导航。界面统一采用浅色卡片式分区，主要操作、普通操作和删除操作使用不同层级；业务处理仍由原有独立模块完成。
@@ -56,7 +60,7 @@ V0.3 将软件正式命名为 **MediaAnvil**，使用全新的透明铁砧图标
 
 ## 下载 EXE
 
-前往 [V0.3 Release](https://github.com/iMankoppai/MediaAnvil/releases/tag/v0.3) 下载 `MediaAnvil.exe`。目标电脑不需要安装 Python。
+前往 [V0.3.1 Release](https://github.com/iMankoppai/MediaAnvil/releases/tag/v0.3.1) 下载 `MediaAnvil.exe`。目标电脑不需要安装 Python。
 
 ## 支持格式
 
