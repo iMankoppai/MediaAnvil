@@ -70,7 +70,12 @@ def configure_theme(root: tk.Misc) -> ttk.Style:
     style.configure("Subtitle.TLabel", foreground=COLORS["muted"])
     style.configure("Section.TLabel", font=("Microsoft YaHei UI", 11, "bold"))
     style.configure("Brand.TLabel", background=COLORS["sidebar"], font=("Microsoft YaHei UI", 16, "bold"))
-    style.configure("BrandSub.TLabel", background=COLORS["sidebar"], foreground=COLORS["muted"])
+    style.configure(
+        "BrandSub.TLabel",
+        background=COLORS["sidebar"],
+        foreground=COLORS["muted"],
+        font=("Microsoft YaHei UI", 9),
+    )
 
     style.configure(
         "TButton",

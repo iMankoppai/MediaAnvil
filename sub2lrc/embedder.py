@@ -52,7 +52,7 @@ def embed_lrc(mp3: str | Path, lrc: str | Path, destination: str | Path | None =
         from mutagen import MutagenError
         from mutagen.mp3 import MP3, HeaderNotFoundError
     except ImportError as exc:
-        raise LyricsEmbedError("缺少 Mutagen 组件，请重新安装或重新打包 Sub2LRC。") from exc
+        raise LyricsEmbedError("缺少 Mutagen 组件，请重新安装或重新打包 MediaAnvil。") from exc
 
     try:
         MP3(mp3_path)

@@ -26,7 +26,7 @@ def read_cover(path: str | Path) -> tuple[bytes, str]:
     try:
         from PIL import Image, UnidentifiedImageError
     except ImportError as exc:
-        raise CoverEmbedError("缺少 Pillow 图片组件，请重新安装或重新打包 Sub2LRC。") from exc
+        raise CoverEmbedError("缺少 Pillow 图片组件，请重新安装或重新打包 MediaAnvil。") from exc
 
     try:
         with Image.open(BytesIO(data)) as decoded:
@@ -58,7 +58,7 @@ def embed_cover(mp3: str | Path, image: str | Path, destination: str | Path | No
         from mutagen.id3 import APIC, ID3, ID3NoHeaderError
         from mutagen.mp3 import HeaderNotFoundError, MP3
     except ImportError as exc:
-        raise CoverEmbedError("缺少 Mutagen 组件，请重新安装或重新打包 Sub2LRC。") from exc
+        raise CoverEmbedError("缺少 Mutagen 组件，请重新安装或重新打包 MediaAnvil。") from exc
 
     try:
         MP3(mp3_path)

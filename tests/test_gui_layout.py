@@ -44,6 +44,11 @@ class GuiLayoutTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             app.show_page("missing")
 
+    def test_product_branding_and_icon_are_loaded(self) -> None:
+        app = self.make_app()
+        self.assertEqual(app.title(), "MediaAnvil - 本地多媒体工具箱")
+        self.assertIsNotNone(app._app_icon)
+
     def test_advanced_subtitle_settings_are_collapsible(self) -> None:
         app = self.make_app()
         app.show_page("converter")

@@ -4,6 +4,7 @@ $venvDir = Join-Path $PSScriptRoot ".build-venv"
 $ffmpegPath = Join-Path $PSScriptRoot "vendor\ffmpeg\ffmpeg.exe"
 $ffplayPath = Join-Path $PSScriptRoot "vendor\ffmpeg\ffplay.exe"
 $ffmpegDownloadScript = Join-Path $PSScriptRoot "tools\download_ffmpeg.ps1"
+$appIconPath = Join-Path $PSScriptRoot "assets\mediaanvil-icon.png"
 
 if (-not (Test-Path $venvDir)) {
     Write-Host "Creating isolated build environment..."
@@ -43,7 +44,7 @@ if ($LASTEXITCODE -ne 0) {
     }
 }
 
-Write-Host "Building Sub2LRC.exe..."
+Write-Host "Building MediaAnvil.exe..."
 if (-not (Test-Path $ffmpegPath) -or -not (Test-Path $ffplayPath)) {
     Write-Host "Downloading verified FFmpeg/FFplay for the standalone EXE..."
     & powershell -ExecutionPolicy Bypass -File $ffmpegDownloadScript
@@ -55,10 +56,12 @@ if (-not (Test-Path $ffmpegPath) -or -not (Test-Path $ffplayPath)) {
 $pyinstallerArgs = @(
     "-m", "PyInstaller",
     "--noconfirm", "--clean", "--onefile", "--windowed",
-    "--name", "Sub2LRC",
+    "--name", "MediaAnvil",
+    "--icon", $appIconPath,
     "--add-binary", "$ffmpegPath;."
     "--add-binary", "$ffplayPath;."
     "--add-data", "$(Join-Path $PSScriptRoot 'THIRD_PARTY_NOTICES.md');."
+    "--add-data", "$appIconPath;assets"
     (Join-Path $PSScriptRoot "main.py")
 )
 & $buildPython @pyinstallerArgs
@@ -67,4 +70,4 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host ""
-Write-Host "Build complete: dist\Sub2LRC.exe" -ForegroundColor Green
+Write-Host "Build complete: dist\MediaAnvil.exe" -ForegroundColor Green

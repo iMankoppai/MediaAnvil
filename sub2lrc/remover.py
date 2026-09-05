@@ -35,7 +35,7 @@ def _remove_frames(
         from mutagen.id3 import ID3, ID3NoHeaderError
         from mutagen.mp3 import HeaderNotFoundError, MP3
     except ImportError as exc:
-        raise TagRemovalError("缺少 Mutagen 组件，请重新安装或重新打包 Sub2LRC。") from exc
+        raise TagRemovalError("缺少 Mutagen 组件，请重新安装或重新打包 MediaAnvil。") from exc
 
     try:
         MP3(mp3_path)

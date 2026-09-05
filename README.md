@@ -1,16 +1,16 @@
-# Sub2LRC
+# MediaAnvil
 
-Sub2LRC 正在发展为一个 Windows 本地多媒体工具箱，支持歌词/字幕、音频标签、音频格式和图片格式处理，支持中文与批量转换。
+MediaAnvil 是一个 Windows 本地多媒体工具箱，支持歌词/字幕、音频标签、音频格式和图片格式处理，支持中文与批量转换。
 
 ## v1.0 界面
 
 v1.0 使用固定的左侧导航，将音频预览、音频标签编辑、歌词/字幕转换、音频格式转换和图片格式转换组织为独立页面。界面统一采用浅色卡片式分区，主要操作、普通操作和删除操作使用不同层级；业务处理仍由原有独立模块完成。
 
-![Sub2LRC 软件截图](assets/screenshot.png)
+![MediaAnvil 软件截图](assets/screenshot.png)
 
 ## 歌词 / 字幕格式转换
 
-1. 下载并双击运行 `Sub2LRC.exe`。
+1. 下载并双击运行 `MediaAnvil.exe`。
 2. 点击“选择歌词 / 字幕”，可以同时选择多个 LRC、SRT 或 VTT 文件；程序会自动识别输入格式。
 3. 选择输出格式和输出目录。
 4. 点击“开始批量转换”。
@@ -56,7 +56,7 @@ v1.0 使用固定的左侧导航，将音频预览、音频标签编辑、歌词
 
 ## 下载 EXE
 
-前往 [Releases](https://github.com/iMankoppai/Sub2LRC/releases/latest) 下载最新版 `Sub2LRC.exe`。目标电脑不需要安装 Python。
+前往 [Releases](https://github.com/iMankoppai/Sub2LRC/releases/latest) 下载最新版 `MediaAnvil.exe`。目标电脑不需要安装 Python。
 
 ## 支持格式
 

@@ -41,7 +41,7 @@ def read_mp3_metadata(path: str | Path) -> Mp3Metadata:
         from mutagen.id3 import ID3, ID3NoHeaderError
         from mutagen.mp3 import HeaderNotFoundError, MP3
     except ImportError as exc:
-        raise MetadataError("缺少 Mutagen 组件，请重新安装或重新打包 Sub2LRC。") from exc
+        raise MetadataError("缺少 Mutagen 组件，请重新安装或重新打包 MediaAnvil。") from exc
 
     try:
         MP3(mp3_path)
@@ -96,7 +96,7 @@ def update_mp3_metadata(
         from mutagen import MutagenError
         from mutagen.id3 import ID3, ID3NoHeaderError, TALB, TIT2, TPE1
     except ImportError as exc:
-        raise MetadataError("缺少 Mutagen 组件，请重新安装或重新打包 Sub2LRC。") from exc
+        raise MetadataError("缺少 Mutagen 组件，请重新安装或重新打包 MediaAnvil。") from exc
 
     frame_classes = {"TIT2": TIT2, "TPE1": TPE1, "TALB": TALB}
 

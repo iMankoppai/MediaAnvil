@@ -60,7 +60,7 @@ def read_mp3_editor_state(path: str | Path) -> Mp3EditorState:
         from mutagen import MutagenError
         from mutagen.id3 import ID3, ID3NoHeaderError
     except ImportError as exc:
-        raise Mp3EditorError("缺少 Mutagen 组件，请重新安装或重新打包 Sub2LRC。") from exc
+        raise Mp3EditorError("缺少 Mutagen 组件，请重新安装或重新打包 MediaAnvil。") from exc
 
     lyrics = ""
     cover_data: bytes | None = None

@@ -1,9 +1,10 @@
-"""Tkinter graphical interface for Sub2LRC."""
+"""Tkinter graphical interface for MediaAnvil."""
 
 from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
+import sys
 import tempfile
 import threading
 import tkinter as tk
@@ -53,10 +54,27 @@ from .ui_theme import COLORS, SIZES, STATUS_STYLES, configure_theme
 from .ui_widgets import ElidedLabel, attach_variable_tooltip, set_text_empty_state
 
 
+PRODUCT_NAME = "MediaAnvil"
+APP_VERSION = "1.0"
+
+
+def _resource_path(relative_path: str) -> Path:
+    root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+    return root / relative_path
+
+
 class Sub2LRCApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("Sub2LRC - 本地多媒体工具箱")
+        self.title(f"{PRODUCT_NAME} - 本地多媒体工具箱")
+        self._app_icon: tk.PhotoImage | None = None
+        try:
+            self._app_icon = tk.PhotoImage(file=str(_resource_path("assets/mediaanvil-icon.png")))
+            self.iconphoto(True, self._app_icon)
+        except (OSError, tk.TclError):
+            # A missing icon must never prevent the application from opening.
+            self._app_icon = None
+        self._sidebar_icon = self._app_icon.subsample(28, 28) if self._app_icon is not None else None
         self.geometry("1280x820")
         self.minsize(1050, 760)
         self.configure(background=COLORS["window"])
@@ -138,10 +156,16 @@ class Sub2LRCApp(tk.Tk):
         sidebar.grid(row=0, column=0, sticky="ns")
         sidebar.grid_propagate(False)
         sidebar.columnconfigure(0, weight=1)
-        ttk.Label(sidebar, text="♫  Sub2LRC", style="Brand.TLabel").grid(row=0, column=0, sticky="w", padx=8)
-        ttk.Label(sidebar, text="本地多媒体工具箱", style="BrandSub.TLabel").grid(
-            row=1, column=0, sticky="w", padx=8, pady=(2, 22)
-        )
+        brand = ttk.Frame(sidebar, style="Sidebar.TFrame")
+        brand.grid(row=0, column=0, rowspan=2, sticky="ew", padx=6, pady=(0, 22))
+        if self._sidebar_icon is not None:
+            ttk.Label(brand, image=self._sidebar_icon, style="BrandSub.TLabel").pack(side="left", padx=(0, 10))
+        else:
+            ttk.Label(brand, text="▰", style="Brand.TLabel").pack(side="left", padx=(0, 10))
+        brand_text = ttk.Frame(brand, style="Sidebar.TFrame")
+        brand_text.pack(side="left", fill="x", expand=True)
+        ttk.Label(brand_text, text=PRODUCT_NAME, style="Brand.TLabel").pack(anchor="w")
+        ttk.Label(brand_text, text="本地媒体工具箱", style="BrandSub.TLabel").pack(anchor="w", pady=(2, 0))
 
         content = ttk.Frame(
             shell,
@@ -162,33 +186,56 @@ class Sub2LRCApp(tk.Tk):
             ("about", "ⓘ", "关于", self._build_about_page),
         )
         self.pages: dict[str, ttk.Frame] = {}
-        self.nav_buttons: dict[str, tk.Button] = {}
+        self.nav_buttons: dict[str, tk.Frame] = {}
+        self.nav_icon_labels: dict[str, tk.Label] = {}
+        self.nav_text_labels: dict[str, tk.Label] = {}
         for index, (key, icon, label, builder) in enumerate(page_specs):
             page = ttk.Frame(content, padding=4, style="Page.TFrame")
             page.grid(row=0, column=0, sticky="nsew")
             self.pages[key] = page
             builder(page)
             nav_row = index + 2 if index < 5 else index + 4
-            button = tk.Button(
+            button = tk.Frame(
                 sidebar,
-                text=f"{icon}   {label}",
-                command=lambda page_key=key: self.show_page(page_key),
-                anchor="w",
                 relief="flat",
                 borderwidth=0,
-                padx=14,
-                pady=11,
-                font=("Microsoft YaHei UI", 10, "bold"),
                 background=COLORS["sidebar"],
-                foreground=COLORS["text"],
-                activebackground=COLORS["blue_soft"],
-                activeforeground=COLORS["blue"],
                 cursor="hand2",
             )
             button.grid(row=nav_row, column=0, sticky="ew", pady=2)
+            button.columnconfigure(1, weight=1)
+            icon_label = tk.Label(
+                button,
+                text=icon,
+                width=3,
+                anchor="center",
+                borderwidth=0,
+                background=COLORS["sidebar"],
+                foreground=COLORS["text"],
+                font=("Microsoft YaHei UI", 10, "bold"),
+                cursor="hand2",
+            )
+            icon_label.grid(row=0, column=0, padx=(9, 3), pady=11)
+            text_label = tk.Label(
+                button,
+                text=label,
+                anchor="w",
+                borderwidth=0,
+                background=COLORS["sidebar"],
+                foreground=COLORS["text"],
+                font=("Microsoft YaHei UI", 10, "bold"),
+                cursor="hand2",
+            )
+            text_label.grid(row=0, column=1, sticky="ew", padx=(0, 10), pady=11)
+            for widget in (button, icon_label, text_label):
+                widget.bind("<Button-1>", lambda _event, page_key=key: self.show_page(page_key))
+                widget.bind("<Enter>", lambda _event, page_key=key: self._set_nav_hover(page_key, True))
+                widget.bind("<Leave>", lambda _event, page_key=key: self._set_nav_hover(page_key, False))
             self.nav_buttons[key] = button
+            self.nav_icon_labels[key] = icon_label
+            self.nav_text_labels[key] = text_label
         sidebar.rowconfigure(7, weight=1)
-        ttk.Label(sidebar, text="v1.0", style="BrandSub.TLabel").grid(
+        ttk.Label(sidebar, text=f"v{APP_VERSION}", style="BrandSub.TLabel").grid(
             row=11, column=0, sticky="w", padx=8, pady=(12, 0)
         )
         self.preview_tab = self.pages["preview"]
@@ -204,12 +251,22 @@ class Sub2LRCApp(tk.Tk):
         self.pages[key].tkraise()
         for page_key, button in self.nav_buttons.items():
             selected = page_key == key
-            button.configure(
-                background=COLORS["blue"] if selected else COLORS["sidebar"],
-                foreground="#ffffff" if selected else COLORS["text"],
-                activebackground=COLORS["blue_hover"] if selected else COLORS["blue_soft"],
-                activeforeground="#ffffff" if selected else COLORS["blue"],
-            )
+            background = COLORS["blue"] if selected else COLORS["sidebar"]
+            foreground = "#ffffff" if selected else COLORS["text"]
+            for widget in (button, self.nav_icon_labels[page_key], self.nav_text_labels[page_key]):
+                widget.configure(background=background)
+            self.nav_icon_labels[page_key].configure(foreground=foreground)
+            self.nav_text_labels[page_key].configure(foreground=foreground)
+
+    def _set_nav_hover(self, key: str, hovering: bool) -> None:
+        if key == self.current_page:
+            return
+        background = COLORS["blue_soft"] if hovering else COLORS["sidebar"]
+        foreground = COLORS["blue"] if hovering else COLORS["text"]
+        for widget in (self.nav_buttons[key], self.nav_icon_labels[key], self.nav_text_labels[key]):
+            widget.configure(background=background)
+        self.nav_icon_labels[key].configure(foreground=foreground)
+        self.nav_text_labels[key].configure(foreground=foreground)
 
     def _build_settings_page(self, root: ttk.Frame) -> None:
         self._page_header(root, "⚙", "设置", "调整应用程序的常用选项")
@@ -219,8 +276,8 @@ class Sub2LRCApp(tk.Tk):
         ttk.Label(card, text="各转换参数会保存在对应功能页面中。", style="CardMuted.TLabel").pack(anchor="w", pady=(8, 0))
 
     def _build_about_page(self, root: ttk.Frame) -> None:
-        self._page_header(root, "ⓘ", "关于", "Sub2LRC 本地多媒体工具箱")
-        card = ttk.LabelFrame(root, text="Sub2LRC v1.0", padding=SIZES["card_pad"], style="Card.TLabelframe")
+        self._page_header(root, "ⓘ", "关于", f"{PRODUCT_NAME} 本地多媒体工具箱")
+        card = ttk.LabelFrame(root, text=f"{PRODUCT_NAME} v{APP_VERSION}", padding=SIZES["card_pad"], style="Card.TLabelframe")
         card.grid(row=1, column=0, sticky="ew", pady=(14, 0))
         ttk.Label(card, text="一个简单、离线的 Windows 多媒体处理工具。", style="Card.TLabel").pack(anchor="w")
         ttk.Label(
@@ -461,7 +518,7 @@ class Sub2LRCApp(tk.Tk):
 
     def play_preview_audio(self) -> None:
         if self._preview_player is None:
-            messagebox.showinfo("Sub2LRC", "请先选择一首音频。")
+            messagebox.showinfo(PRODUCT_NAME, "请先选择一首音频。")
             return
         try:
             self._preview_player.play()
@@ -912,7 +969,7 @@ class Sub2LRCApp(tk.Tk):
         if self._image_running:
             return
         if not self.image_sources:
-            messagebox.showinfo("Sub2LRC", "请至少选择一张图片。")
+            messagebox.showinfo(PRODUCT_NAME, "请至少选择一张图片。")
             return
         output_dir = Path(self.image_output_dir.get().strip())
         if not output_dir.is_dir():
@@ -1121,7 +1178,7 @@ class Sub2LRCApp(tk.Tk):
         if self._audio_running:
             return
         if not self.audio_sources:
-            messagebox.showinfo("Sub2LRC", "请至少选择一个音频文件。")
+            messagebox.showinfo(PRODUCT_NAME, "请至少选择一个音频文件。")
             return
         output_dir = Path(self.audio_output_dir.get().strip())
         if not output_dir.is_dir():
@@ -1438,7 +1495,7 @@ class Sub2LRCApp(tk.Tk):
         state = self._original_editor_state
         source_text = self.editor_mp3_path.get().strip()
         if state is None or not source_text:
-            messagebox.showinfo("Sub2LRC", "请先选择音频文件。")
+            messagebox.showinfo(PRODUCT_NAME, "请先选择音频文件。")
             return
         if not state.has_lyrics:
             messagebox.showinfo("没有内嵌歌词", "当前音频没有可导出的内嵌歌词。")
@@ -1465,7 +1522,7 @@ class Sub2LRCApp(tk.Tk):
         state = self._original_editor_state
         source_text = self.editor_mp3_path.get().strip()
         if state is None or not source_text:
-            messagebox.showinfo("Sub2LRC", "请先选择音频文件。")
+            messagebox.showinfo(PRODUCT_NAME, "请先选择音频文件。")
             return
         if not state.has_cover:
             messagebox.showinfo("没有内嵌封面", "当前音频没有可导出的内嵌封面。")
@@ -1490,7 +1547,7 @@ class Sub2LRCApp(tk.Tk):
 
     def choose_editor_lrc(self) -> None:
         if self._original_editor_state is None:
-            messagebox.showinfo("Sub2LRC", "请先选择音频文件。")
+            messagebox.showinfo(PRODUCT_NAME, "请先选择音频文件。")
             return
         if not self._original_editor_state.writable:
             messagebox.showinfo("只读格式", "当前格式暂时只支持读取标签。")
@@ -1514,7 +1571,7 @@ class Sub2LRCApp(tk.Tk):
 
     def mark_lyrics_for_removal(self) -> None:
         if self._original_editor_state is None:
-            messagebox.showinfo("Sub2LRC", "请先选择音频文件。")
+            messagebox.showinfo(PRODUCT_NAME, "请先选择音频文件。")
             return
         if not self._original_editor_state.has_lyrics and self._lyrics_action != "replace":
             messagebox.showinfo("没有内嵌歌词", "当前 MP3 没有可移除的内嵌歌词。")
@@ -1530,7 +1587,7 @@ class Sub2LRCApp(tk.Tk):
 
     def choose_editor_cover(self) -> None:
         if self._original_editor_state is None:
-            messagebox.showinfo("Sub2LRC", "请先选择音频文件。")
+            messagebox.showinfo(PRODUCT_NAME, "请先选择音频文件。")
             return
         selected = filedialog.askopenfilename(
             title="选择封面图片",
@@ -1571,7 +1628,7 @@ class Sub2LRCApp(tk.Tk):
 
     def mark_cover_for_removal(self) -> None:
         if self._original_editor_state is None:
-            messagebox.showinfo("Sub2LRC", "请先选择音频文件。")
+            messagebox.showinfo(PRODUCT_NAME, "请先选择音频文件。")
             return
         if not self._original_editor_state.has_cover and self._cover_action != "replace":
             messagebox.showinfo("没有内嵌封面", "当前 MP3 没有可移除的内嵌封面。")
@@ -1589,7 +1646,7 @@ class Sub2LRCApp(tk.Tk):
         source_text = self.editor_mp3_path.get().strip()
         state = self._original_editor_state
         if not source_text or state is None:
-            messagebox.showinfo("Sub2LRC", "请先选择音频文件。")
+            messagebox.showinfo(PRODUCT_NAME, "请先选择音频文件。")
             return
         if not state.writable:
             messagebox.showinfo("只读格式", "当前格式暂时只支持读取标签。")
@@ -1624,7 +1681,7 @@ class Sub2LRCApp(tk.Tk):
     def cancel_editor_changes(self) -> None:
         state = self._original_editor_state
         if state is None:
-            messagebox.showinfo("Sub2LRC", "当前没有正在编辑的音频。")
+            messagebox.showinfo(PRODUCT_NAME, "当前没有正在编辑的音频。")
             return
         if not self._has_pending_changes():
             self.editor_status.set("当前没有尚未保存的修改")
@@ -1891,11 +1948,11 @@ class Sub2LRCApp(tk.Tk):
 
     def convert_all(self) -> None:
         if not self.sources:
-            messagebox.showinfo("Sub2LRC", "请先选择至少一个 LRC、SRT 或 VTT 文件。")
+            messagebox.showinfo(PRODUCT_NAME, "请先选择至少一个 LRC、SRT 或 VTT 文件。")
             return
         output_dir_text = self.output_dir.get().strip()
         if not output_dir_text:
-            messagebox.showwarning("Sub2LRC", "请选择输出目录。")
+            messagebox.showwarning(PRODUCT_NAME, "请选择输出目录。")
             return
         output_dir = Path(output_dir_text)
         output_format = self.subtitle_output_format.get().lower()
@@ -1904,7 +1961,7 @@ class Sub2LRCApp(tk.Tk):
             if output_format != "lrc" and final_duration <= 0:
                 raise ValueError
         except ValueError:
-            messagebox.showwarning("Sub2LRC", "最后一句持续时间必须是大于 0 的数字。")
+            messagebox.showwarning(PRODUCT_NAME, "最后一句持续时间必须是大于 0 的数字。")
             return
         successes = 0
         errors: list[str] = []
@@ -1948,7 +2005,7 @@ class Sub2LRCApp(tk.Tk):
     def save_current(self) -> None:
         result = self.results.get(self.result_box.get())
         if not result:
-            messagebox.showinfo("Sub2LRC", "请先完成一次转换。")
+            messagebox.showinfo(PRODUCT_NAME, "请先完成一次转换。")
             return
         original_path, content = result
         suffix = original_path.suffix.lower()

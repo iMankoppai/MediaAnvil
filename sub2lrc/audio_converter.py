@@ -120,7 +120,7 @@ def find_ffmpeg(explicit: str | Path | None = None) -> Path:
     if located:
         return Path(located)
     raise FfmpegNotFoundError(
-        "没有找到 FFmpeg。请使用包含内置 FFmpeg 的正式版 Sub2LRC，"
+        "没有找到 FFmpeg。请使用包含内置 FFmpeg 的正式版 MediaAnvil，"
         "或把 ffmpeg.exe 放在程序同一目录。"
     )
 

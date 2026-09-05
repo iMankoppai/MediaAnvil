@@ -1,4 +1,4 @@
-"""Sub2LRC application entry point."""
+"""MediaAnvil application entry point."""
 
 from sub2lrc.gui import main
 
