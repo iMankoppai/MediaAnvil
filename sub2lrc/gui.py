@@ -55,7 +55,7 @@ from .ui_widgets import ElidedLabel, attach_variable_tooltip, set_text_empty_sta
 
 
 PRODUCT_NAME = "MediaAnvil"
-APP_VERSION = "1.0"
+APP_VERSION = "0.3"
 
 
 def _resource_path(relative_path: str) -> Path:
