@@ -56,7 +56,7 @@ V0.3 将软件正式命名为 **MediaAnvil**，使用全新的透明铁砧图标
 
 ## 下载 EXE
 
-前往 [V0.3 Release](https://github.com/iMankoppai/Sub2LRC/releases/tag/v0.3) 下载 `MediaAnvil.exe`。目标电脑不需要安装 Python。
+前往 [V0.3 Release](https://github.com/iMankoppai/MediaAnvil/releases/tag/v0.3) 下载 `MediaAnvil.exe`。目标电脑不需要安装 Python。
 
 ## 支持格式
 

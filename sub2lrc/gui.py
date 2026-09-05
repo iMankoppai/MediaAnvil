@@ -66,7 +66,7 @@ def _resource_path(relative_path: str) -> Path:
 class Sub2LRCApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title(f"{PRODUCT_NAME} - 本地多媒体工具箱")
+        self.title(PRODUCT_NAME)
         self._app_icon: tk.PhotoImage | None = None
         try:
             self._app_icon = tk.PhotoImage(file=str(_resource_path("assets/mediaanvil-icon.png")))

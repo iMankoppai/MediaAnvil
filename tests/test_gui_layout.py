@@ -46,7 +46,7 @@ class GuiLayoutTests(unittest.TestCase):
 
     def test_product_branding_and_icon_are_loaded(self) -> None:
         app = self.make_app()
-        self.assertEqual(app.title(), "MediaAnvil - 本地多媒体工具箱")
+        self.assertEqual(app.title(), "MediaAnvil")
         self.assertIsNotNone(app._app_icon)
 
     def test_advanced_subtitle_settings_are_collapsible(self) -> None:
