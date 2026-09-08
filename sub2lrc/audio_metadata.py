@@ -45,6 +45,8 @@ class AudioMetadata:
     cover_count: int
     writable: bool
     info: AudioFileInfo
+    track: str = ""
+    year: str = ""
 
 
 @dataclass(frozen=True)
@@ -118,7 +120,7 @@ class Mp3Adapter:
         return AudioMetadata(
             state.title, state.artist, state.album, state.has_lyrics, state.lyrics,
             state.has_cover, state.cover_data, state.cover_mime, detail.lyrics_count,
-            detail.cover_count, True, info,
+            detail.cover_count, True, info, state.track, state.year,
         )
 
     def write(self, source: Path, changes: AudioMetadataChanges, destination: Path | None) -> Path:
@@ -144,6 +146,7 @@ class FlacAdapter:
             _value(tags, "title"), _value(tags, "artist"), _value(tags, "album"), bool(lyrics), lyrics,
             bool(cover), cover.data if cover else None, cover.mime if cover else None,
             1 if lyrics else 0, len(pictures), True, _generic_info(path, audio, "FLAC", len(tags or {})),
+            _value(tags, "tracknumber"), _value(tags, "date") or _value(tags, "year"),
         )
 
     def write(self, source: Path, changes: AudioMetadataChanges, destination: Path | None) -> Path:
@@ -188,7 +191,20 @@ class Mp4Adapter:
             _value(tags, "©nam"), _value(tags, "©ART"), _value(tags, "©alb"), bool(lyrics), lyrics,
             bool(cover), bytes(cover) if cover else None, mime, 1 if lyrics else 0, len(covers), True,
             _generic_info(path, audio, "M4A", len(tags)),
+            self._track_value(tags), _value(tags, "©day"),
         )
+
+    @staticmethod
+    def _track_value(tags: object) -> str:
+        values = tags.get("trkn", []) if tags else []
+        if not values:
+            return ""
+        value = values[0]
+        if isinstance(value, (tuple, list)) and value:
+            number = str(value[0])
+            total = str(value[1]) if len(value) > 1 and value[1] else ""
+            return f"{number}/{total}" if total else number
+        return str(value)
 
     def write(self, source: Path, changes: AudioMetadataChanges, destination: Path | None) -> Path:
         from mutagen.mp4 import MP4, MP4Cover
@@ -235,6 +251,7 @@ class OggAdapter:
             _value(tags, "title"), _value(tags, "artist"), _value(tags, "album"), bool(lyrics), lyrics,
             bool(cover), cover.data if cover else None, cover.mime if cover else None,
             1 if lyrics else 0, len(pictures), True, _generic_info(path, audio, label, len(tags)),
+            _value(tags, "tracknumber"), _value(tags, "date") or _value(tags, "year"),
         )
 
     def write(self, source: Path, changes: AudioMetadataChanges, destination: Path | None) -> Path:

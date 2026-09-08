@@ -30,6 +30,15 @@ from sub2lrc.audio_converter import (
 )
 
 
+def required_real_ffmpeg() -> Path:
+    """Return the real test binary, failing rather than silently skipping."""
+    configured = os.environ.get("SUB2LRC_TEST_FFMPEG")
+    ffmpeg = Path(configured) if configured else Path(__file__).resolve().parents[1] / "vendor" / "ffmpeg" / "ffmpeg.exe"
+    if not ffmpeg.is_file():
+        raise AssertionError(f"真实 FFmpeg 测试必需文件不存在：{ffmpeg}")
+    return ffmpeg
+
+
 class FakeProcess:
     def __init__(self, command: list[str], return_code: int = 0, error: str = "") -> None:
         self.command = command
@@ -201,6 +210,14 @@ class AudioConverterTests(unittest.TestCase):
         self.assertEqual(command[command.index("-ar") + 1], "48000")
         self.assertEqual(command[command.index("-ac") + 1], "2")
 
+    def test_metadata_copy_can_be_disabled_without_changing_encoding_options(self) -> None:
+        command = build_ffmpeg_command(
+            "ffmpeg.exe", "input.wav", "output.mp3",
+            AudioConversionSettings("mp3", 192, preserve_metadata=False),
+        )
+        self.assertNotIn("-map_metadata", command)
+        self.assertIn("-codec:a", command)
+
     def test_rejects_same_input_and_output_format(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -209,9 +226,8 @@ class AudioConverterTests(unittest.TestCase):
             with self.assertRaisesRegex(AudioConversionError, "不能与源文件格式相同"):
                 convert_audio(source, root, AudioConversionSettings("flac"))
 
-    @unittest.skipUnless(os.environ.get("SUB2LRC_TEST_FFMPEG"), "real FFmpeg path not provided")
     def test_real_ffmpeg_converts_chinese_wav_at_all_supported_bitrates(self) -> None:
-        ffmpeg = Path(os.environ["SUB2LRC_TEST_FFMPEG"])
+        ffmpeg = required_real_ffmpeg()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "中文 实际测试.wav"
@@ -237,9 +253,8 @@ class AudioConverterTests(unittest.TestCase):
                     self.assertEqual(progress[0], 0.0)
                     self.assertEqual(progress[-1], 100.0)
 
-    @unittest.skipUnless(os.environ.get("SUB2LRC_TEST_FFMPEG"), "real FFmpeg path not provided")
     def test_real_ffmpeg_converts_every_supported_input_and_output_format(self) -> None:
-        ffmpeg = Path(os.environ["SUB2LRC_TEST_FFMPEG"])
+        ffmpeg = required_real_ffmpeg()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "中文 通用输入.wav"

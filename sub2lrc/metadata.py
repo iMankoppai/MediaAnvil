@@ -19,6 +19,8 @@ class Mp3Metadata:
     album: str = ""
     has_cover: bool = False
     has_lyrics: bool = False
+    track: str = ""
+    year: str = ""
 
 
 def _text_value(tags: object, frame_id: str) -> str:
@@ -58,6 +60,8 @@ def read_mp3_metadata(path: str | Path) -> Mp3Metadata:
         album=_text_value(tags, "TALB"),
         has_cover=bool(tags.getall("APIC")),
         has_lyrics=bool(tags.getall("USLT") or tags.getall("SYLT")),
+        track=_text_value(tags, "TRCK"),
+        year=_text_value(tags, "TDRC") or _text_value(tags, "TYER"),
     )
 
 

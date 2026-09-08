@@ -57,6 +57,7 @@ class AudioConversionSettings:
     parameter: int | None = None
     sample_rate: int | None = None
     channels: int | None = None
+    preserve_metadata: bool = True
 
     @property
     def format_spec(self) -> FormatSpec:
@@ -205,9 +206,11 @@ def build_ffmpeg_command(
     spec = settings.format_spec
     command = [
         str(ffmpeg), "-nostdin", "-hide_banner", "-loglevel", "error",
-        "-i", str(source), "-map", "0:a:0", "-map_metadata", "0", "-vn",
-        "-codec:a", spec.codec,
+        "-i", str(source), "-map", "0:a:0",
     ]
+    if settings.preserve_metadata:
+        command.extend(("-map_metadata", "0"))
+    command.extend(("-vn", "-codec:a", spec.codec))
     parameter = settings.resolved_parameter
     if spec.key in {"mp3", "m4a", "aac"}:
         command.extend(("-b:a", f"{parameter}k"))

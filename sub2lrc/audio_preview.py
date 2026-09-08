@@ -15,7 +15,7 @@ import time
 from typing import Callable
 
 from .audio_converter import SUPPORTED_INPUT_EXTENSIONS, _duration_seconds, find_ffmpeg
-from .converter import read_subtitle
+from .converter import SubtitleError,parse_text,read_subtitle
 from .mp3_exporter import Mp3ExportError, read_embedded_lyrics
 
 
@@ -34,6 +34,7 @@ class LyricLine:
     time_seconds: float
     text: str
     source_line: int
+    end_seconds: float | None = None
 
 
 _LRC_TIME = re.compile(r"\[(?P<minutes>\d+):(?P<seconds>\d{2})(?:\.(?P<fraction>\d{1,3}))?\]")
@@ -59,7 +60,10 @@ def current_lyric_index(timeline: tuple[LyricLine, ...], position: float) -> int
     if not timeline:
         return None
     index = bisect_right([line.time_seconds for line in timeline], position) - 1
-    return index if index >= 0 else None
+    if index < 0:
+        return None
+    end = timeline[index].end_seconds
+    return None if end is not None and position >= end else index
 
 
 def lyric_index_from_display_line(timeline: tuple[LyricLine, ...], line_number: int) -> int | None:
@@ -68,21 +72,47 @@ def lyric_index_from_display_line(timeline: tuple[LyricLine, ...], line_number: 
     return index if 0 <= index < len(timeline) else None
 
 
-def load_audio_lyrics(path: str | Path) -> tuple[str, tuple[LyricLine, ...]]:
-    """Prefer a same-name external LRC, then a timed embedded MP3 lyric."""
-    audio_path = Path(path)
-    external = audio_path.with_suffix(".lrc")
-    content = ""
-    if external.is_file():
-        content = read_subtitle(external)
-    elif audio_path.suffix.lower() == ".mp3":
-        try:
-            embedded = read_embedded_lyrics(audio_path)
-            if embedded.extension == ".lrc":
-                content = embedded.text
-        except Mp3ExportError:
-            pass
-    return content, parse_lrc_timeline(content)
+def _external_timeline(path: Path) -> tuple[str, tuple[LyricLine, ...]]:
+    content=read_subtitle(path);kind=path.suffix.lower().lstrip('.')
+    if kind=='lrc':return content,parse_lrc_timeline(content)
+    cues=parse_text(content,kind)
+    return content,tuple(LyricLine(cue.start_seconds,cue.text,index,cue.end_seconds) for index,cue in enumerate(cues))
+
+
+def _embedded_timeline(audio_path: Path) -> tuple[str, tuple[LyricLine, ...]]:
+    if audio_path.suffix.lower()!='.mp3':return '',()
+    try:
+        embedded=read_embedded_lyrics(audio_path)
+        if embedded.extension=='.lrc':return embedded.text,parse_lrc_timeline(embedded.text)
+    except Mp3ExportError:
+        pass
+    return '',()
+
+
+def _external_candidates(audio_path: Path, subtitle_suffix: str) -> tuple[Path, ...]:
+    """Prefer ``song.wav.vtt`` over the less specific ``song.vtt``."""
+    retained_audio_suffix=audio_path.with_name(audio_path.name+subtitle_suffix)
+    conventional=audio_path.with_suffix(subtitle_suffix)
+    return (retained_audio_suffix,conventional)
+
+
+def load_audio_lyrics(path: str | Path, *, load_external: bool = True, prefer_embedded: bool = False) -> tuple[str, tuple[LyricLine, ...]]:
+    """Load LRC/SRT/VTT or embedded MP3 lyrics without modifying files."""
+    audio_path=Path(path)
+    if prefer_embedded:
+        content,timeline=_embedded_timeline(audio_path)
+        if timeline:return content,timeline
+    if load_external:
+        for suffix in ('.lrc','.srt','.vtt'):
+            for external in _external_candidates(audio_path,suffix):
+                if not external.is_file():continue
+                try:
+                    content,timeline=_external_timeline(external)
+                    if timeline:return content,timeline
+                except (OSError,UnicodeError,SubtitleError):
+                    continue
+    if not prefer_embedded:return _embedded_timeline(audio_path)
+    return '',()
 
 
 def find_ffplay(explicit: str | Path | None = None) -> Path:

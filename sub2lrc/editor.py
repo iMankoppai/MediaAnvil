@@ -26,6 +26,8 @@ class Mp3EditorState:
     has_cover: bool
     cover_data: bytes | None
     cover_mime: str | None
+    track: str = ""
+    year: str = ""
 
 
 @dataclass(frozen=True)
@@ -99,6 +101,8 @@ def read_mp3_editor_state(path: str | Path) -> Mp3EditorState:
         has_cover=metadata.has_cover,
         cover_data=cover_data,
         cover_mime=cover_mime,
+        track=metadata.track,
+        year=metadata.year,
     )
 
 

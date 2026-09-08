@@ -7,7 +7,9 @@ dist/
 release/
 vendor/ffmpeg/ffmpeg.exe
 vendor/ffmpeg/ffplay.exe
+vendor/icu/
 *.spec
+aqtinstall.log
 
 # Local user media and generated lyrics in the project root
 /*.wav

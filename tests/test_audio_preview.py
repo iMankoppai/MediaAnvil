@@ -2,6 +2,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from sub2lrc.audio_preview import (
     AudioPreviewError,
@@ -60,6 +61,54 @@ class AudioPreviewTests(unittest.TestCase):
             self.assertIn("歌词", content)
             self.assertEqual(timeline[0].time_seconds, 1.0)
             self.assertEqual(audio.read_bytes(), before)
+
+    def test_same_name_srt_and_vtt_are_loaded_directly_with_end_times(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            for suffix,header,timing in (
+                ('.srt','1\n','00:00:01,000 --> 00:00:02,500'),
+                ('.vtt','WEBVTT\n\n','00:00:03.000 --> 00:00:04.500'),
+            ):
+                audio=root/f'voice-{suffix[1:]}.flac';audio.write_bytes(b'audio')
+                audio.with_suffix(suffix).write_text(f'{header}{timing}\n第一行\n第二行\n',encoding='utf-8')
+                content,timeline=load_audio_lyrics(audio)
+                self.assertIn('第一行',content);self.assertEqual(timeline[0].text,'第一行\n第二行')
+                self.assertIsNotNone(timeline[0].end_seconds)
+                self.assertIsNone(current_lyric_index(timeline,timeline[0].end_seconds or 0))
+
+    def test_subtitle_name_may_retain_the_audio_extension(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            audio=Path(directory)/'ex01.平凡日子的掏耳朵.wav';audio.write_bytes(b'audio')
+            retained=Path(str(audio)+'.vtt')
+            retained.write_text('WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n完整文件名字幕\n',encoding='utf-8')
+            content,timeline=load_audio_lyrics(audio)
+            self.assertIn('完整文件名字幕',content);self.assertEqual(timeline[0].time_seconds,1.0)
+
+    def test_retained_audio_extension_wins_within_the_same_subtitle_format(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            audio=Path(directory)/'song.flac';audio.write_bytes(b'audio')
+            audio.with_suffix('.lrc').write_text('[00:01.00]普通同名\n',encoding='utf-8')
+            Path(str(audio)+'.lrc').write_text('[00:02.00]完整文件名\n',encoding='utf-8')
+            self.assertEqual(load_audio_lyrics(audio)[1][0].text,'完整文件名')
+
+    @patch('sub2lrc.audio_preview.read_embedded_lyrics')
+    def test_external_priority_and_embedded_preference_switch(self,embedded) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            audio=Path(directory)/'song.mp3';audio.write_bytes(b'audio')
+            audio.with_suffix('.lrc').write_text('[00:01.00]外置歌词\n',encoding='utf-8')
+            audio.with_suffix('.srt').write_text('1\n00:00:02,000 --> 00:00:03,000\n字幕\n',encoding='utf-8')
+            embedded.return_value=SimpleNamespace(extension='.lrc',text='[00:04.00]内嵌歌词\n')
+            self.assertEqual(load_audio_lyrics(audio)[1][0].text,'外置歌词')
+            self.assertEqual(load_audio_lyrics(audio,prefer_embedded=True)[1][0].text,'内嵌歌词')
+
+    def test_external_lrc_can_be_disabled_by_global_setting(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            audio = Path(directory) / "song.flac"
+            audio.write_bytes(b"audio-data")
+            audio.with_suffix(".lrc").write_text("[00:01.00]外置歌词\n", encoding="utf-8")
+            content, timeline = load_audio_lyrics(audio, load_external=False)
+            self.assertEqual(content, "")
+            self.assertEqual(timeline, ())
 
     @patch("sub2lrc.audio_preview._duration_seconds", return_value=12.0)
     def test_load_accepts_every_current_audio_format_and_switch_stops_previous(self, _probe: object) -> None:

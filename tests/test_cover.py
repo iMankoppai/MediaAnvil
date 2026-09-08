@@ -11,7 +11,6 @@ from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1, USLT
 from mutagen.mp3 import MP3
 
 from sub2lrc.cover import CoverEmbedError, embed_cover, read_cover
-from sub2lrc.cropper import crop_square
 
 
 MP3_FRAME = b"\xff\xfb\x90\x64" + b"\x00" * 413
@@ -52,7 +51,7 @@ class CoverTests(unittest.TestCase):
             original_audio = write_test_mp3(mp3)
             landscape = Image.new("RGB", (400, 200), "red")
             landscape.paste("blue", (200, 0, 400, 200))
-            cropped = crop_square(landscape, (200, 0, 400, 200))
+            cropped = landscape.crop((200, 0, 400, 200))
             cropped.save(image_path, format="PNG")
 
             embed_cover(mp3, image_path)
