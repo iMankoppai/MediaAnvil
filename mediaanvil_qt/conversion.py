@@ -146,7 +146,7 @@ class ConversionPage(Page):
         for p in spec.parameter_options:self.parameter.addItem(str(p),p)
         default=self.app.settings['default_mp3_bitrate'] if spec.key=='mp3' else self.app.settings['default_aac_bitrate'] if spec.key in ('aac','m4a') else spec.default_parameter
         self.parameter.setCurrentIndex(max(0,self.parameter.findData(default)));self.parameter.setEnabled(bool(spec.parameter_options))
-        self.parameter.setToolTip(spec.parameter_label or '此格式无编码参数')
+        self.parameter.setToolTip(self.app.t(spec.parameter_label or '此格式无编码参数'))
     def start(self):
         paths=self.files.checked_paths()
         if not paths:return self.app.inform(self.app.t('请先添加并勾选要转换的文件。'))
@@ -187,7 +187,7 @@ class ConversionPage(Page):
         self.summary.setObjectName('success' if len(self.last_outputs)==len(records) else 'notice')
         self.summary.setStyleSheet('');self.summary.style().unpolish(self.summary);self.summary.style().polish(self.summary)
         self.summary.setText(self.app.t(f'转换完成：成功 {len(self.last_outputs)} 个，失败 {len(records)-len(self.last_outputs)} 个 · 耗时 {time.monotonic()-self.started:.1f} 秒'))
-        if self.kind!='subtitle':self.results.setPlainText('\n'.join(r['message'] for r in records))
+        if self.kind!='subtitle':self.results.setPlainText(self.app.t('\n'.join(r['message'] for r in records)))
         if records:self.result_picker.setCurrentIndex(0);self.show_result(0);self.result_table.selectRow(0)
         if self.auto_open.isChecked():
             for directory in dict.fromkeys(p.parent for p in self.last_outputs):self.app.open_path(directory)
@@ -200,8 +200,8 @@ class ConversionPage(Page):
             self.preview.clear()
             if path:
                 self.preview.setPixmap(thumbnail(path,210).pixmap(210,150))
-                self.detail.setText(f"{path.name}\n{record['size']/1024:.1f} KB · {record['dimensions']}\n完成时间：{record['finished']}")
-            else:self.preview.setText(self.app.t('转换失败'));self.detail.setText(record['message'])
+                self.detail.setText(f"{path.name}\n{record['size']/1024:.1f} KB · {record['dimensions']}\n{self.app.t('完成时间：')}{record['finished']}")
+            else:self.preview.setText(self.app.t('转换失败'));self.detail.setText(self.app.t(record['message']))
     def current_record(self):
         index=self.result_picker.currentIndex()
         return self.records[index] if 0<=index<len(self.records) else None
@@ -212,11 +212,11 @@ class ConversionPage(Page):
     def save_result(self):
         record=self.current_record()
         if not record or not record['path']:return self.app.inform(self.app.t('请先选择一个转换成功的结果。'))
-        source=record['path'];destination,_=QFileDialog.getSaveFileName(self,'结果另存为',str(source),f'{source.suffix.upper()} (*{source.suffix})')
+        source=record['path'];destination,_=QFileDialog.getSaveFileName(self,self.app.t('结果另存为'),str(source),f'{source.suffix.upper()} (*{source.suffix})')
         if destination:
             target=Path(destination)
             if target.resolve()==source.resolve():return
-            self.app.run_task(lambda report:shutil.copy2(source,target),lambda path:self.app.statusBar().showMessage('已另存为：'+str(path)))
+            self.app.run_task(lambda report:shutil.copy2(source,target),lambda path:self.app.statusBar().showMessage(self.app.t('已另存为：'+str(path))))
     def reconvert(self):
         record=self.current_record()
         if record:self.convert_paths([record['source']])

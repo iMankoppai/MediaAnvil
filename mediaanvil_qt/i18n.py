@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QAbstractButton, QAbstractSpinBox, QComboBox, QLabel, QLineEdit,
+from PySide6.QtWidgets import (QAbstractButton, QAbstractSpinBox, QComboBox, QDialog, QLabel, QLineEdit,
     QListWidget, QMainWindow, QPlainTextEdit, QTableWidget, QWidget)
 
 
@@ -131,6 +131,27 @@ EN = {
     '请先添加并勾选要转换的文件。': 'Add and select at least one file to convert.',
     '请先选择一个转换成功的结果。': 'Select a successfully converted result first.',
     '请先添加音频。': 'Add audio files first.', '请先生成预览。': 'Generate a preview first.',
+    '选择文件夹': 'Choose Folder', '选择输出文件夹': 'Choose Output Folder',
+    '支持的文件': 'Supported Files', '此格式无编码参数': 'This format has no encoding parameter',
+    '结果另存为': 'Save Result As', '完成时间：': 'Completed at: ',
+    '选择音频': 'Choose Audio', '音频 (*.mp3 *.wav *.flac *.m4a *.aac *.ogg *.opus)': 'Audio (*.mp3 *.wav *.flac *.m4a *.aac *.ogg *.opus)',
+    '音频 (*.mp3 *.flac *.m4a *.ogg *.opus *.wav *.aac)': 'Audio (*.mp3 *.flac *.m4a *.ogg *.opus *.wav *.aac)',
+    '导入歌词 / 字幕': 'Import Lyrics / Subtitles', '歌词 / 字幕 (*.lrc *.srt *.vtt)': 'Lyrics / Subtitles (*.lrc *.srt *.vtt)',
+    '选择封面': 'Choose Artwork', '图片 (*.png *.jpg *.jpeg *.webp *.bmp)': 'Images (*.png *.jpg *.jpeg *.webp *.bmp)',
+    '选择导出文件夹': 'Choose Export Folder', '扫描音乐文件夹': 'Scan Music Folder',
+    '请先选择封面或载入带封面的音频。': 'Choose artwork or load an audio file with embedded artwork first.',
+    '请先选择音频。': 'Choose an audio file first.', '该格式当前只支持读取信息。': 'This format is currently read-only.',
+    '批量写入结果': 'Batch Write Results', '导出重命名预览': 'Export Rename Preview',
+    '重命名结果': 'Rename Results', '撤销结果': 'Undo Results', '路径': 'Path', '说明': 'Details', '已勾选': 'Selected',
+    '请选择自定义输出文件夹。': 'Choose a custom output folder.',
+    '仅支持导入 LRC、SRT 或 VTT 歌词 / 字幕文件': 'Only LRC, SRT, and VTT lyrics or subtitle files can be imported.',
+    '暂无封面 / 预览': 'No artwork / preview', '将文件拖放到这里': 'Drop files here',
+    '或使用上方按钮添加文件与文件夹': 'Or use the buttons above to add files and folders',
+    '可重命名（自动避让）': 'Ready to Rename (Conflict Avoided)',
+    '文件名已经符合模板': 'Filename already matches the template',
+    '批次内有多个文件生成了同名目标': 'Multiple files in this batch produce the same target name',
+    '音频文件不存在或无法访问。': 'The audio file does not exist or cannot be accessed.',
+    '源文件不存在或无法访问': 'The source file does not exist or cannot be accessed',
 }
 
 _current_language = 'zh_CN'
@@ -149,6 +170,8 @@ def tr(text, language=None):
         return value
     if value in EN:
         return EN[value]
+    if '\n' in value:
+        return '\n'.join(tr(line, language) for line in value.split('\n'))
     patterns = (
         (r'^(\d+) 个文件$', r'\1 files'),
         (r'^已导入 (\d+) 个文件$', r'Imported \1 files'),
@@ -156,6 +179,19 @@ def tr(text, language=None):
         (r'^转换完成：成功 (\d+) 个，失败 (\d+) 个 · 耗时 ([\d.]+) 秒$', r'Complete: \1 succeeded, \2 failed · \3 s'),
         (r'^(\d+) 个文件 · 点击刷新预览$', r'\1 files · Refresh to preview'),
         (r'^(\d+) 项 · 已勾选 (\d+) 项$', r'\1 items · \2 selected'),
+        (r'^完成：(.*)（透明区域已填白）$', r'Completed: \1 (transparent areas filled with white)'),
+        (r'^跳过：(.*)（无已选关联文件）$', r'Skipped: \1 (no associated file selected)'),
+        (r'^完成：(.*)$', r'Completed: \1'),
+        (r'^失败：(.*)$', r'Failed: \1'),
+        (r'^跳过：(.*)$', r'Skipped: \1'),
+        (r'^恢复：(.*)$', r'Restored: \1'),
+        (r'^已保存：(.*)$', r'Saved: \1'),
+        (r'^已导出：(.*)$', r'Exported: \1'),
+        (r'^已另存为：(.*)$', r'Saved as: \1'),
+        (r'^预览已导出：(.*)$', r'Preview exported: \1'),
+        (r'^设置未能保存：(.*)$', r'Unable to save settings: \1'),
+        (r'^保存失败：(.*)$', r'Save failed: \1'),
+        (r'^缺少字段：(.*)$', r'Missing fields: \1'),
     )
     for pattern, replacement in patterns:
         if re.match(pattern, value):
@@ -177,7 +213,7 @@ def apply_language(root: QWidget, language: str):
     set_current_language(language)
     widgets = [root, *root.findChildren(QWidget)]
     for widget in widgets:
-        if isinstance(widget, QMainWindow):
+        if isinstance(widget, (QMainWindow, QDialog)):
             widget.setWindowTitle(tr(_source(widget, 'windowTitle', widget.windowTitle()), language))
         if isinstance(widget, (QLabel, QAbstractButton)):
             widget.setText(tr(_source(widget, 'text', widget.text()), language))
@@ -191,6 +227,8 @@ def apply_language(root: QWidget, language: str):
         if tooltip or getattr(widget, '_i18n_sources', {}).get('tooltip'):
             widget.setToolTip(tr(_source(widget, 'tooltip', tooltip), language))
         if isinstance(widget, QComboBox):
+            original = _source(widget, 'placeholder', widget.placeholderText())
+            widget.setPlaceholderText(tr(original, language))
             sources = getattr(widget, '_i18n_items', None)
             if sources is None or len(sources) != widget.count():
                 sources = [widget.itemText(i) for i in range(widget.count())]; widget._i18n_items = sources

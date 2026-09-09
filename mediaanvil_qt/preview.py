@@ -77,7 +77,7 @@ class PreviewPage(Page):
         # automatically when another page is selected.
         self.shortcut=QShortcut(QKeySequence('Space'),self);self.shortcut.setContext(Qt.ShortcutContext.WindowShortcut);self.shortcut.activated.connect(self.toggle)
     def choose(self):
-        paths,_=QFileDialog.getOpenFileNames(self,'选择音频','','音频 (*.mp3 *.wav *.flac *.m4a *.aac *.ogg *.opus)')
+        paths,_=QFileDialog.getOpenFileNames(self,self.app.t('选择音频'),'',self.app.t('音频 (*.mp3 *.wav *.flac *.m4a *.aac *.ogg *.opus)'))
         if paths:self.receive([Path(p) for p in paths])
     def receive(self,paths):
         found=[p for p in paths if p.suffix.lower() in SUPPORTED_INPUT_EXTENSIONS]

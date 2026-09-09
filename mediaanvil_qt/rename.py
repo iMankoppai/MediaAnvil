@@ -84,27 +84,28 @@ class RenamePage(Page):
         if self.plan:self.count_label.setText(self.app.t(f'{len(self.plan.items)} 项 · 已勾选 {count} 项'))
     def export_preview(self):
         if not self.plan:return self.app.inform(self.app.t('请先生成预览。'))
-        path,_=QFileDialog.getSaveFileName(self,'导出重命名预览','重命名预览.csv','CSV (*.csv)')
+        default_name='rename-preview.csv' if self.app.settings.get('language')=='en_US' else '重命名预览.csv'
+        path,_=QFileDialog.getSaveFileName(self,self.app.t('导出重命名预览'),default_name,'CSV (*.csv)')
         if path:
             rows=[(i.source,i.original_name,i.new_name,i.status,i.message,i in self.selected_items()) for i in self.plan.items]
             def work(report):
                 with open(path,'w',encoding='utf-8-sig',newline='') as stream:
-                    writer=csv.writer(stream);writer.writerow(['路径','原文件名','新文件名','状态','说明','已勾选']);writer.writerows(rows)
+                    writer=csv.writer(stream);writer.writerow([self.app.t(value) for value in ('路径','原文件名','新文件名','状态','说明','已勾选')]);writer.writerows(rows)
                 return path
-            self.app.run_task(work,lambda p:self.app.statusBar().showMessage('预览已导出：'+str(p)))
+            self.app.run_task(work,lambda p:self.app.statusBar().showMessage(self.app.t('预览已导出：'+str(p))))
     def preview(self):
         paths=self.files.checked_paths();template=self.template.currentText();fallback=self.fallback.isChecked()
         if not paths:return self.app.inform(self.app.t('请先添加音频。'))
         self.app.run_task(lambda report:build_rename_plan(paths,template,fallback_missing=fallback),self.previewed)
     def previewed(self,plan):
         self.table.blockSignals(True)
-        fill_table(self.table,[('',n+1,i.original_name,i.new_name,i.status) for n,i in enumerate(plan.items)])
+        fill_table(self.table,[('',n+1,i.original_name,i.new_name,self.app.t(i.status)) for n,i in enumerate(plan.items)])
         self.plan=plan
         for n,item in enumerate(plan.items):
             check=self.table.item(n,0)
             if item.can_rename:check.setCheckState(Qt.CheckState.Checked if self.all_rows.isChecked() else Qt.CheckState.Unchecked)
             else:check.setFlags(Qt.ItemFlag.NoItemFlags)
-            status=self.table.item(n,4);status.setForeground(QColor('#169763' if item.can_rename else '#c88032'));status.setToolTip(item.message)
+            status=self.table.item(n,4);status.setForeground(QColor('#169763' if item.can_rename else '#c88032'));status.setToolTip(self.app.t(item.message))
         self.table.blockSignals(False);self.update_selection();self.filter_rows()
     def execute(self):
         if not self.plan:return

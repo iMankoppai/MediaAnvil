@@ -32,11 +32,29 @@ MediaAnvil 是一款面向 Windows 的本地多媒体工具箱。它使用 Qt �
 
 ![音频标签编辑界面](assets/screenshots/tag-editor.png)
 
-### 批量格式转换
+### 歌词与字幕转换
+
+在 LRC、SRT 和 VTT 之间批量转换，并在右侧直接预览转换后的文本。
+
+![歌词与字幕转换界面](assets/screenshots/lyrics-subtitles.png)
+
+### 音频格式转换
 
 统一添加、选择和移除文件，设置输出参数，并在右侧查看和另存转换结果。
 
 ![音频格式转换界面](assets/screenshots/audio-converter.png)
+
+### 图片格式转换
+
+批量转换 JPG、PNG、WebP 和 BMP，并保留尺寸或按目标格式处理透明区域。
+
+![图片格式转换界面](assets/screenshots/image-converter.png)
+
+### 批量重命名
+
+根据音频标签生成文件名，执行前预览冲突，并可撤销最近一次成功的批量重命名。
+
+![批量重命名界面](assets/screenshots/batch-rename.png)
 
 ### 统一设置
 

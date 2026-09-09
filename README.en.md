@@ -6,11 +6,11 @@
 
 MediaAnvil is a local media toolbox for Windows. It provides a Qt desktop interface, processes media files entirely on your computer, preserves source files by default, and offers both Simplified Chinese and English interfaces.
 
-For end-user instructions, see the [User Guide](USER_GUIDE.md). For source setup and packaging details, see the [Qt Build Guide](README-Qt.md).
+For end-user instructions, see the [User Guide](USER_GUIDE.en.md). For source setup and packaging details, see the [Qt Build Guide](README-Qt.en.md).
 
 **[简体中文 →](README.md)**
 
-![MediaAnvil 1.0 audio preview](assets/screenshots/audio-preview.png)
+![MediaAnvil 1.0 audio preview](assets/screenshots/audio-preview-en.png)
 
 ## Features
 
@@ -30,19 +30,37 @@ For end-user instructions, see the [User Guide](USER_GUIDE.md). For source setup
 
 Edit audio metadata, import lyrics or subtitles, and preview, crop, or export cover art from one page. The smart matching panel can associate files from the same directory in batches.
 
-![Audio tag editor](assets/screenshots/tag-editor.png)
+![Audio tag editor](assets/screenshots/tag-editor-en.png)
+
+### Lyrics and subtitle conversion
+
+Batch-convert between LRC, SRT, and VTT, then preview the converted text directly in the panel on the right.
+
+![Lyrics and subtitle converter](assets/screenshots/lyrics-subtitles-en.png)
 
 ### Batch format conversion
 
 Add, select, and remove files through a consistent workflow, configure output options, and review or save conversion results from the panel on the right.
 
-![Audio format converter](assets/screenshots/audio-converter.png)
+![Audio format converter](assets/screenshots/audio-converter-en.png)
+
+### Image format conversion
+
+Batch-convert JPG, PNG, WebP, and BMP images while preserving dimensions and handling transparency appropriately for the target format.
+
+![Image format converter](assets/screenshots/image-converter-en.png)
+
+### Batch renaming
+
+Generate filenames from audio metadata, preview conflicts before execution, and undo the most recent successful batch rename.
+
+![Batch rename](assets/screenshots/batch-rename-en.png)
 
 ### Centralized settings
 
 Configure save behavior, conversion quality, lyrics preview, and file scanning in one place.
 
-![Settings](assets/screenshots/settings.png)
+![Settings](assets/screenshots/settings-en.png)
 
 ## Safe behavior
 

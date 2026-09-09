@@ -16,7 +16,9 @@ $qtBuildArgs = @(
     '--add-data', "$(Join-Path $PSScriptRoot 'assets\mediaanvil-icon.png');assets",
     '--add-data', "$(Join-Path $PSScriptRoot 'assets\qt');assets\qt",
     '--add-data', "$(Join-Path $PSScriptRoot 'README-Qt.md');.",
+    '--add-data', "$(Join-Path $PSScriptRoot 'README-Qt.en.md');.",
     '--add-data', "$(Join-Path $PSScriptRoot 'USER_GUIDE.md');.",
+    '--add-data', "$(Join-Path $PSScriptRoot 'USER_GUIDE.en.md');.",
     '--add-data', "$(Join-Path $PSScriptRoot 'LICENSE');.",
     '--add-data', "$(Join-Path $PSScriptRoot 'THIRD_PARTY_NOTICES.md');.",
     '--add-data', "$(Join-Path $PSScriptRoot 'licenses\qt');licenses\qt",
@@ -47,6 +49,9 @@ try {
     & $qtPython (Join-Path $PSScriptRoot 'tools\run_qt_pyinstaller.py') @qtBuildArgs
     if ($LASTEXITCODE -ne 0) { throw 'Qt 版打包失败。' }
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'USER_GUIDE.md') -Destination (Join-Path $PSScriptRoot 'dist\MediaAnvilQt\USER_GUIDE.md') -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'USER_GUIDE.en.md') -Destination (Join-Path $PSScriptRoot 'dist\MediaAnvilQt\USER_GUIDE.en.md') -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README-Qt.md') -Destination (Join-Path $PSScriptRoot 'dist\MediaAnvilQt\README-Qt.md') -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README-Qt.en.md') -Destination (Join-Path $PSScriptRoot 'dist\MediaAnvilQt\README-Qt.en.md') -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'LICENSE') -Destination (Join-Path $PSScriptRoot 'dist\MediaAnvilQt\LICENSE') -Force
     & $qtPython (Join-Path $PSScriptRoot 'tools\verify_qt_build.py')
     if ($LASTEXITCODE -ne 0) { throw 'Qt 成品自检失败，不能交付。' }

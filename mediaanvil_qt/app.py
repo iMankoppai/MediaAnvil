@@ -128,7 +128,7 @@ class MainWindow(QMainWindow):
     @Slot(str)
     def _error(self,value):self._task_outcome=(False,value)
     @Slot(float,str)
-    def _progress(self,percent,text):self.progress.setValue(round(percent));self.statusBar().showMessage(text)
+    def _progress(self,percent,text):self.progress.setValue(round(percent));self.statusBar().showMessage(self.t(text))
     @Slot()
     def _finished(self):
         worker=self._worker;done=self._done;outcome=self._task_outcome
@@ -138,14 +138,14 @@ class MainWindow(QMainWindow):
                 try:done(outcome[1])
                 except Exception as exc:self.inform(self.t('结果显示失败：')+str(exc))
             else:self.inform(self.t('处理失败：')+outcome[1])
-    def inform(self,text):QMessageBox.information(self,'MediaAnvil Qt',str(text))
+    def inform(self,text):QMessageBox.information(self,'MediaAnvil Qt',self.t(str(text)))
     def show_text(self,title,text):
-        dialog=QDialog(self);dialog.setWindowTitle(title);dialog.resize(850,550);layout=QVBoxLayout(dialog)
-        content=QPlainTextEdit(str(text));content.setReadOnly(True);layout.addWidget(content)
+        dialog=QDialog(self);dialog.setWindowTitle(self.t(title));dialog.resize(850,550);layout=QVBoxLayout(dialog)
+        content=QPlainTextEdit(self.t(str(text)));content.setReadOnly(True);layout.addWidget(content)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Close);buttons.rejected.connect(dialog.reject);layout.addWidget(buttons);dialog.exec()
     def open_path(self,path):QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).resolve())))
     def choose_folder_for(self,page):
-        folder=QFileDialog.getExistingDirectory(self,'选择文件夹')
+        folder=QFileDialog.getExistingDirectory(self,self.t('选择文件夹'))
         if folder:self.import_paths([Path(folder)],page)
     def import_paths(self,paths,page=None):
         page=page or self.current_page

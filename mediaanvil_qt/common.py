@@ -77,7 +77,7 @@ def form(title):
 def set_picture(label, data, size=220):
     pix = QPixmap()
     if data: pix.loadFromData(data)
-    if pix.isNull(): label.clear(); label.setText('暂无封面 / 预览')
+    if pix.isNull(): label.clear(); label.setText(tr('暂无封面 / 预览'))
     else: label.setPixmap(pix.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
 
 
@@ -88,7 +88,7 @@ class OutputPath(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout.addWidget(self.edit); layout.addWidget(button('浏览…', self.choose))
     def choose(self):
-        path = QFileDialog.getExistingDirectory(self, '选择输出文件夹')
+        path = QFileDialog.getExistingDirectory(self, tr('选择输出文件夹'))
         if path: self.edit.setText(path)
     def text(self): return self.edit.text().strip()
 
@@ -153,16 +153,16 @@ class FileList(QListWidget):
             icon(icon_name,'#b8c8df',icon_size).paint(painter,(width-icon_size)//2,top,icon_size,icon_size)
             if height>=120:
                 painter.setPen(QColor('#3c4d68'))
-                painter.drawText(QRect(8,top+56,width-16,24),Qt.AlignmentFlag.AlignCenter,getattr(self,'empty_title','点击添加文件 或 拖拽文件到此处'))
+                painter.drawText(QRect(8,top+56,width-16,24),Qt.AlignmentFlag.AlignCenter,tr(getattr(self,'empty_title','点击添加文件 或 拖拽文件到此处')))
                 painter.setPen(QColor('#8a9bb5'))
-                painter.drawText(QRect(8,top+82,width-16,22),Qt.AlignmentFlag.AlignCenter,getattr(self,'empty_hint',''))
+                painter.drawText(QRect(8,top+82,width-16,22),Qt.AlignmentFlag.AlignCenter,tr(getattr(self,'empty_hint','')))
             return
         top = max(8, (height - 86)//2)
         self._empty_icon.paint(painter, (width-30)//2, top, 30, 30)
         painter.setPen(QColor('#7387a5'))
-        painter.drawText(QRect(8, top+40, width-16, 22), Qt.AlignmentFlag.AlignCenter, '将文件拖放到这里')
+        painter.drawText(QRect(8, top+40, width-16, 22), Qt.AlignmentFlag.AlignCenter, tr('将文件拖放到这里'))
         painter.setPen(QColor('#a0aec1'))
-        painter.drawText(QRect(8, top+64, width-16, 20), Qt.AlignmentFlag.AlignCenter, '或使用上方按钮添加文件与文件夹')
+        painter.drawText(QRect(8, top+64, width-16, 20), Qt.AlignmentFlag.AlignCenter, tr('或使用上方按钮添加文件与文件夹'))
     def paths(self): return tuple(Path(self.item(i).text()) for i in range(self.count()))
     def add_paths(self, paths):
         known = {str(p.resolve()).casefold() for p in self.paths()}; n = 0

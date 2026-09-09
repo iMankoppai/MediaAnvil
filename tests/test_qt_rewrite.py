@@ -1,10 +1,11 @@
-import os,time,tempfile,unittest,threading,subprocess,wave
+import os,time,tempfile,unittest,threading,subprocess,wave,re
 from pathlib import Path
 from unittest.mock import MagicMock,patch
 from PIL import Image
 try:
     from PySide6.QtCore import QTimer,Qt,QThread,QPoint,QPointF,QMimeData,QUrl,QSize
-    from PySide6.QtWidgets import QApplication,QPushButton,QSizePolicy,QLabel
+    from PySide6.QtWidgets import (QApplication,QPushButton,QSizePolicy,QLabel,QAbstractButton,
+        QComboBox,QLineEdit,QPlainTextEdit,QTableWidget,QListWidget,QWidget)
     from PySide6.QtTest import QTest
     from PySide6.QtGui import QDragEnterEvent,QDropEvent,QFontInfo
 except ImportError:
@@ -264,6 +265,25 @@ class QtRewriteTests(unittest.TestCase):
         self.assertEqual(self.window.pages['subtitle'].files.empty_hint,'Supports .lrc, .srt and .vtt subtitle files')
         self.assertEqual(self.window.pages['audio'].files.empty_hint,'Supports .mp3, .wav, .flac, .m4a, .aac and .ogg audio files')
         self.assertEqual(self.window.pages['image'].files.empty_hint,'Supports .jpg, .jpeg, .png, .webp and .bmp image files')
+        for key in ('subtitle','audio','image'):
+            self.assertEqual(self.window.pages[key].result_picker.placeholderText(),'Select a conversion result')
+        untranslated=[]
+        for key,page_widget in self.window.pages.items():
+            for widget in [page_widget,*page_widget.findChildren(QWidget)]:
+                values=[]
+                if isinstance(widget,(QLabel,QAbstractButton)):values.append(widget.text())
+                if isinstance(widget,(QLineEdit,QPlainTextEdit)):values.append(widget.placeholderText())
+                if isinstance(widget,QComboBox):
+                    values.append(widget.placeholderText());values.extend(widget.itemText(i) for i in range(widget.count()))
+                if isinstance(widget,QTableWidget):
+                    values.extend(widget.horizontalHeaderItem(i).text() for i in range(widget.columnCount()) if widget.horizontalHeaderItem(i))
+                if isinstance(widget,QListWidget):values.extend(widget.item(i).text() for i in range(widget.count()))
+                values.extend((widget.toolTip(),getattr(widget,'empty_title',''),getattr(widget,'empty_hint','')))
+                untranslated.extend((key,value) for value in values if value and re.search(r'[\u3400-\u9fff]',value))
+        self.assertEqual(untranslated,[])
+        source=self.base/'language-crop.png';Image.new('RGB',(320,180),'navy').save(source)
+        crop=CropDialog(source,self.window.pages['editor'])
+        self.assertEqual(crop.windowTitle(),'Free Crop Artwork');crop.close()
         self.window.navigation.setCurrentRow(self.window.keys.index('settings'))
         for _ in range(4):self.qt.processEvents()
         for control in (page.controls['default_output_location'],page.controls['default_save_mode'],page.language):

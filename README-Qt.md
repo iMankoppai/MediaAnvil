@@ -1,5 +1,7 @@
 # MediaAnvil Qt 1.0.0
 
+**[English →](README-Qt.en.md)**
+
 全新 Qt 桌面界面，使用系统装饰的标准窗口。没有 Tk/TkDND、无边框窗口、自定义标题栏拖动或鼠标捕获钩子。
 
 ## 启动

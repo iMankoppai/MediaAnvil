@@ -192,7 +192,7 @@ class MetadataPage(Page):
         if kind=='lyrics':self.lyric_path=None
         else:self.cover_path=None
     def choose(self):
-        path,_=QFileDialog.getOpenFileName(self,'选择音频','','音频 (*.mp3 *.flac *.m4a *.ogg *.opus *.wav *.aac)')
+        path,_=QFileDialog.getOpenFileName(self,self.app.t('选择音频'),'',self.app.t('音频 (*.mp3 *.flac *.m4a *.ogg *.opus *.wav *.aac)'))
         if path:self.load(Path(path))
     def load(self,path,extras=()):
         def done(data):
@@ -217,7 +217,7 @@ class MetadataPage(Page):
     def populate_match(self,match):
         self.candidates(self.lyric_match,match.lyric_candidates);self.candidates(self.cover_match,match.cover_candidates)
     def import_lyrics(self):
-        path,_=QFileDialog.getOpenFileName(self,'导入歌词 / 字幕','','歌词 / 字幕 (*.lrc *.srt *.vtt)')
+        path,_=QFileDialog.getOpenFileName(self,self.app.t('导入歌词 / 字幕'),'',self.app.t('歌词 / 字幕 (*.lrc *.srt *.vtt)'))
         if path:self.set_lyrics(Path(path))
     def set_lyrics(self,path):
         try:
@@ -226,7 +226,7 @@ class MetadataPage(Page):
             self.lyrics.setPlainText(text);self.remove_lyrics.setChecked(False);self.lyric_path=prepared
         except Exception as exc:self.app.inform(str(exc))
     def import_cover(self):
-        path,_=QFileDialog.getOpenFileName(self,'选择封面','','图片 (*.png *.jpg *.jpeg *.webp *.bmp)')
+        path,_=QFileDialog.getOpenFileName(self,self.app.t('选择封面'),'',self.app.t('图片 (*.png *.jpg *.jpeg *.webp *.bmp)'))
         if not path:return
         try:
             dialog=CropDialog(Path(path),self)
@@ -269,7 +269,7 @@ class MetadataPage(Page):
         self.app.run_task(work,done)
     def export(self,kind):
         if not self.path:return self.app.inform('请先选择音频。')
-        directory=QFileDialog.getExistingDirectory(self,'选择导出文件夹')
+        directory=QFileDialog.getExistingDirectory(self,self.app.t('选择导出文件夹'))
         if directory:
             path=self.path;function=export_metadata_lyrics if kind=='lyrics' else export_metadata_cover
             self.app.run_task(lambda report:function(path,directory),lambda output:self.app.inform('已导出：\n'+str(output)))
@@ -281,7 +281,7 @@ class MetadataPage(Page):
             elif p.suffix.lower() in COVER_EXTENSIONS:self.set_cover(p)
         return sum(p.suffix.lower() in COVER_EXTENSIONS|EMBEDDABLE_LYRIC_EXTENSIONS for p in paths)
     def scan_folder(self):
-        folder=QFileDialog.getExistingDirectory(self,'扫描音乐文件夹')
+        folder=QFileDialog.getExistingDirectory(self,self.app.t('扫描音乐文件夹'))
         if folder:self.scan(folder)
     def scan(self,folder):
         recursive=self.app.settings['include_subfolders']

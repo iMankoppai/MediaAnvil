@@ -14,6 +14,12 @@ class QtBuildDependencyTests(unittest.TestCase):
         self.assertIn('USER_GUIDE.md',script)
         self.assertIn("dist\\MediaAnvilQt\\USER_GUIDE.md",script)
         self.assertIn('# MediaAnvil 使用说明',guide.read_text(encoding='utf8'))
+        english_guide=root/'USER_GUIDE.en.md';english_build=root/'README-Qt.en.md'
+        self.assertTrue(english_guide.is_file());self.assertTrue(english_build.is_file())
+        self.assertIn("dist\\MediaAnvilQt\\USER_GUIDE.en.md",script)
+        self.assertIn("dist\\MediaAnvilQt\\README-Qt.md",script)
+        self.assertIn("dist\\MediaAnvilQt\\README-Qt.en.md",script)
+        self.assertIn('# MediaAnvil User Guide',english_guide.read_text(encoding='utf8'))
 
     def test_mit_license_is_included_in_the_release(self):
         root = Path(__file__).resolve().parents[1]
