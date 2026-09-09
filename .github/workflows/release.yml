@@ -34,23 +34,23 @@ jobs:
           cache-dependency-path: requirements-build.txt
 
       - name: Create isolated build environment
-        shell: powershell
+        shell: pwsh
         run: |
           python -m venv .build-venv-windows
           .build-venv-windows\Scripts\python.exe -m pip install -r requirements-build.txt
 
       - name: Build and verify Windows application
-        shell: powershell
+        shell: pwsh
         run: ./build-qt.ps1
 
       - name: Run full test suite
-        shell: powershell
+        shell: pwsh
         run: |
           $env:SUB2LRC_TEST_FFMPEG = (Resolve-Path vendor/ffmpeg/ffmpeg.exe).Path
           .build-venv-windows\Scripts\python.exe -m unittest discover -s tests -v
 
       - name: Package release and checksum
-        shell: powershell
+        shell: pwsh
         run: |
           New-Item -ItemType Directory -Path release -Force | Out-Null
           $archive = "release/MediaAnvil-$env:RELEASE_TAG-Windows-x64.zip"

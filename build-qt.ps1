@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $qtPython = Join-Path $PSScriptRoot '.build-venv-windows\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $qtPython)) { throw '请使用官方 Windows Python 创建 .build-venv-windows 虚拟环境。' }
 $ffmpegDirectory = Join-Path $PSScriptRoot 'vendor\ffmpeg'
