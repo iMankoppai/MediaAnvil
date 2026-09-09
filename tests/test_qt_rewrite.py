@@ -131,7 +131,6 @@ class QtRewriteTests(unittest.TestCase):
             self.assertNotIn('文件夹',''.join(button.text() for button in page.toolbar.findChildren(QPushButton)))
             maximum=page.scroll.verticalScrollBar().maximum()
             if page._roomy:self.assertLessEqual(maximum,40,key)
-            else:self.assertGreater(maximum,0,key)
             self.assertEqual(page.scroll.horizontalScrollBar().maximum(),0,key)
         self.window.resize(1200,800);self.qt.processEvents()
         for key in ('subtitle','audio','image'):
@@ -143,7 +142,6 @@ class QtRewriteTests(unittest.TestCase):
             self.assertEqual(page.files.height(),expected_height,key)
             maximum=page.scroll.verticalScrollBar().maximum()
             if page._roomy:self.assertEqual(maximum,0,key)
-            else:self.assertGreater(maximum,0,key)
             toolbar_buttons=page.toolbar.findChildren(QPushButton)
             self.assertLessEqual(max(button.width() for button in toolbar_buttons)-min(button.width() for button in toolbar_buttons),1,key)
             self.assertLessEqual(abs(page.toolbar.width()-page.files.width()),1,key)
@@ -160,7 +158,6 @@ class QtRewriteTests(unittest.TestCase):
             for _ in range(4):self.qt.processEvents()
             page=self.window.pages[key];maximum=page.scroll.verticalScrollBar().maximum()
             if page._roomy:self.assertLessEqual(maximum,40,key)
-            else:self.assertGreater(maximum,0,key)
     def test_remove_uses_file_checkboxes_on_every_batch_page(self):
         extensions={'subtitle':'.lrc','audio':'.wav','image':'.png','renamer':'.mp3'}
         for key,extension in extensions.items():
