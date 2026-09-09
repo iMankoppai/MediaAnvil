@@ -58,18 +58,18 @@ jobs:
           $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
           Set-Content -LiteralPath "$archive.sha256" -Value "$hash  $([IO.Path]::GetFileName($archive))" -Encoding ascii
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: MediaAnvil-${{ env.RELEASE_TAG }}-Windows-x64
           path: release/*
           if-no-files-found: error
 
       - name: Publish GitHub release
-        shell: powershell
+        shell: pwsh
         run: |
           $files = Get-ChildItem -LiteralPath release -File | ForEach-Object FullName
-          gh release view $env:RELEASE_TAG *> $null
-          if ($LASTEXITCODE -eq 0) {
+          $releases = gh release list --limit 100 --json tagName | ConvertFrom-Json
+          if ($releases.tagName -contains $env:RELEASE_TAG) {
             gh release upload $env:RELEASE_TAG @files --clobber
           } else {
             gh release create $env:RELEASE_TAG @files --verify-tag --generate-notes --title "MediaAnvil $env:RELEASE_TAG"
