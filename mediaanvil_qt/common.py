@@ -154,14 +154,14 @@ class FileList(QListWidget):
             if height>=120:
                 painter.setPen(QColor('#3c4d68'))
                 painter.drawText(QRect(8,top+56,width-16,24),Qt.AlignmentFlag.AlignCenter,tr(getattr(self,'empty_title','点击添加文件 或 拖拽文件到此处')))
-                painter.setPen(QColor('#8a9bb5'))
+                painter.setPen(QColor('#66758b'))
                 painter.drawText(QRect(8,top+82,width-16,22),Qt.AlignmentFlag.AlignCenter,tr(getattr(self,'empty_hint','')))
             return
         top = max(8, (height - 86)//2)
         self._empty_icon.paint(painter, (width-30)//2, top, 30, 30)
-        painter.setPen(QColor('#7387a5'))
+        painter.setPen(QColor('#586f92'))
         painter.drawText(QRect(8, top+40, width-16, 22), Qt.AlignmentFlag.AlignCenter, tr('将文件拖放到这里'))
-        painter.setPen(QColor('#a0aec1'))
+        painter.setPen(QColor('#66758b'))
         painter.drawText(QRect(8, top+64, width-16, 20), Qt.AlignmentFlag.AlignCenter, tr('或使用上方按钮添加文件与文件夹'))
     def paths(self): return tuple(Path(self.item(i).text()) for i in range(self.count()))
     def add_paths(self, paths):

@@ -89,6 +89,8 @@ Use an official Windows build of Python 3.10 or later:
 ```powershell
 python -m venv .build-venv-windows
 .build-venv-windows\Scripts\python.exe -m pip install -r requirements-qt.txt
+.\tools\download_ffmpeg.ps1
+.\tools\download_icu.ps1
 .build-venv-windows\Scripts\python.exe main_qt.py
 ```
 
@@ -101,10 +103,11 @@ Run the complete test suite:
 Build the Windows release:
 
 ```powershell
+.build-venv-windows\Scripts\python.exe -m pip install -r requirements-build.txt
 .\build-qt.ps1
 ```
 
-The build script creates `dist\MediaAnvilQt` and automatically verifies that the frozen application starts, FFmpeg performs a real conversion, and FFplay is available.
+When needed, the build script downloads checksum-verified, fixed versions of FFmpeg and ICU. It creates `dist\MediaAnvilQt` and automatically verifies that the frozen application starts, FFmpeg performs a real conversion, and FFplay is available.
 
 ## Supported formats
 

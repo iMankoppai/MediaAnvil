@@ -89,6 +89,8 @@ MediaAnvilQt.exe
 ```powershell
 python -m venv .build-venv-windows
 .build-venv-windows\Scripts\python.exe -m pip install -r requirements-qt.txt
+.\tools\download_ffmpeg.ps1
+.\tools\download_icu.ps1
 .build-venv-windows\Scripts\python.exe main_qt.py
 ```
 
@@ -101,10 +103,11 @@ python -m venv .build-venv-windows
 构建 Windows 发行版：
 
 ```powershell
+.build-venv-windows\Scripts\python.exe -m pip install -r requirements-build.txt
 .\build-qt.ps1
 ```
 
-构建脚本会生成 `dist\MediaAnvilQt`，并自动验证冻结版程序启动、FFmpeg 实际转换和 FFplay 可用性。
+构建脚本会在需要时下载并校验固定版本的 FFmpeg 与 ICU，生成 `dist\MediaAnvilQt`，并自动验证冻结版程序启动、FFmpeg 实际转换和 FFplay 可用性。
 
 ## 支持范围
 

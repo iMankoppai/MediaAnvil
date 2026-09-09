@@ -35,12 +35,14 @@
 
 ```powershell
 .build-venv-windows\Scripts\python.exe -m pip install -r requirements-qt.txt
+.\tools\download_ffmpeg.ps1
 .\tools\download_icu.ps1
 .build-venv-windows\Scripts\python.exe main_qt.py
+.build-venv-windows\Scripts\python.exe -m pip install -r requirements-build.txt
 .\build-qt.ps1
 ```
 
-`build-qt.ps1` 使用项目内 `.build-venv-windows`，隔离 DLL 搜索路径后打包 Qt DLL 和 FFmpeg/FFplay，避免混入其他软件的同名依赖。构建完成后会检查 DLL 来源，并实际启动 EXE、转换测试音频及检查 FFplay；任何一步失败都不会报告构建成功。运行测试：
+`build-qt.ps1` 使用项目内 `.build-venv-windows`，自动下载并校验缺失的固定版本 FFmpeg 与 ICU，隔离 DLL 搜索路径后打包 Qt DLL 和 FFmpeg/FFplay，避免混入其他软件的同名依赖。构建完成后会检查 DLL 来源，并实际启动 EXE、转换测试音频及检查 FFplay；任何一步失败都不会报告构建成功。运行测试：
 
 ```powershell
 .build-venv-windows\Scripts\python.exe -m unittest discover -s tests -p test_qt_rewrite.py -v

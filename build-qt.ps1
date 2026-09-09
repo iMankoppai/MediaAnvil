@@ -1,14 +1,19 @@
 $ErrorActionPreference = 'Stop'
 $qtPython = Join-Path $PSScriptRoot '.build-venv-windows\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $qtPython)) { throw '请使用官方 Windows Python 创建 .build-venv-windows 虚拟环境。' }
+$ffmpegDirectory = Join-Path $PSScriptRoot 'vendor\ffmpeg'
+$ffmpegFiles = @('ffmpeg.exe', 'ffplay.exe')
+if ($ffmpegFiles | Where-Object { -not (Test-Path -LiteralPath (Join-Path $ffmpegDirectory $_)) }) {
+    Write-Host '正在下载并校验 FFmpeg/FFplay…' -ForegroundColor Cyan
+    & (Join-Path $PSScriptRoot 'tools\download_ffmpeg.ps1')
+}
 $icuDirectory = Join-Path $PSScriptRoot 'vendor\icu'
-foreach ($required in @('icuuc.dll', 'icudt78.dll', 'icuin78.dll')) {
-    if (-not (Test-Path -LiteralPath (Join-Path $icuDirectory $required))) {
-        throw "缺少 Qt 所需的 ICU 运行时：$required。请先运行 .\tools\download_icu.ps1。"
-    }
+if (@('icuuc.dll', 'icudt78.dll', 'icuin78.dll') | Where-Object { -not (Test-Path -LiteralPath (Join-Path $icuDirectory $_)) }) {
+    Write-Host '正在下载并校验 ICU 运行时…' -ForegroundColor Cyan
+    & (Join-Path $PSScriptRoot 'tools\download_icu.ps1')
 }
 & $qtPython -c 'import PySide6.QtWidgets, PyInstaller, PIL, mutagen'
-if ($LASTEXITCODE -ne 0) { throw '请先在该虚拟环境安装 requirements-qt.txt 和 pyinstaller。' }
+if ($LASTEXITCODE -ne 0) { throw '请先在该虚拟环境安装 requirements-build.txt。' }
 $qtBuildArgs = @(
     '--noconfirm', '--clean', '--onedir', '--windowed',
     '--name', 'MediaAnvilQt', '--exclude-module', 'tkinter', '--exclude-module', 'tkinterdnd2',

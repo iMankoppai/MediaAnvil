@@ -35,12 +35,14 @@ Use an official Windows build of Python rather than MSYS2 Python:
 
 ```powershell
 .build-venv-windows\Scripts\python.exe -m pip install -r requirements-qt.txt
+.\tools\download_ffmpeg.ps1
 .\tools\download_icu.ps1
 .build-venv-windows\Scripts\python.exe main_qt.py
+.build-venv-windows\Scripts\python.exe -m pip install -r requirements-build.txt
 .\build-qt.ps1
 ```
 
-`build-qt.ps1` uses the project's `.build-venv-windows` environment, isolates the DLL search path, and packages the required Qt DLLs and FFmpeg/FFplay without accepting same-named dependencies from unrelated software. After building, it audits DLL sources, launches the frozen EXE, performs a real audio conversion, and checks FFplay. A failure in any step prevents the build from being reported as successful.
+`build-qt.ps1` uses the project's `.build-venv-windows` environment, automatically downloads checksum-verified fixed versions of missing FFmpeg and ICU dependencies, isolates the DLL search path, and packages the required Qt DLLs and FFmpeg/FFplay without accepting same-named dependencies from unrelated software. After building, it audits DLL sources, launches the frozen EXE, performs a real audio conversion, and checks FFplay. A failure in any step prevents the build from being reported as successful.
 
 Run the Qt integration tests with:
 
