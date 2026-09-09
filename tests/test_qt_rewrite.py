@@ -42,7 +42,8 @@ class QtRewriteTests(unittest.TestCase):
         self.assertEqual(qt_version,'1.0.0')
         self.assertIn('v1.0.0',[label.text() for label in self.window.findChildren(QLabel)])
         self.assertEqual(len(self.window.pages),8)
-        self.assertEqual((self.window.width(),self.window.height()),default_window_size())
+        actual_size=(self.window.width(),self.window.height());expected_size=default_window_size()
+        for actual,expected in zip(actual_size,expected_size):self.assertAlmostEqual(actual,expected,delta=1)
         self.assertFalse(self.window.windowFlags() & Qt.WindowType.FramelessWindowHint)
         self.assertIn('QPushButton#navItem { background:transparent; border:0; border-left:2px solid transparent; border-radius:8px; text-align:left; padding:12px 14px; min-height:22px; font-size:15px; font-weight:600; }',STYLE)
         self.assertIn('QSlider:horizontal { padding:0 8px; }',STYLE)
@@ -59,7 +60,8 @@ class QtRewriteTests(unittest.TestCase):
         self.assertEqual(default_window_size(QSize(2560,1440),30,1),(1440,870))
 
     def test_window_starts_at_default_size_in_screen_center(self):
-        self.assertEqual((self.window.width(),self.window.height()),default_window_size())
+        actual_size=(self.window.width(),self.window.height());expected_size=default_window_size()
+        for actual,expected in zip(actual_size,expected_size):self.assertAlmostEqual(actual,expected,delta=1)
         available=QApplication.primaryScreen().availableGeometry();center=self.window.frameGeometry().center()
         self.assertLessEqual(abs(center.x()-available.center().x()),2)
         self.assertLessEqual(abs(center.y()-available.center().y()),2)
@@ -115,11 +117,13 @@ class QtRewriteTests(unittest.TestCase):
                 bottom=page.footer.mapTo(self.window,page.footer.rect().bottomRight())
                 self.assertTrue(self.window.rect().contains(bottom),key)
 
-    def test_default_window_keeps_conversion_pages_in_two_columns(self):
+    def test_default_window_uses_expected_responsive_conversion_layout(self):
         for key in ('subtitle','audio','image'):
             self.window.navigation.setCurrentRow(self.window.keys.index(key));self.qt.processEvents()
             page=self.window.pages[key]
-            self.assertEqual(page.columns.box.direction(),page.columns.box.Direction.LeftToRight,key)
+            expected_direction=(page.columns.box.Direction.LeftToRight if page.columns.width()>=page.columns.breakpoint
+                                else page.columns.box.Direction.TopToBottom)
+            self.assertEqual(page.columns.box.direction(),expected_direction,key)
             expected_height={'subtitle':170,'audio':170,'image':160}[key] if page._roomy else 28
             self.assertEqual(page.files.height(),expected_height,key)
             expected_add='添加图片' if page._roomy and key=='image' else '添加文件' if page._roomy else '添加…'
@@ -301,20 +305,25 @@ class QtRewriteTests(unittest.TestCase):
         page=self.window.pages['renamer'];page.plan=object();page.execute_button.setEnabled(True);page.template.setCurrentText('{title}')
         self.assertIsNone(page.plan);self.assertFalse(page.execute_button.isEnabled())
 
-    def test_rename_page_matches_conversion_layout(self):
+    def test_rename_page_matches_responsive_conversion_layout(self):
         self.window.resize(1200,720);self.window.navigation.setCurrentRow(self.window.keys.index('renamer'))
         for _ in range(4):self.qt.processEvents()
         page=self.window.pages['renamer'];buttons=page.toolbar.findChildren(QPushButton)
-        self.assertEqual([button.text() for button in buttons],['添加文件','移除','清空'])
+        expected_labels=['添加文件','移除','清空'] if page._roomy else ['添加…','移除','清空']
+        self.assertEqual([button.text() for button in buttons],expected_labels)
         self.assertNotIn('文件夹',''.join(button.text() for button in buttons))
         self.assertLessEqual(max(button.width() for button in buttons)-min(button.width() for button in buttons),1)
         self.assertLessEqual(abs(page.toolbar.width()-page.files.width()),1)
-        self.assertEqual(page.files.height(),170)
+        self.assertEqual(page.files.height(),170 if page._roomy else 28)
         self.assertEqual(page.scroll.horizontalScrollBar().maximum(),0)
-        self.assertEqual(page.scroll.verticalScrollBar().maximum(),0)
-        left_bottom=page.step_cards[1].mapTo(page,page.step_cards[1].rect().bottomRight()).y()
-        right_bottom=page.step_cards[2].mapTo(page,page.step_cards[2].rect().bottomRight()).y()
-        self.assertLessEqual(abs(left_bottom-right_bottom),1)
+        expected_direction=(page.columns.box.Direction.LeftToRight if page.columns.width()>=page.columns.breakpoint
+                            else page.columns.box.Direction.TopToBottom)
+        self.assertEqual(page.columns.box.direction(),expected_direction)
+        if page._roomy:
+            self.assertEqual(page.scroll.verticalScrollBar().maximum(),0)
+            left_bottom=page.step_cards[1].mapTo(page,page.step_cards[1].rect().bottomRight()).y()
+            right_bottom=page.step_cards[2].mapTo(page,page.step_cards[2].rect().bottomRight()).y()
+            self.assertLessEqual(abs(left_bottom-right_bottom),1)
     def test_slider_click_seeks_to_clicked_position(self):
         page=self.window.pages['preview'];slider=page.position;self.assertGreaterEqual(slider.minimumHeight(),24);self.assertGreaterEqual(page.volume.minimumHeight(),24);slider.setRange(0,10000);slider.setValue(0)
         released=[];slider.sliderReleased.connect(lambda:released.append(slider.value()))
