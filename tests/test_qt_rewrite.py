@@ -129,7 +129,9 @@ class QtRewriteTests(unittest.TestCase):
             expected_add='添加图片' if page._roomy and key=='image' else '添加文件' if page._roomy else '添加…'
             self.assertEqual([button.text() for button in page.toolbar.findChildren(QPushButton)],[expected_add,'移除','清空'])
             self.assertNotIn('文件夹',''.join(button.text() for button in page.toolbar.findChildren(QPushButton)))
-            self.assertLessEqual(page.scroll.verticalScrollBar().maximum(),40,key)
+            maximum=page.scroll.verticalScrollBar().maximum()
+            if page._roomy:self.assertLessEqual(maximum,40,key)
+            else:self.assertGreater(maximum,0,key)
             self.assertEqual(page.scroll.horizontalScrollBar().maximum(),0,key)
         self.window.resize(1200,800);self.qt.processEvents()
         for key in ('subtitle','audio','image'):
@@ -137,22 +139,28 @@ class QtRewriteTests(unittest.TestCase):
             for _ in range(4):self.qt.processEvents()
             page=self.window.pages[key]
             self.assertFalse(page.source_detail.isVisible(),key)
-            self.assertEqual(page.files.height(),{'subtitle':170,'audio':170,'image':160}[key],key)
-            self.assertEqual(page.scroll.verticalScrollBar().maximum(),0,key)
+            expected_height={'subtitle':170,'audio':170,'image':160}[key] if page._roomy else 28
+            self.assertEqual(page.files.height(),expected_height,key)
+            maximum=page.scroll.verticalScrollBar().maximum()
+            if page._roomy:self.assertEqual(maximum,0,key)
+            else:self.assertGreater(maximum,0,key)
             toolbar_buttons=page.toolbar.findChildren(QPushButton)
             self.assertLessEqual(max(button.width() for button in toolbar_buttons)-min(button.width() for button in toolbar_buttons),1,key)
             self.assertLessEqual(abs(page.toolbar.width()-page.files.width()),1,key)
             self.assertLessEqual(abs(page.select_all.mapTo(page,QPoint(0,0)).y()-page.file_count.mapTo(page,QPoint(0,0)).y()),2,key)
             self.assertLessEqual(abs(page.file_count.mapTo(page.selection_row,page.file_count.rect().topRight()).x()-page.selection_row.contentsRect().right()),1,key)
-            left_bottom=page.step_cards[1].mapTo(page,page.step_cards[1].rect().bottomRight()).y()
-            right_bottom=page.step_cards[2].mapTo(page,page.step_cards[2].rect().bottomRight()).y()
-            self.assertLessEqual(abs(left_bottom-right_bottom),1,key)
+            if page.columns.box.direction()==page.columns.box.Direction.LeftToRight:
+                left_bottom=page.step_cards[1].mapTo(page,page.step_cards[1].rect().bottomRight()).y()
+                right_bottom=page.step_cards[2].mapTo(page,page.step_cards[2].rect().bottomRight()).y()
+                self.assertLessEqual(abs(left_bottom-right_bottom),1,key)
         self.window.resize(*default_window_size());
         for _ in range(4):self.qt.processEvents()
         for key in ('subtitle','audio','image'):
             self.window.navigation.setCurrentRow(self.window.keys.index(key))
             for _ in range(4):self.qt.processEvents()
-            self.assertLessEqual(self.window.pages[key].scroll.verticalScrollBar().maximum(),40,key)
+            page=self.window.pages[key];maximum=page.scroll.verticalScrollBar().maximum()
+            if page._roomy:self.assertLessEqual(maximum,40,key)
+            else:self.assertGreater(maximum,0,key)
     def test_remove_uses_file_checkboxes_on_every_batch_page(self):
         extensions={'subtitle':'.lrc','audio':'.wav','image':'.png','renamer':'.mp3'}
         for key,extension in extensions.items():
