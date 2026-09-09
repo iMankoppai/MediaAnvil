@@ -1,8 +1,14 @@
 # MediaAnvil 1.0
 
+[![Release](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?label=release)](https://github.com/iMankoppai/MediaAnvil/releases/latest)
+[![License](https://img.shields.io/github/license/iMankoppai/MediaAnvil)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows-1677ff)](https://github.com/iMankoppai/MediaAnvil/releases/latest)
+
 MediaAnvil 是一款面向 Windows 的本地多媒体工具箱。它使用 Qt 桌面界面，媒体文件始终在本机处理，默认保留原文件，并提供简体中文与英文界面。
 
 普通用户请阅读 [使用说明](USER_GUIDE.md)，源码运行与打包细节见 [Qt 构建说明](README-Qt.md)。
+
+![MediaAnvil 1.0 音频预览界面](assets/screenshots/audio-preview.png)
 
 ## 主要功能
 
@@ -15,6 +21,26 @@ MediaAnvil 是一款面向 Windows 的本地多媒体工具箱。它使用 Qt �
 - 音频转换：MP3、WAV、FLAC、M4A/AAC、OGG 批量互转，支持码率、质量、采样率、声道与标签保留设置。
 - 图片转换：JPG、PNG、WebP、BMP 批量互转，支持质量和透明背景处理。
 - 批量重命名：根据音频标签生成文件名，执行前预览冲突，支持撤销最近一次批量重命名。
+
+## 界面展示
+
+### 标签、歌词与封面编辑
+
+在同一页修改音频标签，导入歌词或字幕，并预览、裁剪和导出封面。智能匹配区域可以批量关联同目录文件。
+
+![音频标签编辑界面](assets/screenshots/tag-editor.png)
+
+### 批量格式转换
+
+统一添加、选择和移除文件，设置输出参数，并在右侧查看和另存转换结果。
+
+![音频格式转换界面](assets/screenshots/audio-converter.png)
+
+### 统一设置
+
+集中设置保存方式、转换质量、歌词预览和文件扫描行为。
+
+![设置界面](assets/screenshots/settings.png)
 
 ## 安全行为
 
@@ -72,3 +98,7 @@ python -m venv .build-venv-windows
 ## 第三方组件
 
 Qt/PySide6、ICU 与 FFmpeg/FFplay 的许可和来源说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 与 `licenses/`。
+
+## 许可证
+
+MediaAnvil 使用 [MIT License](LICENSE) 开源。第三方组件仍分别适用其各自许可证。

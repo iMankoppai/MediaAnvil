@@ -15,6 +15,15 @@ class QtBuildDependencyTests(unittest.TestCase):
         self.assertIn("dist\\MediaAnvilQt\\USER_GUIDE.md",script)
         self.assertIn('# MediaAnvil 使用说明',guide.read_text(encoding='utf8'))
 
+    def test_mit_license_is_included_in_the_release(self):
+        root = Path(__file__).resolve().parents[1]
+        license_file = root / 'LICENSE'
+        script = (root / 'build-qt.ps1').read_text(encoding='utf8')
+        self.assertTrue(license_file.is_file())
+        self.assertIn('MIT License', license_file.read_text(encoding='utf8'))
+        self.assertIn("'LICENSE');.", script)
+        self.assertIn("dist\\MediaAnvilQt\\LICENSE", script)
+
     def test_rejects_foreign_icu_but_accepts_system_and_python_libraries(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
