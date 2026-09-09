@@ -8,6 +8,8 @@ MediaAnvil 是一款面向 Windows 的本地多媒体工具箱。它使用 Qt �
 
 普通用户请阅读 [使用说明](USER_GUIDE.md)，源码运行与打包细节见 [Qt 构建说明](README-Qt.md)。
 
+**[English →](README.en.md)**
+
 ![MediaAnvil 1.0 音频预览界面](assets/screenshots/audio-preview.png)
 
 ## 主要功能
