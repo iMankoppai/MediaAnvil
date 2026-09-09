@@ -39,8 +39,8 @@ class QtRewriteTests(unittest.TestCase):
             self.qt.processEvents();time.sleep(.005)
         self.assertIsNone(self.window._worker,'worker did not complete');self.qt.processEvents()
     def test_pages_preserve_native_window_and_data(self):
-        self.assertEqual(qt_version,'1.0.0')
-        self.assertIn('v1.0.0',[label.text() for label in self.window.findChildren(QLabel)])
+        self.assertEqual(qt_version,'1.0.1')
+        self.assertIn('v1.0.1',[label.text() for label in self.window.findChildren(QLabel)])
         self.assertEqual(len(self.window.pages),8)
         actual_size=(self.window.width(),self.window.height());expected_size=default_window_size()
         for actual,expected in zip(actual_size,expected_size):self.assertAlmostEqual(actual,expected,delta=1)

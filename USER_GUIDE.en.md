@@ -2,7 +2,7 @@
 
 **[简体中文 →](USER_GUIDE.md)**
 
-Applies to: MediaAnvil Qt 1.0.0 for Windows
+Applies to: MediaAnvil Qt 1.0.1 for Windows
 
 MediaAnvil is a local media toolbox for audio playback with synchronized lyrics, audio metadata and artwork editing, lyrics and subtitle conversion, audio and image conversion, and metadata-based batch renaming. All media processing happens on your computer.
 

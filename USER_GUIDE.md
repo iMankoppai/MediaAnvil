@@ -2,7 +2,7 @@
 
 **[English →](USER_GUIDE.en.md)**
 
-适用版本：MediaAnvil Qt 1.0.0（Windows）
+适用版本：MediaAnvil Qt 1.0.1（Windows）
 
 MediaAnvil 是一款本地运行的多媒体工具箱，可用于播放音频与同步歌词、编辑音频标签和封面、转换歌词/字幕、转换音频和图片格式，以及根据音频标签批量重命名文件。媒体处理在本机完成。
 
