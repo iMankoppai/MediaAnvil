@@ -16,19 +16,29 @@ import kotlinx.coroutines.withContext
  * parsing tags. Full-fidelity cover editing lives in the tag tools.
  */
 object CoverLoader {
-    suspend fun load(context: Context, uri: Uri): ImageBitmap? = withContext(Dispatchers.IO) {
-        runCatching {
-            val retriever = MediaMetadataRetriever()
-            try {
-                retriever.setDataSource(context, uri)
-                retriever.embeddedPicture?.let { bytes ->
-                    val bitmap = decodeScaled(bytes)
-                    bitmap?.asImageBitmap()
+    /** Bounded memory cache so fling-scrolling the library stops re-parsing artwork. */
+    private val cache = object : android.util.LruCache<String, ImageBitmap>(128) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int = 1
+    }
+
+    suspend fun load(context: Context, uri: Uri): ImageBitmap? {
+        cache.get(uri.toString())?.let { return it }
+        val loaded = withContext(Dispatchers.IO) {
+            runCatching {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(context, uri)
+                    retriever.embeddedPicture?.let { bytes ->
+                        val bitmap = decodeScaled(bytes)
+                        bitmap?.asImageBitmap()
+                    }
+                } finally {
+                    retriever.release()
                 }
-            } finally {
-                retriever.release()
-            }
-        }.getOrNull()
+            }.getOrNull()
+        }
+        if (loaded != null) cache.put(uri.toString(), loaded)
+        return loaded
     }
 
     /** Decode near display size to keep list thumbnails and artwork views light. */

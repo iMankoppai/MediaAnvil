@@ -34,7 +34,9 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
@@ -45,6 +47,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -66,6 +69,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import com.imankoppai.mediaanvil.R
@@ -92,9 +96,13 @@ internal fun NowPlayingPage(
     var queueOpen by remember { mutableStateOf(false) }
     var toolsOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
+    var speed by remember { mutableStateOf(library.preferences.playbackSpeed) }
+    var speedMenu by remember { mutableStateOf(false) }
+    var sleepDialog by remember { mutableStateOf(false) }
     val pagerState = rememberPagerState(initialPage = 0) { 2 }
 
     LaunchedEffect(controller) {
+        controller?.playbackParameters = androidx.media3.common.PlaybackParameters(speed)
         while (true) {
             delay(300)
             controller?.let { player ->
@@ -124,6 +132,13 @@ internal fun NowPlayingPage(
                             Icon(Icons.Filled.MoreVert, contentDescription = null)
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text(sleepMenuLabel(library)) },
+                                onClick = {
+                                    menuOpen = false
+                                    sleepDialog = true
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.play_queue)) },
                                 onClick = {
@@ -158,6 +173,14 @@ internal fun NowPlayingPage(
                 .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            library.playbackError?.let {
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                )
+            }
             Spacer(Modifier.height(8.dp))
             HorizontalPager(
                 state = pagerState,
@@ -235,8 +258,37 @@ internal fun NowPlayingPage(
                 },
                 modifier = Modifier.fillMaxWidth(),
             )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(formatTime(positionMs), style = MaterialTheme.typography.labelSmall)
+                Box {
+                    Text(
+                        speedLabel(speed),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { speedMenu = true }
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                    )
+                    DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
+                        listOf(0.75f, 1f, 1.25f, 1.5f, 2f, 3f).forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(speedLabel(option)) },
+                                onClick = {
+                                    speed = option
+                                    library.preferences.playbackSpeed = option
+                                    controller?.playbackParameters = androidx.media3.common.PlaybackParameters(option)
+                                    speedMenu = false
+                                },
+                            )
+                        }
+                    }
+                }
                 Text(formatTime(durationMs), style = MaterialTheme.typography.labelSmall)
             }
             Spacer(Modifier.height(8.dp))
@@ -245,7 +297,11 @@ internal fun NowPlayingPage(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = { controller?.shuffleModeEnabled = !(controller?.shuffleModeEnabled ?: false) }) {
+                IconButton(onClick = {
+                    val player = controller ?: return@IconButton
+                    player.shuffleModeEnabled = !player.shuffleModeEnabled
+                    library.preferences.shuffleEnabled = player.shuffleModeEnabled
+                }) {
                     Icon(
                         Icons.Filled.Shuffle,
                         contentDescription = stringResource(R.string.shuffle_play),
@@ -298,6 +354,7 @@ internal fun NowPlayingPage(
                         Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
                         else -> Player.REPEAT_MODE_OFF
                     }
+                    library.preferences.repeatMode = player.repeatMode
                 }) {
                     Icon(
                         if (controller?.repeatMode == Player.REPEAT_MODE_ONE) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
@@ -317,6 +374,48 @@ internal fun NowPlayingPage(
     if (queueOpen) {
         QueueSheet(library, controller, onDismiss = { queueOpen = false })
     }
+    if (sleepDialog) {
+        AlertDialog(
+            onDismissRequest = { sleepDialog = false },
+            confirmButton = {
+                TextButton(onClick = { sleepDialog = false }) { Text(stringResource(R.string.crop_confirm)) }
+            },
+            title = { Text(stringResource(R.string.sleep_timer)) },
+            text = {
+                Column {
+                    library.sleepTimerEndAt?.let { end ->
+                        val remaining = ((end - System.currentTimeMillis() + 59_999) / 60_000).toInt().coerceAtLeast(1)
+                        Text(
+                            stringResource(R.string.sleep_timer_remaining, remaining),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = library.sleepTimerEndAt == null,
+                            onClick = {
+                                library.cancelSleepTimer()
+                                sleepDialog = false
+                            },
+                            label = { Text(stringResource(R.string.sleep_timer_off)) },
+                        )
+                        listOf(15, 30, 45, 60).forEach { minutes ->
+                            FilterChip(
+                                selected = false,
+                                onClick = {
+                                    library.startSleepTimer(minutes, onPause = { controller?.pause() })
+                                    sleepDialog = false
+                                },
+                                label = { Text(stringResource(R.string.sleep_timer_min, minutes)) },
+                            )
+                        }
+                    }
+                }
+            },
+        )
+    }
     if (toolsOpen && track != null) {
         ToolsSheet(
             library = library,
@@ -329,6 +428,18 @@ internal fun NowPlayingPage(
         )
     }
 }
+
+@Composable
+private fun sleepMenuLabel(library: LibraryState): String {
+    val base = stringResource(R.string.sleep_timer)
+    val remaining = library.sleepTimerEndAt?.let { end ->
+        ((end - System.currentTimeMillis() + 59_999) / 60_000).toInt().coerceAtLeast(1)
+    }
+    return if (remaining != null) "$base（${stringResource(R.string.sleep_timer_remaining, remaining)}）" else base
+}
+
+private fun speedLabel(speed: Float): String =
+    if (speed % 1f == 0f) "${speed.toInt()}×" else "${speed}×"
 
 @Composable
 private fun NowPlayingCover(track: AudioTrack) {

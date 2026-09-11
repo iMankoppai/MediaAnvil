@@ -14,6 +14,7 @@ import com.imankoppai.mediaanvil.data.ScannedFile
 import com.imankoppai.mediaanvil.model.AudioTrack
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -31,6 +32,32 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
     var loading by mutableStateOf(false)
         private set
     var message by mutableStateOf<String?>(null)
+
+    /** Human-readable message for the latest playback failure, if any. */
+    var playbackError by mutableStateOf<String?>(null)
+
+    /** Epoch-ms deadline of the sleep timer, or null when off. */
+    var sleepTimerEndAt by mutableStateOf<Long?>(null)
+        private set
+
+    private var sleepJob: kotlinx.coroutines.Job? = null
+
+    /** Pause playback when the deadline passes; [onPause] comes from the player owner. */
+    fun startSleepTimer(minutes: Int, onPause: () -> Unit) {
+        sleepJob?.cancel()
+        sleepTimerEndAt = System.currentTimeMillis() + minutes * 60_000L
+        sleepJob = scope.launch {
+            delay(minutes * 60_000L)
+            sleepTimerEndAt = null
+            onPause()
+        }
+    }
+
+    fun cancelSleepTimer() {
+        sleepJob?.cancel()
+        sleepJob = null
+        sleepTimerEndAt = null
+    }
 
     val selectedTrack: AudioTrack? get() = tracks.getOrNull(selectedIndex)
 

@@ -104,13 +104,20 @@ internal fun LibraryPage(
         }
     }
 
-    val filtered = remember(library.tracks, searchQuery) {
-        library.tracks.filter { track ->
+    var sortMode by remember { mutableStateOf(library.preferences.librarySort) }
+
+    val filtered = remember(library.tracks, searchQuery, sortMode) {
+        val matched = library.tracks.filter { track ->
             val query = searchQuery.trim()
             query.isEmpty() ||
                 track.title.contains(query, ignoreCase = true) ||
                 track.artist?.contains(query, ignoreCase = true) == true ||
                 track.fileName.contains(query, ignoreCase = true)
+        }
+        when (sortMode) {
+            "title" -> matched.sortedBy { it.title.lowercase() }
+            "duration" -> matched.sortedBy { it.durationMs }
+            else -> matched.sortedBy { it.fileName.lowercase() }
         }
     }
 
@@ -125,6 +132,15 @@ internal fun LibraryPage(
             onMenuOpenChange = { menuOpen = it },
             onPickFolder = onPickFolder,
             onRescan = { library.rescan() },
+            sortLabelText = sortLabel(sortMode),
+            onSortCycle = {
+                sortMode = when (sortMode) {
+                    "fileName" -> "title"
+                    "title" -> "duration"
+                    else -> "fileName"
+                }
+                library.preferences.librarySort = sortMode
+            },
         )
 
         TabRow(
@@ -156,6 +172,14 @@ internal fun LibraryPage(
                     LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
                 }
                 library.message?.let {
+                    Text(
+                        it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+                library.playbackError?.let {
                     Text(
                         it,
                         color = MaterialTheme.colorScheme.error,
@@ -231,6 +255,8 @@ private fun TopBar(
     onMenuOpenChange: (Boolean) -> Unit,
     onPickFolder: () -> Unit,
     onRescan: () -> Unit,
+    onSortCycle: () -> Unit,
+    sortLabelText: String,
 ) {
     Surface(color = MaterialTheme.colorScheme.background) {
         Column {
@@ -258,6 +284,13 @@ private fun TopBar(
                         Icon(Icons.Filled.MoreVert, contentDescription = null)
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { onMenuOpenChange(false) }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.sort_menu_label, sortLabelText)) },
+                            onClick = {
+                                onMenuOpenChange(false)
+                                onSortCycle()
+                            },
+                        )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.choose_folder)) },
                             onClick = {
@@ -552,6 +585,13 @@ internal fun SectionPlaceholder(text: String) {
 internal fun formatLabel(track: AudioTrack): String =
     track.fileName.substringAfterLast('.', "").uppercase().ifEmpty { "AUDIO" }
 
+@Composable
+internal fun sortLabel(mode: String): String = when (mode) {
+    "title" -> stringResource(R.string.sort_title)
+    "duration" -> stringResource(R.string.sort_duration)
+    else -> stringResource(R.string.sort_file_name)
+}
+
 internal fun formatTime(milliseconds: Long): String {
     val totalSeconds = milliseconds.coerceAtLeast(0L) / 1_000
     val hours = totalSeconds / 3_600
@@ -570,6 +610,7 @@ internal fun playFromLibrary(
     shuffle: Boolean = false,
 ) {
     val player = controller ?: return
+    library.playbackError = null
     if (queue.isEmpty() || index !in queue.indices) return
     val mediaItems = queue.map { track ->
         androidx.media3.common.MediaItem.Builder()

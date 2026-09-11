@@ -64,6 +64,21 @@ fun MediaAnvilApp() {
         val future = MediaController.Builder(context, token).buildAsync()
         future.addListener({
             runCatching { future.get() }.onSuccess { mediaController ->
+                mediaController.playbackParameters =
+                    androidx.media3.common.PlaybackParameters(library.preferences.playbackSpeed)
+                mediaController.shuffleModeEnabled = library.preferences.shuffleEnabled
+                mediaController.repeatMode = library.preferences.repeatMode
+                mediaController.addListener(object : androidx.media3.common.Player.Listener {
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        library.playbackError = when (error.errorCode) {
+                            androidx.media3.common.PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+                            androidx.media3.common.PlaybackException.ERROR_CODE_IO_NO_PERMISSION,
+                            androidx.media3.common.PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE ->
+                                context.getString(R.string.play_error_missing)
+                            else -> context.getString(R.string.play_error_generic)
+                        }
+                    }
+                })
                 controller = mediaController
             }
         }, androidx.core.content.ContextCompat.getMainExecutor(context))

@@ -55,6 +55,7 @@ import com.imankoppai.mediaanvil.data.ScannedFile
 import com.imankoppai.mediaanvil.model.AudioTrack
 import com.imankoppai.mediaanvil.subtitles.SubtitleFormats
 import com.imankoppai.mediaanvil.subtitles.SubtitleLoader
+import com.imankoppai.mediaanvil.tags.TagIO
 import com.imankoppai.mediaanvil.tools.AudioConverter
 import com.imankoppai.mediaanvil.tools.ImageConverter
 import com.imankoppai.mediaanvil.tools.ImageTarget
@@ -297,11 +298,17 @@ private fun AudioConvertTool(library: LibraryState) {
                             val parent = LibraryCache.resolveFolder(context, library.preferences.lastFolder, file.parentPath)
                                 ?: error(context.getString(R.string.need_folder_grant))
                             val target = AudioConverter.targetFor(targetExt) ?: error("unknown_target")
-                            val converted = AudioConverter.convert(context, file.uri, target)
+                            val sourceCache = DocumentOps.copyToCache(context, file.uri, file.name)
                             try {
-                                DocumentOps.saveConvertedDocument(context, parent, file.name, target.extension, converted)
+                                val converted = AudioConverter.convert(context, android.net.Uri.fromFile(sourceCache), target)
+                                try {
+                                    TagIO.preserveTags(sourceCache, converted)
+                                    DocumentOps.saveConvertedDocument(context, parent, file.name, target.extension, converted)
+                                } finally {
+                                    converted.delete()
+                                }
                             } finally {
-                                converted.delete()
+                                DocumentOps.deleteCache(sourceCache)
                             }
                         }.fold(
                             onSuccess = { context.getString(R.string.convert_done) + ": " + file.name },

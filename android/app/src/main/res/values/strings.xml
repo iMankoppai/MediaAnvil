@@ -10,6 +10,16 @@
     <string name="pause">Pause</string>
     <string name="previous">Previous</string>
     <string name="next">Next</string>
+    <string name="play_error_missing">Playback failed: the audio file is missing or was moved.</string>
+    <string name="play_error_generic">Playback failed: the file may be damaged or the format is unsupported.</string>
+    <string name="sleep_timer">Sleep timer</string>
+    <string name="sleep_timer_off">Off</string>
+    <string name="sleep_timer_min">%1$d min</string>
+    <string name="sleep_timer_remaining">%1$d min left</string>
+    <string name="sort_menu_label">Sort: %1$s</string>
+    <string name="sort_file_name">File name</string>
+    <string name="sort_title">Title</string>
+    <string name="sort_duration">Duration</string>
     <string name="local_only">Files stay on this device</string>
 
     <string name="tab_media">Media</string>

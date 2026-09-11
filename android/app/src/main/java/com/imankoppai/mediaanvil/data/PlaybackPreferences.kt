@@ -74,4 +74,29 @@ class PlaybackPreferences(context: Context) {
         set(value) {
             preferences.edit().putInt("image_quality", value.coerceIn(1, 100)).apply()
         }
+
+    var playbackSpeed: Float
+        get() = preferences.getFloat("playback_speed", 1f)
+        set(value) {
+            preferences.edit().putFloat("playback_speed", value).apply()
+        }
+
+    var shuffleEnabled: Boolean
+        get() = preferences.getBoolean("shuffle_enabled", false)
+        set(value) {
+            preferences.edit().putBoolean("shuffle_enabled", value).apply()
+        }
+
+    var repeatMode: Int
+        get() = preferences.getInt("repeat_mode", 0)
+        set(value) {
+            preferences.edit().putInt("repeat_mode", value).apply()
+        }
+
+    /** "fileName", "title" or "duration". */
+    var librarySort: String
+        get() = preferences.getString("library_sort", "fileName") ?: "fileName"
+        set(value) {
+            preferences.edit().putString("library_sort", value).apply()
+        }
 }

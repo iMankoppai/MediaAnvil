@@ -11,7 +11,7 @@ android {
         applicationId = "com.imankoppai.mediaanvil"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
+        versionCode = 7
         versionName = "1.2.0-alpha"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

@@ -10,6 +10,16 @@
     <string name="pause">暂停</string>
     <string name="previous">上一首</string>
     <string name="next">下一首</string>
+    <string name="play_error_missing">播放失败：音频文件不存在或已被移动。</string>
+    <string name="play_error_generic">播放失败：文件可能已损坏或格式不受支持。</string>
+    <string name="sleep_timer">睡眠定时器</string>
+    <string name="sleep_timer_off">关闭</string>
+    <string name="sleep_timer_min">%1$d 分钟</string>
+    <string name="sleep_timer_remaining">剩余 %1$d 分钟</string>
+    <string name="sort_menu_label">排序：%1$s</string>
+    <string name="sort_file_name">文件名</string>
+    <string name="sort_title">标题</string>
+    <string name="sort_duration">时长</string>
     <string name="local_only">文件只在本机处理</string>
 
     <string name="tab_media">媒体</string>

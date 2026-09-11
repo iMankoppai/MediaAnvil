@@ -313,6 +313,29 @@ object TagIO {
         }
     }
 
+    /**
+     * Copy source tags (basic fields, timed lyrics, cover) onto a converted
+     * file, mirroring the desktop "keep tags" conversion option.
+     */
+    fun preserveTags(source: File, target: File) {
+        runCatching {
+            val snap = readSnapshot(source)
+            writeChanges(
+                target,
+                TagChanges(
+                    title = snap.title,
+                    artist = snap.artist,
+                    album = snap.album,
+                    lyricsLrc = if (snap.hasLyrics &&
+                        com.imankoppai.mediaanvil.subtitles.SubtitleFormats.hasLrcTimestamp(snap.lyrics)
+                    ) snap.lyrics else null,
+                    coverData = snap.coverData,
+                    coverMime = snap.coverMime,
+                ),
+            )
+        }
+    }
+
     fun sniffImageMime(data: ByteArray): String = when {
         data.size >= 3 && data[0] == 0xFF.toByte() && data[1] == 0xD8.toByte() -> "image/jpeg"
         data.size >= 4 && data[0] == 0x89.toByte() && data[1] == 0x50.toByte() &&
