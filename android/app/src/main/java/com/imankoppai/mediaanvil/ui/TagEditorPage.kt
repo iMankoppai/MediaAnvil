@@ -17,10 +17,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -28,12 +31,17 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,23 +61,107 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.imankoppai.mediaanvil.R
 import com.imankoppai.mediaanvil.data.DocumentOps
+import com.imankoppai.mediaanvil.data.LibraryCache
 import com.imankoppai.mediaanvil.data.MediaMatcher
 import com.imankoppai.mediaanvil.data.ScannedFile
 import com.imankoppai.mediaanvil.model.AudioTrack
 import com.imankoppai.mediaanvil.subtitles.SubtitleFormats
 import com.imankoppai.mediaanvil.subtitles.SubtitleLoader
 import com.imankoppai.mediaanvil.tags.TagIO
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-internal fun TagEditorPage(library: LibraryState) {
+internal fun TagEditorScreen(library: LibraryState, track: AudioTrack?, onBack: () -> Unit) {
+    val context = LocalContext.current
+    var current by remember { mutableStateOf<AudioTrack?>(track) }
+    val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { picked ->
+            val name = DocumentOps.queryDisplayName(context, picked)
+                ?: picked.lastPathSegment?.substringAfterLast('/')
+                ?: context.getString(R.string.select_audio_file)
+            current = AudioTrack(
+                uri = picked,
+                fileName = name,
+                title = name.substringBeforeLast('.', name),
+                artist = null,
+                album = null,
+                durationMs = 0,
+                subtitleUri = null,
+                subtitleExtension = null,
+                parent = null,
+                parentPath = "",
+            )
+        }
+    }
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.tab_tag_editor), fontWeight = FontWeight.SemiBold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.back),
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { audioPicker.launch(arrayOf("audio/*")) }) {
+                        Icon(
+                            Icons.Filled.AudioFile,
+                            contentDescription = stringResource(R.string.select_audio_file),
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                ),
+            )
+        },
+    ) { padding ->
+        val active = current
+        Box(Modifier.padding(padding)) {
+            if (active == null) {
+                Column(
+                    Modifier.fillMaxSize().padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.AudioFile,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(64.dp),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        stringResource(R.string.editor_empty_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = { audioPicker.launch(arrayOf("audio/*")) }) {
+                        Text(stringResource(R.string.select_audio_file))
+                    }
+                }
+            } else {
+                TagEditorPage(library, active)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun TagEditorPage(library: LibraryState, track: AudioTrack) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var editorTrack by remember { mutableStateOf<AudioTrack?>(null) }
     var snapshot by remember { mutableStateOf<TagIO.TagSnapshot?>(null) }
     var title by remember { mutableStateOf("") }
     var artist by remember { mutableStateOf("") }
@@ -78,13 +170,12 @@ internal fun TagEditorPage(library: LibraryState) {
     var removeLyrics by remember { mutableStateOf(false) }
     var pendingCover by remember { mutableStateOf<ByteArray?>(null) }
     var removeCover by remember { mutableStateOf(false) }
-    var overwrite by remember { mutableStateOf(false) }
+    var overwrite by remember(track.uri) { mutableStateOf(library.preferences.defaultOverwrite) }
     var cropSource by remember { mutableStateOf<ByteArray?>(null) }
     var working by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var matcherExpanded by remember { mutableStateOf(false) }
     var batchSummary by remember { mutableStateOf<String?>(null) }
-    var trackMenuOpen by remember { mutableStateOf(false) }
 
     fun setCoverFromBytes(bytes: ByteArray, alreadyNormalized: Boolean) {
         pendingCover = if (alreadyNormalized) bytes else normalizeToPng(bytes)
@@ -108,12 +199,7 @@ internal fun TagEditorPage(library: LibraryState) {
         )
     }
 
-    LaunchedEffect(library.selectedTrack?.uri) {
-        library.selectedTrack?.let { editorTrack = it }
-    }
-
-    LaunchedEffect(editorTrack?.uri) {
-        val track = editorTrack ?: return@LaunchedEffect
+    LaunchedEffect(track.uri) {
         if (track.fileName.substringAfterLast('.', "").lowercase() == "opus") {
             snapshot = null
             message = context.getString(R.string.opus_unsupported)
@@ -148,23 +234,19 @@ internal fun TagEditorPage(library: LibraryState) {
         }
     }
 
-    val lyricMatcher = remember(editorTrack?.uri, library.files) {
-        editorTrack?.let { track ->
-            MediaMatcher.bestCandidates(
-                track.fileName,
-                siblingFiles(library, track),
-                MediaMatcher.lyricExtensions,
-            )
-        }
+    val lyricMatcher = remember(track.uri, library.files) {
+        MediaMatcher.bestCandidates(
+            track.fileName,
+            siblingFiles(library, track),
+            MediaMatcher.lyricExtensions,
+        )
     }
-    val coverMatcher = remember(editorTrack?.uri, library.files) {
-        editorTrack?.let { track ->
-            MediaMatcher.bestCandidates(
-                track.fileName,
-                siblingFiles(library, track),
-                MediaMatcher.coverExtensions,
-            )
-        }
+    val coverMatcher = remember(track.uri, library.files) {
+        MediaMatcher.bestCandidates(
+            track.fileName,
+            siblingFiles(library, track),
+            MediaMatcher.coverExtensions,
+        )
     }
 
     fun resolve(ref: MediaMatcher.FileRef): ScannedFile? =
@@ -218,7 +300,7 @@ internal fun TagEditorPage(library: LibraryState) {
             message = context.getString(R.string.nothing_to_export)
             return
         }
-        val stem = editorTrack?.let { track -> track.fileName.substringBeforeLast('.', track.fileName) } ?: "lyrics"
+        val stem = track.fileName.substringBeforeLast('.', track.fileName)
         val extension = if (SubtitleFormats.hasLrcTimestamp(text)) ".lrc" else ".txt"
         val bytes = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) + text.toByteArray(Charsets.UTF_8)
         pendingExport = bytes to "text/plain"
@@ -233,9 +315,34 @@ internal fun TagEditorPage(library: LibraryState) {
         }
         val mime = snapshot?.coverMime ?: TagIO.sniffImageMime(data)
         val extension = if (mime == "image/jpeg") ".jpg" else ".png"
-        val stem = editorTrack?.let { track -> track.fileName.substringBeforeLast('.', track.fileName) } ?: "cover"
+        val stem = track.fileName.substringBeforeLast('.', track.fileName)
         pendingExport = data to mime
         exportLauncher.launch(stem + extension)
+    }
+
+    /** Save-as target handed off to the system save dialog for out-of-tree files. */
+    var pendingSaveFile by remember { mutableStateOf<File?>(null) }
+    val saveAsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val file = pendingSaveFile
+        pendingSaveFile = null
+        if (uri != null && file != null) {
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
+                            file.inputStream().use { input -> input.copyTo(output) }
+                        } ?: error("open_output_failed")
+                    }
+                }
+                file.delete()
+                result.fold(
+                    onSuccess = { message = context.getString(R.string.saved_to) + ": " + lastSegment(uri.toString()) },
+                    onFailure = { failure -> message = context.getString(R.string.save_failed) + ": " + failure.message },
+                )
+            }
+        } else {
+            file?.delete()
+        }
     }
 
     fun saveEdits(track: AudioTrack) {
@@ -250,6 +357,7 @@ internal fun TagEditorPage(library: LibraryState) {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val cache = DocumentOps.copyToCache(context, track.uri, track.fileName)
+                    var handoff: File? = null
                     try {
                         val changes = TagIO.TagChanges(
                             title = title,
@@ -263,24 +371,41 @@ internal fun TagEditorPage(library: LibraryState) {
                         )
                         TagIO.writeChanges(cache, changes)
                         val parent = track.parent
-                            ?: error(context.getString(R.string.need_folder_grant))
-                        if (overwrite) {
-                            DocumentOps.overwriteDocument(context, parent, track.fileName, cache)
-                        } else {
-                            DocumentOps.saveAsDocument(context, parent, track.fileName, cache)
+                            ?: LibraryCache.resolveFolder(context, library.preferences.lastFolder, track.parentPath)
+                        when {
+                            parent != null && overwrite ->
+                                DocumentOps.overwriteDocument(context, parent, track.fileName, cache)
+                            parent != null ->
+                                DocumentOps.saveAsDocument(context, parent, track.fileName, cache)
+                            overwrite ->
+                                DocumentOps.overwriteInPlace(context, track.uri, cache)
+                            else -> {
+                                handoff = File(context.cacheDir, "saveas-${System.nanoTime()}.${track.fileName.substringAfterLast('.', "bin")}")
+                                cache.copyTo(handoff!!, overwrite = true)
+                            }
                         }
                     } finally {
-                        DocumentOps.deleteCache(cache)
+                        if (handoff == null) DocumentOps.deleteCache(cache)
                     }
+                    handoff
                 }
             }
             working = false
-            result.onSuccess { savedUri ->
-                message = context.getString(R.string.saved_to) + ": " + lastSegment(savedUri.toString())
-                library.rescan()
-            }.onFailure { failure ->
-                message = context.getString(R.string.save_failed) + ": " + (failure.message ?: failure.toString())
-            }
+            result.fold(
+                onSuccess = { handoff ->
+                    if (handoff != null) {
+                        pendingSaveFile = handoff
+                        saveAsLauncher.launch(track.fileName)
+                        message = context.getString(R.string.save_pick_location)
+                    } else {
+                        message = context.getString(R.string.saved_to) + ": " + track.fileName
+                        if (track.parent != null) library.rescan()
+                    }
+                },
+                onFailure = { failure ->
+                    message = context.getString(R.string.save_failed) + ": " + (failure.message ?: failure.toString())
+                },
+            )
         }
     }
 
@@ -301,7 +426,6 @@ internal fun TagEditorPage(library: LibraryState) {
     }
 
     fun batchWrite(writeLyrics: Boolean, writeCovers: Boolean) {
-        val track = editorTrack ?: return
         val siblings = library.tracks.filter { it.parentPath == track.parentPath }
         if (siblings.isEmpty()) return
         working = true
@@ -352,7 +476,9 @@ internal fun TagEditorPage(library: LibraryState) {
                                 changes = changes.copy(coverData = normalizeToPng(bytes), coverMime = "image/png")
                             }
                             TagIO.writeChanges(cache, changes)
-                            val parent = item.parent ?: error(context.getString(R.string.need_folder_grant))
+                            val parent = item.parent
+                                ?: LibraryCache.resolveFolder(context, library.preferences.lastFolder, item.parentPath)
+                                ?: error(context.getString(R.string.need_folder_grant))
                             DocumentOps.saveAsDocument(context, parent, item.fileName, cache)
                         } finally {
                             DocumentOps.deleteCache(cache)
@@ -386,47 +512,13 @@ internal fun TagEditorPage(library: LibraryState) {
             .padding(horizontal = 16.dp),
     ) {
         Text(
-            stringResource(R.string.tab_tag_editor),
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(vertical = 12.dp),
+            track.fileName,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(vertical = 8.dp),
         )
-
-        Box(Modifier.fillMaxWidth()) {
-            OutlinedButton(
-                onClick = { trackMenuOpen = true },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    editorTrack?.let { "${it.title} · ${it.fileName}" }
-                        ?: stringResource(R.string.select_track),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            DropdownMenu(expanded = trackMenuOpen, onDismissRequest = { trackMenuOpen = false }) {
-                if (library.tracks.isEmpty()) {
-                    DropdownMenuItem(text = { Text(stringResource(R.string.no_tracks)) }, onClick = {})
-                }
-                LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
-                    items(library.tracks, key = { it.uri.toString() }) { track ->
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    "${track.title} · ${track.fileName}",
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            },
-                            onClick = {
-                                trackMenuOpen = false
-                                editorTrack = track
-                            },
-                        )
-                    }
-                }
-            }
-        }
 
         snapshot?.let { current ->
             Spacer(Modifier.height(8.dp))
@@ -569,10 +661,10 @@ internal fun TagEditorPage(library: LibraryState) {
                         )
                         val lyricOptions = lyricMatcher?.files.orEmpty()
                         val coverOptions = coverMatcher?.files.orEmpty()
-                        var chosenLyric by remember(editorTrack?.uri) {
+                        var chosenLyric by remember(track.uri) {
                             mutableStateOf(if (lyricMatcher?.ambiguous == false) lyricMatcher.single else null)
                         }
-                        var chosenCover by remember(editorTrack?.uri) {
+                        var chosenCover by remember(track.uri) {
                             mutableStateOf(if (coverMatcher?.ambiguous == false) coverMatcher.single else null)
                         }
                         CandidateRow(
@@ -641,7 +733,7 @@ internal fun TagEditorPage(library: LibraryState) {
                     removeCover = false
                 }) { Text(stringResource(R.string.reset_edits)) }
                 Button(
-                    onClick = { editorTrack?.let { saveEdits(it) } },
+                    onClick = { saveEdits(track) },
                     enabled = current.writable && !working,
                 ) { Text(stringResource(R.string.save_tags)) }
             }
@@ -717,7 +809,7 @@ private fun siblingFiles(library: LibraryState, track: AudioTrack): List<MediaMa
 
 private fun lastSegment(value: String): String = value.substringAfterLast('/').ifEmpty { value }
 
-private fun detailsLine(snapshot: TagIO.TagSnapshot): String {
+internal fun detailsLine(snapshot: TagIO.TagSnapshot): String {
     val info = snapshot.info
     return buildString {
         append(info.formatLabel)

@@ -19,11 +19,13 @@ object PreviewLyrics {
 
     data class Timeline(val cues: List<SubtitleCue>, val fromEmbedded: Boolean)
 
-    fun load(context: Context, track: AudioTrack, preferEmbedded: Boolean): Timeline {
+    fun load(context: Context, track: AudioTrack, preferEmbedded: Boolean, autoLoadExternal: Boolean = true): Timeline {
         if (preferEmbedded) {
             embeddedCues(context, track)?.takeIf { it.isNotEmpty() }?.let { return Timeline(it, true) }
         }
-        externalCues(context, track)?.takeIf { it.isNotEmpty() }?.let { return Timeline(it, false) }
+        if (autoLoadExternal) {
+            externalCues(context, track)?.takeIf { it.isNotEmpty() }?.let { return Timeline(it, false) }
+        }
         if (!preferEmbedded) {
             embeddedCues(context, track)?.takeIf { it.isNotEmpty() }?.let { return Timeline(it, true) }
         }

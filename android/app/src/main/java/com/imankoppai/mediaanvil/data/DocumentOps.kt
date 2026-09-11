@@ -77,6 +77,59 @@ object DocumentOps {
         return created.uri
     }
 
+    /** Save a converted/derived file next to its source with `_n` collision avoidance. */
+    fun saveConvertedDocument(
+        context: Context,
+        parent: DocumentFile,
+        sourceName: String,
+        newExtension: String,
+        edited: File,
+    ): Uri {
+        val stem = sourceName.substringBeforeLast('.', sourceName)
+        var candidate = "$stem.$newExtension"
+        var index = 1
+        while (parent.findFile(candidate) != null) {
+            candidate = "${stem}_$index.$newExtension"
+            index++
+        }
+        val created = parent.createFile("application/octet-stream", candidate)
+            ?: throw IllegalStateException("create_failed")
+        writeAndVerify(context, created.uri, edited)
+        return created.uri
+    }
+
+    /**
+     * In-place overwrite for documents picked outside the granted tree:
+     * OpenDocument grants write access to the returned document itself.
+     */
+    fun overwriteInPlace(context: Context, target: Uri, edited: File) {
+        context.contentResolver.openOutputStream(target, "wt")?.use { output ->
+            edited.inputStream().use { input -> input.copyTo(output) }
+        } ?: throw IllegalStateException("open_output_failed")
+        val written = context.contentResolver.openInputStream(target)?.use { stream ->
+            var count = 0L
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val read = stream.read(buffer)
+                if (read < 0) break
+                count += read
+            }
+            count
+        } ?: -1L
+        if (written != edited.length()) throw IllegalStateException("verify_failed")
+    }
+
+    fun queryDisplayName(context: Context, uri: Uri): String? =
+        context.contentResolver.query(
+            uri,
+            arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+
     private fun writeAndVerify(context: Context, target: Uri, edited: File) {
         context.contentResolver.openOutputStream(target, "wt")?.use { output ->
             edited.inputStream().use { input -> input.copyTo(output) }

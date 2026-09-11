@@ -78,6 +78,42 @@ class SubtitleFormatsTest {
     }
 
     @Test
+    fun convertsLrcToSrtWithInferredEndTimes() {
+        val lrc = "[00:01.00]First line\n[00:04.00]Second line"
+
+        val srt = SubtitleFormats.convertSubtitle(lrc, "lrc", "srt")
+
+        assertEquals(
+            "1\n00:00:01,000 --> 00:00:04,000\nFirst line\n\n" +
+                "2\n00:00:04,000 --> 00:00:09,000\nSecond line\n",
+            srt,
+        )
+    }
+
+    @Test
+    fun convertsLrcToVttWithHeader() {
+        val vtt = SubtitleFormats.convertSubtitle("[00:01.00]Hello", "lrc", "vtt")
+
+        assertEquals("WEBVTT\n\n00:00:01.000 --> 00:00:06.000\nHello\n", vtt)
+    }
+
+    @Test
+    fun convertsSrtToVttRoundTrip() {
+        val srt = "1\n00:00:02,000 --> 00:00:04,500\nDeep line"
+        val vtt = SubtitleFormats.convertSubtitle(srt, "srt", "vtt")
+        assertEquals("WEBVTT\n\n00:00:02.000 --> 00:00:04.500\nDeep line\n", vtt)
+        val backToSrt = SubtitleFormats.convertSubtitle(vtt, "vtt", "srt")
+        assertEquals(srt + "\n", backToSrt)
+    }
+
+    @Test
+    fun rendersSrtTimestampsWithHoursAndHalfUpRounding() {
+        assertEquals("01:00:00,000", SubtitleFormats.subtitleTimestamp(3_600_000, ","))
+        assertEquals("00:59:59,999", SubtitleFormats.subtitleTimestamp(3_599_999, ","))
+        assertEquals("00:00:00,000", SubtitleFormats.subtitleTimestamp(0, ","))
+    }
+
+    @Test
     fun parsesLrcTimelineKeepingLastLineHighlighted() {
         val cues = PreviewLyrics.parseLrcTimeline("[00:01.50]First\n[00:04.00]Second")
 

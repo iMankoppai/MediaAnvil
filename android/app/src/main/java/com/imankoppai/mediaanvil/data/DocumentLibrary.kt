@@ -22,11 +22,11 @@ object DocumentLibrary {
     private val audioExtensions = setOf("mp3", "wav", "flac", "m4a", "aac", "ogg", "opus")
     private val subtitleExtensions = listOf("lrc", "srt", "vtt")
 
-    fun scan(context: Context, treeUri: Uri): LibraryScan {
+    fun scan(context: Context, treeUri: Uri, includeSubfolders: Boolean = true): LibraryScan {
         val root = DocumentFile.fromTreeUri(context, treeUri) ?: return LibraryScan(emptyList(), emptyList())
         val directories = mutableListOf<Pair<String, DocumentFile>>()
         val files = mutableListOf<Pair<String, DocumentFile>>()
-        collect(root, "", directories, files)
+        collect(root, "", includeSubfolders, directories, files)
 
         val allFiles = files.map { (path, file) -> ScannedFile(file.uri, file.name.orEmpty(), path) }
         val tracks = files.mapNotNull { (path, file) ->
@@ -41,14 +41,16 @@ object DocumentLibrary {
     private fun collect(
         directory: DocumentFile,
         path: String,
+        includeSubfolders: Boolean,
         directories: MutableList<Pair<String, DocumentFile>>,
         files: MutableList<Pair<String, DocumentFile>>,
     ) {
         directories += path to directory
         directory.listFiles().forEach { file ->
             if (file.isDirectory) {
+                if (!includeSubfolders) return@forEach
                 val childPath = if (path.isEmpty()) file.name.orEmpty() else "$path/${file.name.orEmpty()}"
-                collect(file, childPath, directories, files)
+                collect(file, childPath, includeSubfolders, directories, files)
             } else {
                 files += path to file
             }

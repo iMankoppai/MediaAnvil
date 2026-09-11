@@ -15,7 +15,7 @@ object SubtitleParser {
         else -> emptyList()
     }
 
-    fun parseLrc(text: String): List<SubtitleCue> {
+    fun parseLrc(text: String, finalDurationMs: Long = 5_000L): List<SubtitleCue> {
         val starts = buildList {
             text.lineSequence().forEach { line ->
                 val content = line.replace(lrcTimestamp, "").trim()
@@ -39,7 +39,7 @@ object SubtitleParser {
         return starts.mapIndexed { index, cue ->
             SubtitleCue(
                 startMs = cue.first,
-                endMs = starts.getOrNull(index + 1)?.first ?: cue.first + 5_000,
+                endMs = starts.getOrNull(index + 1)?.first ?: cue.first + finalDurationMs,
                 text = cue.second,
             )
         }
