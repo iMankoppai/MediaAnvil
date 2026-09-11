@@ -75,7 +75,6 @@ fun MediaAnvilApp() {
     }
 
     BackHandler(enabled = overlay != Overlay.None) {
-        android.util.Log.d("MediaAnvilBack", "system back pressed, overlay=$overlay")
         overlay = Overlay.None
     }
 

@@ -19,7 +19,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
@@ -73,7 +72,6 @@ private val toolActions = listOf(
     ToolAction(Icons.Filled.Image, R.string.tool_export_cover, R.string.tool_export_cover_sub, true),
     ToolAction(Icons.Filled.AddPhotoAlternate, R.string.tool_replace_cover, R.string.tool_replace_cover_sub, true),
     ToolAction(Icons.Filled.EditNote, R.string.tool_edit_lyrics, R.string.tool_edit_lyrics_sub, true),
-    ToolAction(Icons.Filled.DriveFileRenameOutline, R.string.tool_rename, R.string.tool_rename_sub, false),
     ToolAction(Icons.Filled.Info, R.string.tool_file_info, R.string.tool_file_info_sub, true),
     ToolAction(Icons.Filled.Folder, R.string.tool_reveal, R.string.tool_reveal_sub, false),
     ToolAction(Icons.Filled.Share, R.string.share_export, R.string.tool_share_sub, true),

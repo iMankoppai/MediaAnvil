@@ -114,10 +114,7 @@ internal fun NowPlayingPage(
             TopAppBar(
                 title = { Text(stringResource(R.string.now_playing), fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
-                    IconButton(onClick = {
-                        android.util.Log.d("MediaAnvilBack", "nowPlaying back arrow clicked")
-                        onBack()
-                    }) {
+                    IconButton(onClick = onBack) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },

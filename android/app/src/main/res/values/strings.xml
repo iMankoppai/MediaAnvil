@@ -49,8 +49,6 @@
     <string name="tool_replace_cover_sub">Add a cover from a local image</string>
     <string name="tool_edit_lyrics">Edit lyrics</string>
     <string name="tool_edit_lyrics_sub">Edit, sync, or convert lyrics (LRC/SRT/TXT)</string>
-    <string name="tool_rename">Batch rename</string>
-    <string name="tool_rename_sub">Rename by tag rules</string>
     <string name="tool_file_info">File info</string>
     <string name="tool_file_info_sub">View detailed media information</string>
     <string name="tool_reveal">Reveal location</string>

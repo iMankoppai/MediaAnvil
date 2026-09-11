@@ -49,8 +49,6 @@
     <string name="tool_replace_cover_sub">从本地图片添加封面</string>
     <string name="tool_edit_lyrics">编辑歌词</string>
     <string name="tool_edit_lyrics_sub">编辑、同步或转换歌词（LRC/SRT/TXT）</string>
-    <string name="tool_rename">批量重命名</string>
-    <string name="tool_rename_sub">按标签规则重命名</string>
     <string name="tool_file_info">文件信息</string>
     <string name="tool_file_info_sub">查看详细的媒体信息</string>
     <string name="tool_reveal">打开所在位置</string>
