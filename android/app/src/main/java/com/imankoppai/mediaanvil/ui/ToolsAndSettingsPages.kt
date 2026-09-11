@@ -87,11 +87,6 @@ internal fun ToolsHubPage(
             stringResource(R.string.tool_image_convert),
             stringResource(R.string.tool_image_convert_sub),
         ) { onOpenTool(ToolKind.ImageConvert) },
-        HubEntry(
-            Icons.Filled.DriveFileRenameOutline,
-            stringResource(R.string.tool_rename),
-            stringResource(R.string.tool_rename_sub),
-        ) { onOpenTool(ToolKind.Rename) },
     )
 
     Column(

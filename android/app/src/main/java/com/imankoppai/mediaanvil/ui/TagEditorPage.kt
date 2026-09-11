@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -62,8 +61,6 @@ import androidx.compose.ui.unit.dp
 import com.imankoppai.mediaanvil.R
 import com.imankoppai.mediaanvil.data.DocumentOps
 import com.imankoppai.mediaanvil.data.LibraryCache
-import com.imankoppai.mediaanvil.data.MediaMatcher
-import com.imankoppai.mediaanvil.data.ScannedFile
 import com.imankoppai.mediaanvil.model.AudioTrack
 import com.imankoppai.mediaanvil.subtitles.SubtitleFormats
 import com.imankoppai.mediaanvil.subtitles.SubtitleLoader
@@ -174,8 +171,6 @@ internal fun TagEditorPage(library: LibraryState, track: AudioTrack) {
     var cropSource by remember { mutableStateOf<ByteArray?>(null) }
     var working by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
-    var matcherExpanded by remember { mutableStateOf(false) }
-    var batchSummary by remember { mutableStateOf<String?>(null) }
 
     fun setCoverFromBytes(bytes: ByteArray, alreadyNormalized: Boolean) {
         pendingCover = if (alreadyNormalized) bytes else normalizeToPng(bytes)
@@ -227,33 +222,11 @@ internal fun TagEditorPage(library: LibraryState, track: AudioTrack) {
             pendingCover = null
             removeLyrics = false
             removeCover = false
-            batchSummary = null
         }.onFailure { failure ->
             snapshot = null
             message = failure.message ?: context.getString(R.string.save_failed)
         }
     }
-
-    val lyricMatcher = remember(track.uri, library.files) {
-        MediaMatcher.bestCandidates(
-            track.fileName,
-            siblingFiles(library, track),
-            MediaMatcher.lyricExtensions,
-        )
-    }
-    val coverMatcher = remember(track.uri, library.files) {
-        MediaMatcher.bestCandidates(
-            track.fileName,
-            siblingFiles(library, track),
-            MediaMatcher.coverExtensions,
-        )
-    }
-
-    fun resolve(ref: MediaMatcher.FileRef): ScannedFile? =
-        library.files?.files?.firstOrNull { it.name == ref.name && it.parentPath == ref.parent }
-
-    fun readBytes(file: ScannedFile): ByteArray? =
-        context.contentResolver.openInputStream(file.uri)?.use { it.readBytes() }
 
     val importLyricsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -409,91 +382,6 @@ internal fun TagEditorPage(library: LibraryState, track: AudioTrack) {
         }
     }
 
-    fun applyMatches(lyricRef: MediaMatcher.FileRef?, coverRef: MediaMatcher.FileRef?) {
-        lyricRef?.let { ref ->
-            resolve(ref)?.let { file ->
-                val bytes = readBytes(file)
-                if (bytes == null || !importLyricsFrom(bytes)) {
-                    message = context.getString(R.string.invalid_lyrics)
-                }
-            }
-        }
-        coverRef?.let { ref ->
-            resolve(ref)?.let { file ->
-                readBytes(file)?.let { setCoverFromBytes(it, alreadyNormalized = false) }
-            }
-        }
-    }
-
-    fun batchWrite(writeLyrics: Boolean, writeCovers: Boolean) {
-        val siblings = library.tracks.filter { it.parentPath == track.parentPath }
-        if (siblings.isEmpty()) return
-        working = true
-        batchSummary = null
-        scope.launch {
-            val summary = withContext(Dispatchers.IO) {
-                var written = 0
-                var skipped = 0
-                var failed = 0
-                for (item in siblings) {
-                    if (!TagIO.isWritable(item.fileName)) {
-                        skipped++
-                        continue
-                    }
-                    val lyric = if (writeLyrics) {
-                        MediaMatcher.bestCandidates(item.fileName, siblingFiles(library, item), MediaMatcher.lyricExtensions).single
-                    } else {
-                        null
-                    }
-                    val cover = if (writeCovers) {
-                        MediaMatcher.bestCandidates(item.fileName, siblingFiles(library, item), MediaMatcher.coverExtensions).single
-                    } else {
-                        null
-                    }
-                    if (lyric == null && cover == null) {
-                        skipped++
-                        continue
-                    }
-                    val outcome = runCatching {
-                        val cache = DocumentOps.copyToCache(context, item.uri, item.fileName)
-                        try {
-                            var changes = TagIO.TagChanges()
-                            if (lyric != null) {
-                                val bytes = resolve(lyric)?.let(::readBytes)
-                                if (bytes == null) error("lyrics_unreadable")
-                                val text = SubtitleLoader.decode(bytes)
-                                val converted = if (SubtitleFormats.looksLikeTimed(text)) {
-                                    SubtitleFormats.timedTextToLrc(text)
-                                } else {
-                                    text
-                                }
-                                SubtitleFormats.validateEmbeddableLyrics(converted)
-                                changes = changes.copy(lyricsLrc = converted)
-                            }
-                            if (cover != null) {
-                                val bytes = resolve(cover)?.let(::readBytes)
-                                if (bytes == null) error("cover_unreadable")
-                                changes = changes.copy(coverData = normalizeToPng(bytes), coverMime = "image/png")
-                            }
-                            TagIO.writeChanges(cache, changes)
-                            val parent = item.parent
-                                ?: LibraryCache.resolveFolder(context, library.preferences.lastFolder, item.parentPath)
-                                ?: error(context.getString(R.string.need_folder_grant))
-                            DocumentOps.saveAsDocument(context, parent, item.fileName, cache)
-                        } finally {
-                            DocumentOps.deleteCache(cache)
-                        }
-                    }
-                    if (outcome.isSuccess) written++ else failed++
-                }
-                context.getString(R.string.batch_done, written, skipped, failed)
-            }
-            working = false
-            batchSummary = summary
-            library.rescan()
-        }
-    }
-
     cropSource?.let { bytes ->
         CropDialog(
             imageBytes = bytes,
@@ -637,74 +525,6 @@ internal fun TagEditorPage(library: LibraryState, track: AudioTrack) {
                 }
             }
 
-            Card(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp)) {
-                Column(Modifier.padding(12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            stringResource(R.string.smart_matching),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = { matcherExpanded = !matcherExpanded }) {
-                            Text(if (matcherExpanded) "−" else "+")
-                        }
-                    }
-                    if (matcherExpanded) {
-                        Text(
-                            stringResource(R.string.ambiguous_hint),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.secondary,
-                        )
-                        val lyricOptions = lyricMatcher?.files.orEmpty()
-                        val coverOptions = coverMatcher?.files.orEmpty()
-                        var chosenLyric by remember(track.uri) {
-                            mutableStateOf(if (lyricMatcher?.ambiguous == false) lyricMatcher.single else null)
-                        }
-                        var chosenCover by remember(track.uri) {
-                            mutableStateOf(if (coverMatcher?.ambiguous == false) coverMatcher.single else null)
-                        }
-                        CandidateRow(
-                            label = stringResource(R.string.lyric_candidates),
-                            options = lyricOptions,
-                            chosen = chosenLyric,
-                            onChoose = { chosenLyric = it },
-                        )
-                        CandidateRow(
-                            label = stringResource(R.string.cover_candidates),
-                            options = coverOptions,
-                            chosen = chosenCover,
-                            onChoose = { chosenCover = it },
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                            OutlinedButton(onClick = { applyMatches(chosenLyric, chosenCover) }) {
-                                Text(stringResource(R.string.apply_matches))
-                            }
-                        }
-                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                        Text(
-                            stringResource(R.string.batch_hint),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.secondary,
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
-                            OutlinedButton(onClick = { batchWrite(writeLyrics = true, writeCovers = false) }) {
-                                Text(stringResource(R.string.batch_write_lyrics), maxLines = 1)
-                            }
-                            OutlinedButton(onClick = { batchWrite(writeLyrics = false, writeCovers = true) }) {
-                                Text(stringResource(R.string.batch_write_cover), maxLines = 1)
-                            }
-                        }
-                        batchSummary?.let {
-                            Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
-                        }
-                    }
-                }
-            }
-
             Text(
                 stringResource(R.string.save_mode_label),
                 style = MaterialTheme.typography.titleMedium,
@@ -757,55 +577,6 @@ internal fun TagEditorPage(library: LibraryState, track: AudioTrack) {
         }
     }
 }
-
-@Composable
-private fun CandidateRow(
-    label: String,
-    options: List<MediaMatcher.FileRef>,
-    chosen: MediaMatcher.FileRef?,
-    onChoose: (MediaMatcher.FileRef?) -> Unit,
-) {
-    var open by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(0.35f))
-        Box(Modifier.weight(0.65f)) {
-            Text(
-                chosen?.name ?: stringResource(R.string.no_candidates),
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { if (options.isNotEmpty()) open = true }
-                    .padding(vertical = 8.dp),
-            )
-            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                DropdownMenuItem(text = { Text(stringResource(R.string.no_candidates)) }, onClick = {
-                    onChoose(null)
-                    open = false
-                })
-                options.forEach { option ->
-                    DropdownMenuItem(
-                        text = { Text(option.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        onClick = {
-                            onChoose(option)
-                            open = false
-                        },
-                    )
-                }
-            }
-        }
-    }
-}
-
-private fun siblingFiles(library: LibraryState, track: AudioTrack): List<MediaMatcher.FileRef> =
-    library.files?.files
-        ?.filter { it.parentPath == track.parentPath }
-        ?.map { MediaMatcher.FileRef(it.name, it.parentPath) }
-        .orEmpty()
 
 private fun lastSegment(value: String): String = value.substringAfterLast('/').ifEmpty { value }
 

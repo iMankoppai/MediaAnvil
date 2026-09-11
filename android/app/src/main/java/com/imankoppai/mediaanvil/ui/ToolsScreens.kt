@@ -2,7 +2,6 @@ package com.imankoppai.mediaanvil.ui
 
 import android.content.Context
 import android.net.Uri
-import android.provider.DocumentsContract
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,7 +24,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -34,7 +32,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,7 +56,6 @@ import com.imankoppai.mediaanvil.model.AudioTrack
 import com.imankoppai.mediaanvil.subtitles.SubtitleFormats
 import com.imankoppai.mediaanvil.subtitles.SubtitleLoader
 import com.imankoppai.mediaanvil.tools.AudioConverter
-import com.imankoppai.mediaanvil.tools.AudioRenamer
 import com.imankoppai.mediaanvil.tools.ImageConverter
 import com.imankoppai.mediaanvil.tools.ImageTarget
 import kotlinx.coroutines.Dispatchers
@@ -68,7 +64,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.roundToInt
 
-internal enum class ToolKind { LyricsConvert, AudioConvert, ImageConvert, Rename }
+internal enum class ToolKind { LyricsConvert, AudioConvert, ImageConvert }
 
 @Composable
 internal fun ToolScreenHost(library: LibraryState, onOpenEditor: (AudioTrack?) -> Unit) {
@@ -97,7 +93,6 @@ internal fun ToolScreenHost(library: LibraryState, onOpenEditor: (AudioTrack?) -
                             ToolKind.LyricsConvert -> R.string.tool_lyrics_convert
                             ToolKind.AudioConvert -> R.string.tool_audio_convert
                             ToolKind.ImageConvert -> R.string.tool_image_convert
-                            ToolKind.Rename -> R.string.tool_rename
                         },
                     ),
                     style = MaterialTheme.typography.titleMedium,
@@ -109,7 +104,6 @@ internal fun ToolScreenHost(library: LibraryState, onOpenEditor: (AudioTrack?) -
                     ToolKind.LyricsConvert -> LyricsConvertTool(library)
                     ToolKind.AudioConvert -> AudioConvertTool(library)
                     ToolKind.ImageConvert -> ImageConvertTool(library)
-                    ToolKind.Rename -> RenameTool(library)
                 }
             }
         }
@@ -422,239 +416,4 @@ private fun runImageConvert(
         lines += line
     }
     return lines
-}
-
-/** ---------- 批量重命名 ---------- */
-
-@Composable
-private fun RenameTool(library: LibraryState) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var template by remember { mutableStateOf("{artist} - {title}") }
-    var fallbackMissing by remember { mutableStateOf(true) }
-    var folderPath by remember { mutableStateOf<String?>(null) }
-    var folderMenuOpen by remember { mutableStateOf(false) }
-    var preview by remember { mutableStateOf<List<AudioRenamer.PlanItem>?>(null) }
-    var executing by remember { mutableStateOf(false) }
-    var results by remember { mutableStateOf<List<String>>(emptyList()) }
-    var undoRecords by remember { mutableStateOf<List<Triple<String, String, String>>>(emptyList()) }
-
-    val folders = remember(library.tracks) { library.tracks.map { it.parentPath }.distinct().sorted() }
-    LaunchedEffect(library.tracks) {
-        if (folderPath == null) {
-            folderPath = library.selectedTrack?.parentPath ?: folders.firstOrNull()
-        }
-    }
-
-    val folderTracks = folderPath?.let { path -> library.tracks.filter { it.parentPath == path } }.orEmpty()
-    val siblings = library.files?.files?.filter { it.parentPath == folderPath }.orEmpty()
-
-    fun buildPreview() {
-        val fields = folderTracks
-            .filter { it.fileName.substringAfterLast('.', "").lowercase() in AudioRenamer.supportedExtensions }
-            .map { track ->
-                AudioRenamer.Fields(
-                    originalName = track.fileName,
-                    artist = track.artist.orEmpty(),
-                    title = track.title,
-                    album = track.album.orEmpty(),
-                )
-            }
-        val existing = siblings.map { it.name.lowercase() }.toSet()
-        runCatching { AudioRenamer.buildPlan(fields, template, fallbackMissing, existing) }.fold(
-            onSuccess = { plan ->
-                preview = plan
-                results = emptyList()
-            },
-            onFailure = { failure ->
-                preview = emptyList()
-                results = listOf(context.getString(R.string.save_failed) + ": " + failure.message)
-            },
-        )
-    }
-
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-        Text(stringResource(R.string.rename_range), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-        Box {
-            OutlinedButton(onClick = { folderMenuOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    folderPath?.ifEmpty { stringResource(R.string.folder_root) } ?: stringResource(R.string.settings_no_folder),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            DropdownMenu(expanded = folderMenuOpen, onDismissRequest = { folderMenuOpen = false }) {
-                folders.forEach { folder ->
-                    DropdownMenuItem(
-                        text = { Text(folder.ifEmpty { stringResource(R.string.folder_root) }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        onClick = {
-                            folderMenuOpen = false
-                            folderPath = folder
-                            preview = null
-                        },
-                    )
-                }
-            }
-        }
-
-        Text(stringResource(R.string.rename_template), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp))
-        OutlinedTextField(
-            value = template,
-            onValueChange = { template = it },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 6.dp)) {
-            listOf("{artist}", "{title}", "{album}", "{track}", "{year}").forEach { variable ->
-                OutlinedButton(onClick = { template += variable }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp)) {
-                    Text(variable, style = MaterialTheme.typography.labelSmall)
-                }
-            }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = fallbackMissing, onCheckedChange = { fallbackMissing = it })
-            Text(stringResource(R.string.rename_fallback), style = MaterialTheme.typography.bodySmall)
-        }
-        ToolHeaderNote(stringResource(R.string.track_year_hint))
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = ::buildPreview, enabled = folderTracks.isNotEmpty()) { Text(stringResource(R.string.rename_preview)) }
-            Button(
-                onClick = {
-                    val plan = preview ?: return@Button
-                    executing = true
-                    scope.launch {
-                        val outcome = withContext(Dispatchers.IO) { executeRenames(context, library, folderPath.orEmpty(), plan) }
-                        results = outcome.lines
-                        undoRecords = outcome.records
-                        executing = false
-                        library.rescan(quiet = true)
-                    }
-                },
-                enabled = preview?.any { it.canRename } == true && !executing,
-            ) { Text(stringResource(R.string.rename_execute)) }
-        }
-        if (executing) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 8.dp))
-
-        preview?.let { plan ->
-            val ready = plan.count { it.canRename }
-            Text(
-                stringResource(R.string.ready_count, ready),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(vertical = 6.dp),
-            )
-            plan.forEach { item ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(item.originalName, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            "→ " + item.newName,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Text(
-                        statusLabel(item),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = when (item.status) {
-                            AudioRenamer.Status.READY, AudioRenamer.Status.READY_AVOIDED -> MaterialTheme.colorScheme.primary
-                            AudioRenamer.Status.CONFLICT, AudioRenamer.Status.MISSING_TAGS -> MaterialTheme.colorScheme.error
-                            AudioRenamer.Status.NO_CHANGE -> MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                }
-            }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
-            OutlinedButton(
-                onClick = {
-                    if (undoRecords.isEmpty()) {
-                        results = listOf(context.getString(R.string.undo_none))
-                        return@OutlinedButton
-                    }
-                    executing = true
-                    scope.launch {
-                        val undone = withContext(Dispatchers.IO) { undoRenames(context, library, undoRecords) }
-                        results = listOf(context.getString(R.string.undo_done, undone))
-                        undoRecords = emptyList()
-                        executing = false
-                        library.rescan(quiet = true)
-                    }
-                },
-                enabled = undoRecords.isNotEmpty() && !executing,
-            ) { Text(stringResource(R.string.rename_undo)) }
-        }
-        if (executing) LinearProgressIndicator(Modifier.fillMaxWidth())
-        ResultLines(results)
-    }
-}
-
-@Composable
-private fun statusLabel(item: AudioRenamer.PlanItem): String = when (item.status) {
-    AudioRenamer.Status.READY -> stringResource(R.string.status_ready)
-    AudioRenamer.Status.READY_AVOIDED -> stringResource(R.string.status_avoided)
-    AudioRenamer.Status.NO_CHANGE -> stringResource(R.string.status_no_change)
-    AudioRenamer.Status.MISSING_TAGS -> stringResource(R.string.status_missing_tags)
-    AudioRenamer.Status.CONFLICT -> stringResource(R.string.status_conflict)
-}
-
-private fun executeRenames(
-    context: Context,
-    library: LibraryState,
-    folderPath: String,
-    plan: List<AudioRenamer.PlanItem>,
-): RenameOutcome {
-    val lines = mutableListOf<String>()
-    val records = mutableListOf<Triple<String, String, String>>()
-    var done = 0
-    var failed = 0
-    for (item in plan) {
-        if (!item.canRename) continue
-        val file = library.files?.files
-            ?.firstOrNull { it.parentPath == folderPath && it.name == item.originalName }
-        val result = runCatching {
-            DocumentsContract.renameDocument(
-                context.contentResolver,
-                file?.uri ?: error("file_missing"),
-                item.newName,
-            ) ?: error("rename_failed")
-        }
-        result.fold(
-            onSuccess = {
-                records += Triple(folderPath, item.originalName, item.newName)
-                done++
-            },
-            onFailure = {
-                failed++
-                lines += context.getString(R.string.convert_failed) + ": " + item.originalName + " — " + it.message
-            },
-        )
-    }
-    lines += context.getString(R.string.rename_done_summary, done, failed)
-    return RenameOutcome(records, lines)
-}
-
-private data class RenameOutcome(val records: List<Triple<String, String, String>>, val lines: List<String>)
-
-private fun undoRenames(
-    context: Context,
-    library: LibraryState,
-    records: List<Triple<String, String, String>>,
-): Int {
-    var undone = 0
-    for ((parentPath, oldName, newName) in records.reversed()) {
-        val run = runCatching {
-            val parent = LibraryCache.resolveFolder(context, library.preferences.lastFolder, parentPath)
-                ?: error("no_parent")
-            val current = parent.findFile(newName) ?: error("missing_new")
-            DocumentsContract.renameDocument(context.contentResolver, current.uri, oldName)
-            undone++
-        }
-        run.getOrNull()
-    }
-    return undone
 }
