@@ -59,6 +59,28 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
         sleepTimerEndAt = null
     }
 
+    /** Favorite track URIs (string forms), mirrored into preferences. */
+    var favorites by mutableStateOf(preferences.favorites)
+        private set
+
+    /** Recently played track URIs, newest first. */
+    var recentUris by mutableStateOf(preferences.recentUris)
+        private set
+
+    fun recordRecent(uri: String) {
+        val updated = (listOf(uri) + recentUris.filterNot { it == uri }).take(50)
+        recentUris = updated
+        preferences.recentUris = updated
+    }
+
+    fun toggleFavorite(uri: Uri) {
+        val key = uri.toString()
+        favorites = if (key in favorites) favorites - key else favorites + key
+        preferences.favorites = favorites
+    }
+
+    fun isFavorite(uri: Uri): Boolean = uri.toString() in favorites
+
     val selectedTrack: AudioTrack? get() = tracks.getOrNull(selectedIndex)
 
     fun loadFolder(uri: Uri, onLoaded: (Int) -> Unit = {}) {

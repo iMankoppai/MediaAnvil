@@ -12,12 +12,6 @@ class PlaybackPreferences(context: Context) {
             preferences.edit().putString("last_folder", value?.toString()).apply()
         }
 
-    fun position(uri: Uri): Long = preferences.getLong("position_${uri}", 0L)
-
-    fun savePosition(uri: Uri, positionMs: Long) {
-        preferences.edit().putLong("position_${uri}", positionMs.coerceAtLeast(0L)).apply()
-    }
-
     var preferEmbeddedLyrics: Boolean
         get() = preferences.getBoolean("prefer_embedded_lyrics", false)
         set(value) {
@@ -69,12 +63,6 @@ class PlaybackPreferences(context: Context) {
             preferences.edit().putString("image_convert_target", value).apply()
         }
 
-    var imageQuality: Int
-        get() = preferences.getInt("image_quality", 90)
-        set(value) {
-            preferences.edit().putInt("image_quality", value.coerceIn(1, 100)).apply()
-        }
-
     var playbackSpeed: Float
         get() = preferences.getFloat("playback_speed", 1f)
         set(value) {
@@ -98,5 +86,38 @@ class PlaybackPreferences(context: Context) {
         get() = preferences.getString("library_sort", "fileName") ?: "fileName"
         set(value) {
             preferences.edit().putString("library_sort", value).apply()
+        }
+
+    /** Favourite track URIs (string forms). */
+    var favorites: Set<String>
+        get() = preferences.getStringSet("favorites", emptySet()) ?: emptySet()
+        set(value) {
+            preferences.edit().putStringSet("favorites", value).apply()
+        }
+
+    /** Recently played track URIs, newest first; the caller caps the length. */
+    var recentUris: List<String>
+        get() {
+            val raw = preferences.getString("recent_uris", null) ?: return emptyList()
+            return runCatching {
+                val array = org.json.JSONArray(raw)
+                List(array.length()) { array.getString(it) }
+            }.getOrDefault(emptyList())
+        }
+        set(value) {
+            preferences.edit().putString("recent_uris", org.json.JSONArray(value).toString()).apply()
+        }
+
+    /** Equalizer state; the Equalizer itself lives in the playback service process. */
+    var eqEnabled: Boolean
+        get() = preferences.getBoolean("eq_enabled", false)
+        set(value) {
+            preferences.edit().putBoolean("eq_enabled", value).apply()
+        }
+
+    var eqPreset: Int
+        get() = preferences.getInt("eq_preset", 0)
+        set(value) {
+            preferences.edit().putInt("eq_preset", value).apply()
         }
 }

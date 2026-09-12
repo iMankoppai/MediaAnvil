@@ -17,8 +17,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -26,6 +28,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +46,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -65,7 +69,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.roundToInt
 
-internal enum class ToolKind { LyricsConvert, AudioConvert, ImageConvert }
+internal enum class ToolKind { LyricsConvert, AudioConvert, ImageConvert, AudioClip }
 
 @Composable
 internal fun ToolScreenHost(library: LibraryState, onOpenEditor: (AudioTrack?) -> Unit) {
@@ -94,6 +98,7 @@ internal fun ToolScreenHost(library: LibraryState, onOpenEditor: (AudioTrack?) -
                             ToolKind.LyricsConvert -> R.string.tool_lyrics_convert
                             ToolKind.AudioConvert -> R.string.tool_audio_convert
                             ToolKind.ImageConvert -> R.string.tool_image_convert
+                            ToolKind.AudioClip -> R.string.tool_audio_clip
                         },
                     ),
                     style = MaterialTheme.typography.titleMedium,
@@ -105,6 +110,7 @@ internal fun ToolScreenHost(library: LibraryState, onOpenEditor: (AudioTrack?) -
                     ToolKind.LyricsConvert -> LyricsConvertTool(library)
                     ToolKind.AudioConvert -> AudioConvertTool(library)
                     ToolKind.ImageConvert -> ImageConvertTool(library)
+                    ToolKind.AudioClip -> ClipTool(library)
                 }
             }
         }
@@ -112,7 +118,7 @@ internal fun ToolScreenHost(library: LibraryState, onOpenEditor: (AudioTrack?) -
 }
 
 @Composable
-private fun ToolHeaderNote(text: String) {
+internal fun ToolHeaderNote(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.labelSmall,
@@ -122,7 +128,7 @@ private fun ToolHeaderNote(text: String) {
 }
 
 @Composable
-private fun ResultLines(lines: List<String>) {
+internal fun ResultLines(lines: List<String>) {
     if (lines.isEmpty()) return
     Column(
         Modifier
@@ -174,7 +180,7 @@ private fun LyricsConvertTool(library: LibraryState) {
     var results by remember { mutableStateOf<List<String>>(emptyList()) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        val known = uris.mapNotNull { uri -> library.files?.files?.firstOrNull { it.uri == uri } }
+        val known = uris.mapNotNull { uri -> resolveScannedFile(context, library.files?.files, uri) }
         picked = known
         if (known.size < uris.size) {
             results = listOf(context.getString(R.string.outside_tree_hint))
@@ -268,7 +274,7 @@ private fun AudioConvertTool(library: LibraryState) {
     var results by remember { mutableStateOf<List<String>>(emptyList()) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        val known = uris.mapNotNull { uri -> library.files?.files?.firstOrNull { it.uri == uri } }
+        val known = uris.mapNotNull { uri -> resolveScannedFile(context, library.files?.files, uri) }
         picked = known
         if (known.size < uris.size) results = listOf(context.getString(R.string.outside_tree_hint)) else results = emptyList()
     }
@@ -336,17 +342,18 @@ private fun AudioConvertTool(library: LibraryState) {
 /** ---------- 图片格式转换 ---------- */
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun ImageConvertTool(library: LibraryState) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var target by remember { mutableStateOf(ImageTarget.entries.first { it.extension == library.preferences.imageConvertTarget }) }
-    var quality by remember { mutableStateOf(library.preferences.imageQuality.toFloat()) }
+    var quality by remember { mutableStateOf(90f) }
     var picked by remember { mutableStateOf<List<ScannedFile>>(emptyList()) }
     var running by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf<List<String>>(emptyList()) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        val known = uris.mapNotNull { uri -> library.files?.files?.firstOrNull { it.uri == uri } }
+        val known = uris.mapNotNull { uri -> resolveScannedFile(context, library.files?.files, uri) }
         picked = known
         if (known.size < uris.size) results = listOf(context.getString(R.string.outside_tree_hint)) else results = emptyList()
     }
@@ -365,11 +372,16 @@ private fun ImageConvertTool(library: LibraryState) {
             )
             Slider(
                 value = quality,
-                onValueChange = {
-                    quality = it
-                    library.preferences.imageQuality = it.roundToInt()
-                },
+                onValueChange = { quality = it },
                 valueRange = 1f..100f,
+                thumb = {
+                    Box(
+                        Modifier
+                            .size(16.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
+                },
                 modifier = Modifier.fillMaxWidth(),
             )
         }

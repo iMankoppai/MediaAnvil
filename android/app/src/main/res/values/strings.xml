@@ -14,8 +14,10 @@
     <string name="play_error_generic">Playback failed: the file may be damaged or the format is unsupported.</string>
     <string name="sleep_timer">Sleep timer</string>
     <string name="sleep_timer_off">Off</string>
-    <string name="sleep_timer_min">%1$d min</string>
     <string name="sleep_timer_remaining">%1$d min left</string>
+    <string name="sleep_timer_set">Set time</string>
+    <string name="sleep_timer_hours">Hours</string>
+    <string name="sleep_timer_minutes">Minutes</string>
     <string name="sort_menu_label">Sort: %1$s</string>
     <string name="sort_file_name">File name</string>
     <string name="sort_title">Title</string>
@@ -27,15 +29,28 @@
     <string name="tab_settings">Settings</string>
     <string name="tab_tag_editor">Tag editor</string>
     <string name="tab_music">Music</string>
+    <string name="tab_recent">Recent</string>
+    <string name="tab_favorites">Favorites</string>
     <string name="tab_folders">Folders</string>
     <string name="search">Search</string>
     <string name="search_hint">Search titles, artists, or file names</string>
+    <string name="view_songs">Songs</string>
+    <string name="view_albums">Albums</string>
+    <string name="view_artists">Artists</string>
+    <string name="recent_empty">Nothing played yet</string>
+    <string name="favorites_empty">No favorites yet</string>
     <string name="rescan">Rescan</string>
     <string name="play_all">Play all</string>
     <string name="play_all_summary">%1$d tracks · total %2$s</string>
     <string name="shuffle_play">Shuffle</string>
     <string name="unknown_artist">Unknown artist</string>
+    <string name="unknown_album">Unknown album</string>
     <string name="play_queue">Play queue</string>
+    <string name="queue_count">%1$d tracks</string>
+    <string name="play_next">Play next</string>
+    <string name="remove_from_queue">Remove from queue</string>
+    <string name="favorite">Add to favorites</string>
+    <string name="unfavorite">Remove from favorites</string>
     <string name="now_playing">Now Playing</string>
     <string name="back">Back</string>
     <string name="more">More</string>
@@ -75,6 +90,8 @@
     <string name="tool_audio_convert_sub">Batch convert to M4A, FLAC, OGG</string>
     <string name="tool_image_convert">Image conversion</string>
     <string name="tool_image_convert_sub">Batch convert JPG, PNG, WebP, BMP</string>
+    <string name="tool_audio_clip">Audio clipping</string>
+    <string name="tool_audio_clip_sub">Extract a segment and save it as M4A</string>
 
     <string name="convert_target_label">Target format</string>
     <string name="pick_files">Pick files</string>
@@ -85,6 +102,16 @@
     <string name="convert_failed">Failed</string>
     <string name="outside_tree_hint">Some selected files are outside the granted folder and cannot be saved automatically. Pick them from the granted folder.</string>
     <string name="audio_convert_note">Audio conversion uses the system encoders; MP3 output is not supported yet. Files already in the target format are skipped. Outputs are saved next to each source.</string>
+    <string name="clip_note">The selected segment is re-encoded to M4A with the system encoder and saved next to the source. Clipping may take a moment.</string>
+    <string name="clip_computing">Computing waveform…</string>
+    <string name="clip_waveform_hint">Drag the two handles to choose the segment, drag inside it to move it. While previewing, tap the waveform to jump the playhead.</string>
+    <string name="clip_selection_label">Start %1$s · end %2$s</string>
+    <string name="clip_duration_label">Clip length %1$s · file %2$s</string>
+    <string name="clip_invalid_range">End time must be after start time</string>
+    <string name="start_clip">Clip</string>
+    <string name="preview_clip">Preview clip</string>
+    <string name="stop_preview">Stop preview</string>
+    <string name="clip_done">Clipped</string>
     <string name="lyrics_convert_hint">Converted files are saved next to each source with the new extension (UTF-8 with BOM). Files must be inside the granted folder.</string>
     <string name="image_quality">Image quality</string>
 
@@ -97,6 +124,9 @@
     <string name="settings_playback_section">Playback</string>
     <string name="auto_load_lyrics">Auto-load sidecar lyrics</string>
     <string name="auto_load_lyrics_hint">Read LRC/SRT/VTT files next to the audio during playback</string>
+    <string name="settings_eq_section">Equalizer</string>
+    <string name="settings_eq_enable">Enable equalizer</string>
+    <string name="eq_hint">The equalizer takes effect during playback. Start a track first if the presets are empty.</string>
     <string name="settings_lyrics_section">Lyrics</string>
     <string name="settings_lrc_tail">LRC final line duration</string>
     <string name="lrc_tail_seconds">%1$d s</string>

@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,20 +26,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lyrics
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,13 +47,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,8 +62,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -86,19 +89,14 @@ internal fun NowPlayingPage(
     library: LibraryState,
     controller: MediaController?,
     onBack: () -> Unit,
-    onOpenEditor: (AudioTrack) -> Unit,
 ) {
     val context = LocalContext.current
     val track = library.selectedTrack
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
-    var queueOpen by remember { mutableStateOf(false) }
-    var toolsOpen by remember { mutableStateOf(false) }
-    var menuOpen by remember { mutableStateOf(false) }
     var speed by remember { mutableStateOf(library.preferences.playbackSpeed) }
     var speedMenu by remember { mutableStateOf(false) }
-    var sleepDialog by remember { mutableStateOf(false) }
     val pagerState = rememberPagerState(initialPage = 0) { 2 }
 
     LaunchedEffect(controller) {
@@ -124,36 +122,6 @@ internal fun NowPlayingPage(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
-                    }
-                },
-                actions = {
-                    Box {
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = null)
-                        }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            DropdownMenuItem(
-                                text = { Text(sleepMenuLabel(library)) },
-                                onClick = {
-                                    menuOpen = false
-                                    sleepDialog = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.play_queue)) },
-                                onClick = {
-                                    menuOpen = false
-                                    queueOpen = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.media_tools)) },
-                                onClick = {
-                                    menuOpen = false
-                                    toolsOpen = true
-                                },
-                            )
-                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
@@ -370,72 +338,6 @@ internal fun NowPlayingPage(
             Spacer(Modifier.height(24.dp))
         }
     }
-
-    if (queueOpen) {
-        QueueSheet(library, controller, onDismiss = { queueOpen = false })
-    }
-    if (sleepDialog) {
-        AlertDialog(
-            onDismissRequest = { sleepDialog = false },
-            confirmButton = {
-                TextButton(onClick = { sleepDialog = false }) { Text(stringResource(R.string.crop_confirm)) }
-            },
-            title = { Text(stringResource(R.string.sleep_timer)) },
-            text = {
-                Column {
-                    library.sleepTimerEndAt?.let { end ->
-                        val remaining = ((end - System.currentTimeMillis() + 59_999) / 60_000).toInt().coerceAtLeast(1)
-                        Text(
-                            stringResource(R.string.sleep_timer_remaining, remaining),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = library.sleepTimerEndAt == null,
-                            onClick = {
-                                library.cancelSleepTimer()
-                                sleepDialog = false
-                            },
-                            label = { Text(stringResource(R.string.sleep_timer_off)) },
-                        )
-                        listOf(15, 30, 45, 60).forEach { minutes ->
-                            FilterChip(
-                                selected = false,
-                                onClick = {
-                                    library.startSleepTimer(minutes, onPause = { controller?.pause() })
-                                    sleepDialog = false
-                                },
-                                label = { Text(stringResource(R.string.sleep_timer_min, minutes)) },
-                            )
-                        }
-                    }
-                }
-            },
-        )
-    }
-    if (toolsOpen && track != null) {
-        ToolsSheet(
-            library = library,
-            track = track,
-            onDismiss = { toolsOpen = false },
-            onOpenEditor = {
-                toolsOpen = false
-                onOpenEditor(it)
-            },
-        )
-    }
-}
-
-@Composable
-private fun sleepMenuLabel(library: LibraryState): String {
-    val base = stringResource(R.string.sleep_timer)
-    val remaining = library.sleepTimerEndAt?.let { end ->
-        ((end - System.currentTimeMillis() + 59_999) / 60_000).toInt().coerceAtLeast(1)
-    }
-    return if (remaining != null) "$base（${stringResource(R.string.sleep_timer_remaining, remaining)}）" else base
 }
 
 private fun speedLabel(speed: Float): String =
@@ -538,54 +440,141 @@ private fun LyricsView(
     }
 }
 
+private val QueueRowHeight = 64.dp
+
+private data class QueueEntry(val index: Int, val mediaId: String, val title: String, val artist: String?)
+
+private fun queueEntries(controller: MediaController?): List<QueueEntry> {
+    val player = controller ?: return emptyList()
+    return (0 until player.mediaItemCount).map { index ->
+        val item = player.getMediaItemAt(index)
+        QueueEntry(
+            index = index,
+            mediaId = item.mediaId,
+            title = item.mediaMetadata.title?.toString().orEmpty(),
+            artist = item.mediaMetadata.artist?.toString(),
+        )
+    }
+}
+
+private fun playNextAfterCurrent(controller: MediaController?, track: AudioTrack, afterIndex: Int) {
+    val player = controller ?: return
+    val item = androidx.media3.common.MediaItem.Builder()
+        .setUri(track.uri)
+        .setMediaId(track.uri.toString())
+        .setMediaMetadata(
+            androidx.media3.common.MediaMetadata.Builder()
+                .setTitle(track.title)
+                .setArtist(track.artist)
+                .setAlbumTitle(track.album)
+                .build(),
+        )
+        .build()
+    player.addMediaItems((afterIndex + 1).coerceAtMost(player.mediaItemCount), listOf(item))
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun QueueSheet(library: LibraryState, controller: MediaController?, onDismiss: () -> Unit) {
+    var entries by remember { mutableStateOf(queueEntries(controller)) }
+    var currentIndex by remember { mutableIntStateOf(controller?.currentMediaItemIndex ?: -1) }
+    LaunchedEffect(controller) {
+        while (true) {
+            delay(400)
+            entries = queueEntries(controller)
+            currentIndex = controller?.currentMediaItemIndex ?: -1
+        }
+    }
+    var draggingIndex by remember { mutableStateOf(-1) }
+    var dragOffsetY by remember { mutableStateOf(0f) }
+    val rowHeightPx = with(LocalDensity.current) { QueueRowHeight.toPx() }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Text(
-            stringResource(R.string.play_queue),
+            stringResource(R.string.play_queue) + " · " + stringResource(R.string.queue_count, entries.size),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
         )
         LazyColumn(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
-            itemsIndexed(library.tracks, key = { _, track -> track.uri.toString() }) { index, track ->
-                val current = index == library.selectedIndex
+            itemsIndexed(entries) { position, entry ->
+                val track = library.tracks.firstOrNull { it.uri.toString() == entry.mediaId }
+                val dragging = draggingIndex == position
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .height(QueueRowHeight)
+                        .graphicsLayer { if (dragging) translationY = dragOffsetY }
+                        .pointerInput(Unit) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = {
+                                    draggingIndex = position
+                                    dragOffsetY = 0f
+                                },
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    dragOffsetY += amount.y
+                                },
+                                onDragEnd = {
+                                    val from = draggingIndex
+                                    if (from in entries.indices && dragOffsetY != 0f) {
+                                        val to = (from + kotlin.math.round(dragOffsetY / rowHeightPx).toInt())
+                                            .coerceIn(0, entries.size - 1)
+                                        if (to != from) controller?.moveMediaItem(from, to)
+                                    }
+                                    draggingIndex = -1
+                                    dragOffsetY = 0f
+                                },
+                                onDragCancel = {
+                                    draggingIndex = -1
+                                    dragOffsetY = 0f
+                                },
+                            )
+                        }
                         .clickable {
-                            controller?.seekTo(index, 0)
+                            controller?.seekTo(entry.index, 0)
                             controller?.play()
                             onDismiss()
                         }
                         .background(
-                            if (current) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                            if (entry.index == currentIndex) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
                         )
-                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TrackCover(track, size = 40.dp)
+                    track?.let { TrackCover(it, size = 40.dp) }
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
-                            track.title,
+                            entry.title.ifEmpty { stringResource(R.string.unknown_artist) },
                             style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
+                            fontWeight = if (entry.index == currentIndex) FontWeight.Bold else FontWeight.Normal,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            track.artist ?: stringResource(R.string.unknown_artist),
+                            entry.artist ?: stringResource(R.string.unknown_artist),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.secondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    Text(
-                        formatTime(track.durationMs),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    track?.let {
+                        IconButton(onClick = { playNextAfterCurrent(controller, it, entry.index) }) {
+                            Icon(
+                                Icons.Filled.PlaylistAdd,
+                                contentDescription = stringResource(R.string.play_next),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    IconButton(onClick = { controller?.removeMediaItem(entry.index) }) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = stringResource(R.string.remove_from_queue),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }

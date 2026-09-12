@@ -18,11 +18,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Pause
@@ -31,6 +35,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -50,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -66,8 +72,12 @@ import kotlinx.coroutines.withContext
 
 private val libraryTabs = listOf(
     R.string.tab_music,
+    R.string.tab_recent,
+    R.string.tab_favorites,
     R.string.tab_folders,
 )
+
+private enum class MusicView { Songs, Albums, Artists }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,6 +97,8 @@ internal fun LibraryPage(
     var toolsTrack by remember { mutableStateOf<AudioTrack?>(null) }
     var openFolder by remember { mutableStateOf<String?>(null) }
     var queueOpen by remember { mutableStateOf(false) }
+    var musicView by remember { mutableStateOf(MusicView.Songs) }
+    var openGroup by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(controller) {
         while (true) {
@@ -95,10 +107,6 @@ internal fun LibraryPage(
                 isPlaying = player.isPlaying
                 if (player.currentMediaItem != null && player.currentMediaItemIndex in library.tracks.indices) {
                     library.selectedIndex = player.currentMediaItemIndex
-                    library.preferences.savePosition(
-                        library.tracks[player.currentMediaItemIndex].uri,
-                        player.currentPosition,
-                    )
                 }
             }
         }
@@ -119,6 +127,25 @@ internal fun LibraryPage(
             "duration" -> matched.sortedBy { it.durationMs }
             else -> matched.sortedBy { it.fileName.lowercase() }
         }
+    }
+
+    val recentTracks = remember(library.recentUris, library.tracks) {
+        library.recentUris.mapNotNull { uri -> library.tracks.firstOrNull { it.uri.toString() == uri } }
+    }
+    val favoriteTracks = remember(library.favorites, library.tracks) {
+        library.tracks.filter { it.uri.toString() in library.favorites }
+    }
+    val unknownAlbumLabel = stringResource(R.string.unknown_album)
+    val unknownArtistLabel = stringResource(R.string.unknown_artist)
+    val albumGroups = remember(library.tracks, unknownAlbumLabel) {
+        library.tracks.groupBy { track -> track.album?.takeIf { album -> album.isNotBlank() } ?: unknownAlbumLabel }
+            .map { (name, tracks) -> name to tracks }
+            .sortedBy { it.first.lowercase() }
+    }
+    val artistGroups = remember(library.tracks, unknownArtistLabel) {
+        library.tracks.groupBy { track -> track.artist?.takeIf { artist -> artist.isNotBlank() } ?: unknownArtistLabel }
+            .map { (name, tracks) -> name to tracks }
+            .sortedBy { it.first.lowercase() }
     }
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -158,16 +185,29 @@ internal fun LibraryPage(
             }
         }
 
-        if (selectedTab == 1) {
-            FolderView(
+        when (selectedTab) {
+            3 -> FolderView(
                 library = library,
                 openFolder = openFolder,
                 onOpenFolder = { openFolder = it },
                 onOpenTrackTools = { toolsTrack = it },
                 controller = controller,
             )
-        } else {
-            Column(Modifier.fillMaxSize()) {
+            1 -> TrackListView(
+                tracks = recentTracks,
+                library = library,
+                controller = controller,
+                emptyText = stringResource(R.string.recent_empty),
+                onOpenTools = { toolsTrack = it },
+            )
+            2 -> TrackListView(
+                tracks = favoriteTracks,
+                library = library,
+                controller = controller,
+                emptyText = stringResource(R.string.favorites_empty),
+                onOpenTools = { toolsTrack = it },
+            )
+            else -> Column(Modifier.fillMaxSize()) {
                 if (library.loading) {
                     LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
                 }
@@ -190,21 +230,72 @@ internal fun LibraryPage(
 
                 when {
                     library.tracks.isEmpty() && !library.loading -> EmptyLibrary(onPickFolder)
-                    filtered.isEmpty() -> SectionPlaceholder(stringResource(R.string.no_tracks))
                     else -> {
-                        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-                            itemsIndexed(filtered, key = { _, track -> track.uri.toString() }) { _, track ->
-                                TrackRow(
-                                    track = track,
-                                    current = track.uri == library.selectedTrack?.uri,
-                                    onClick = {
-                                        val index = filtered.indexOf(track)
-                                        playFromLibrary(library, controller, index, filtered)
-                                    },
-                                    onOpenTools = { toolsTrack = track },
-                                )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        ) {
+                            FilterChip(
+                                selected = musicView == MusicView.Songs,
+                                onClick = {
+                                    musicView = MusicView.Songs
+                                    openGroup = null
+                                },
+                                label = { Text(stringResource(R.string.view_songs)) },
+                            )
+                            FilterChip(
+                                selected = musicView == MusicView.Albums,
+                                onClick = {
+                                    musicView = MusicView.Albums
+                                    openGroup = null
+                                },
+                                label = { Text(stringResource(R.string.view_albums)) },
+                            )
+                            FilterChip(
+                                selected = musicView == MusicView.Artists,
+                                onClick = {
+                                    musicView = MusicView.Artists
+                                    openGroup = null
+                                },
+                                label = { Text(stringResource(R.string.view_artists)) },
+                            )
+                        }
+                        when (musicView) {
+                            MusicView.Songs -> if (filtered.isEmpty()) {
+                                SectionPlaceholder(stringResource(R.string.no_tracks))
+                            } else {
+                                LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+                                    itemsIndexed(filtered, key = { _, track -> track.uri.toString() }) { _, track ->
+                                        TrackRow(
+                                            track = track,
+                                            current = track.uri == library.selectedTrack?.uri,
+                                            favorite = library.isFavorite(track.uri),
+                                            onToggleFavorite = { library.toggleFavorite(track.uri) },
+                                            onClick = { playFromLibrary(library, controller, filtered.indexOf(track), filtered) },
+                                            onOpenTools = { toolsTrack = track },
+                                        )
+                                    }
+                                    item { Spacer(Modifier.height(96.dp)) }
+                                }
                             }
-                            item { Spacer(Modifier.height(96.dp)) }
+                            MusicView.Albums -> GroupBrowser(
+                                groups = albumGroups,
+                                openGroup = openGroup,
+                                onOpenGroup = { openGroup = it },
+                                groupIcon = Icons.Filled.Album,
+                                library = library,
+                                controller = controller,
+                                onOpenTools = { toolsTrack = it },
+                            )
+                            MusicView.Artists -> GroupBrowser(
+                                groups = artistGroups,
+                                openGroup = openGroup,
+                                onOpenGroup = { openGroup = it },
+                                groupIcon = Icons.Filled.Person,
+                                library = library,
+                                controller = controller,
+                                onOpenTools = { toolsTrack = it },
+                            )
                         }
                     }
                 }
@@ -405,8 +496,125 @@ private fun FolderView(
                     TrackRow(
                         track = track,
                         current = track.uri == library.selectedTrack?.uri,
+                        favorite = library.isFavorite(track.uri),
+                        onToggleFavorite = { library.toggleFavorite(track.uri) },
                         onClick = { playFromLibrary(library, controller, folderTracks.indexOf(track), folderTracks) },
                         onOpenTools = { onOpenTrackTools(track) },
+                    )
+                }
+                item { Spacer(Modifier.height(96.dp)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrackListView(
+    tracks: List<AudioTrack>,
+    library: LibraryState,
+    controller: androidx.media3.session.MediaController?,
+    emptyText: String,
+    onOpenTools: (AudioTrack) -> Unit,
+) {
+    if (tracks.isEmpty()) {
+        SectionPlaceholder(emptyText)
+    } else {
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+            itemsIndexed(tracks, key = { _, track -> track.uri.toString() }) { _, track ->
+                TrackRow(
+                    track = track,
+                    current = track.uri == library.selectedTrack?.uri,
+                    favorite = library.isFavorite(track.uri),
+                    onToggleFavorite = { library.toggleFavorite(track.uri) },
+                    onClick = { playFromLibrary(library, controller, tracks.indexOf(track), tracks) },
+                    onOpenTools = { onOpenTools(track) },
+                )
+            }
+            item { Spacer(Modifier.height(96.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun GroupBrowser(
+    groups: List<Pair<String, List<AudioTrack>>>,
+    openGroup: String?,
+    onOpenGroup: (String?) -> Unit,
+    groupIcon: ImageVector,
+    library: LibraryState,
+    controller: androidx.media3.session.MediaController?,
+    onOpenTools: (AudioTrack) -> Unit,
+) {
+    if (openGroup == null) {
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+            itemsIndexed(groups, key = { _, group -> group.first }) { _, group ->
+                val (name, tracks) = group
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { onOpenGroup(name) }
+                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(groupIcon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            stringResource(R.string.folder_track_count, tracks.size),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Icon(
+                        Icons.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            item { Spacer(Modifier.height(96.dp)) }
+        }
+    } else {
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenGroup(null) }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.back),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    openGroup,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            val groupTracks = groups.firstOrNull { it.first == openGroup }?.second ?: emptyList()
+            LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+                itemsIndexed(groupTracks, key = { _, track -> track.uri.toString() }) { _, track ->
+                    TrackRow(
+                        track = track,
+                        current = track.uri == library.selectedTrack?.uri,
+                        favorite = library.isFavorite(track.uri),
+                        onToggleFavorite = { library.toggleFavorite(track.uri) },
+                        onClick = { playFromLibrary(library, controller, groupTracks.indexOf(track), groupTracks) },
+                        onOpenTools = { onOpenTools(track) },
                     )
                 }
                 item { Spacer(Modifier.height(96.dp)) }
@@ -419,6 +627,8 @@ private fun FolderView(
 private fun TrackRow(
     track: AudioTrack,
     current: Boolean,
+    favorite: Boolean,
+    onToggleFavorite: (() -> Unit)?,
     onClick: () -> Unit,
     onOpenTools: () -> Unit,
 ) {
@@ -453,6 +663,15 @@ private fun TrackRow(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        onToggleFavorite?.let { toggle ->
+            IconButton(onClick = toggle) {
+                Icon(
+                    if (favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                    contentDescription = stringResource(if (favorite) R.string.unfavorite else R.string.favorite),
+                    tint = if (favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         IconButton(onClick = onOpenTools) {
             Icon(
@@ -625,8 +844,7 @@ internal fun playFromLibrary(
             )
             .build()
     }
-    val resumePosition = library.preferences.position(queue[index].uri)
-    player.setMediaItems(mediaItems, index, resumePosition)
+    player.setMediaItems(mediaItems, index, androidx.media3.common.C.TIME_UNSET)
     player.shuffleModeEnabled = shuffle
     player.prepare()
     player.play()

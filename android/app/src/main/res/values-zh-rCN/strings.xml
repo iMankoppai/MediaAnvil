@@ -14,8 +14,10 @@
     <string name="play_error_generic">播放失败：文件可能已损坏或格式不受支持。</string>
     <string name="sleep_timer">睡眠定时器</string>
     <string name="sleep_timer_off">关闭</string>
-    <string name="sleep_timer_min">%1$d 分钟</string>
     <string name="sleep_timer_remaining">剩余 %1$d 分钟</string>
+    <string name="sleep_timer_set">设定时间</string>
+    <string name="sleep_timer_hours">小时</string>
+    <string name="sleep_timer_minutes">分钟</string>
     <string name="sort_menu_label">排序：%1$s</string>
     <string name="sort_file_name">文件名</string>
     <string name="sort_title">标题</string>
@@ -27,15 +29,28 @@
     <string name="tab_settings">设置</string>
     <string name="tab_tag_editor">标签编辑</string>
     <string name="tab_music">歌曲</string>
+    <string name="tab_recent">最近</string>
+    <string name="tab_favorites">收藏</string>
     <string name="tab_folders">文件夹</string>
     <string name="search">搜索</string>
     <string name="search_hint">搜索歌曲、歌手或文件名</string>
+    <string name="view_songs">歌曲</string>
+    <string name="view_albums">专辑</string>
+    <string name="view_artists">艺术家</string>
+    <string name="recent_empty">还没有播放记录</string>
+    <string name="favorites_empty">还没有喜欢的曲目</string>
     <string name="rescan">重新扫描</string>
     <string name="play_all">播放全部</string>
     <string name="play_all_summary">%1$d 首 · 总时长 %2$s</string>
     <string name="shuffle_play">随机播放</string>
     <string name="unknown_artist">未知艺术家</string>
+    <string name="unknown_album">未知专辑</string>
     <string name="play_queue">播放队列</string>
+    <string name="queue_count">%1$d 首</string>
+    <string name="play_next">下一首播放</string>
+    <string name="remove_from_queue">从队列移除</string>
+    <string name="favorite">加入收藏</string>
+    <string name="unfavorite">取消收藏</string>
     <string name="now_playing">正在播放</string>
     <string name="back">返回</string>
     <string name="more">更多</string>
@@ -75,6 +90,8 @@
     <string name="tool_audio_convert_sub">批量转换为 M4A、FLAC、OGG</string>
     <string name="tool_image_convert">图片格式转换</string>
     <string name="tool_image_convert_sub">JPG、PNG、WebP、BMP 批量转换</string>
+    <string name="tool_audio_clip">音频裁剪</string>
+    <string name="tool_audio_clip_sub">截取片段并保存为 M4A</string>
 
     <string name="convert_target_label">目标格式</string>
     <string name="pick_files">选择文件</string>
@@ -85,6 +102,16 @@
     <string name="convert_failed">转换失败</string>
     <string name="outside_tree_hint">部分所选文件不在已授权的文件夹内，无法自动保存。请在已授权的文件夹内选择文件。</string>
     <string name="audio_convert_note">音频转换使用系统编码器，暂不支持导出 MP3；与目标格式相同的文件会自动跳过；结果保存在各自源文件旁边。</string>
+    <string name="clip_note">使用系统编码器把所选片段转码为 M4A，并保存在源文件旁边，裁剪需要一些时间。</string>
+    <string name="clip_computing">正在计算波形…</string>
+    <string name="clip_waveform_hint">拖动两根手柄选择片段，按住片段内部可整体移动；试听时点按波形可跳转播放头。</string>
+    <string name="clip_selection_label">开始 %1$s · 结束 %2$s</string>
+    <string name="clip_duration_label">裁剪时长 %1$s · 文件 %2$s</string>
+    <string name="clip_invalid_range">结束时间需晚于开始时间</string>
+    <string name="start_clip">开始裁剪</string>
+    <string name="preview_clip">试听片段</string>
+    <string name="stop_preview">停止试听</string>
+    <string name="clip_done">裁剪完成</string>
     <string name="lyrics_convert_hint">转换结果以新扩展名保存在各自源文件旁边（UTF-8 带 BOM）。文件需位于已授权的文件夹内。</string>
     <string name="image_quality">图片质量</string>
 
@@ -97,6 +124,9 @@
     <string name="settings_playback_section">播放</string>
     <string name="auto_load_lyrics">自动加载同名歌词</string>
     <string name="auto_load_lyrics_hint">播放时自动读取同目录 LRC/SRT/VTT 字幕</string>
+    <string name="settings_eq_section">均衡器</string>
+    <string name="settings_eq_enable">启用均衡器</string>
+    <string name="eq_hint">均衡器在播放音频时生效；如果没有可选预设，请先播放一首曲目。</string>
     <string name="settings_lyrics_section">歌词</string>
     <string name="settings_lrc_tail">LRC 最后一句持续时间</string>
     <string name="lrc_tail_seconds">%1$d 秒</string>

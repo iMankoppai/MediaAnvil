@@ -69,6 +69,10 @@ fun MediaAnvilApp() {
                 mediaController.shuffleModeEnabled = library.preferences.shuffleEnabled
                 mediaController.repeatMode = library.preferences.repeatMode
                 mediaController.addListener(object : androidx.media3.common.Player.Listener {
+                    override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                        mediaItem?.mediaId?.let(library::recordRecent)
+                    }
+
                     override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                         library.playbackError = when (error.errorCode) {
                             androidx.media3.common.PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
@@ -126,7 +130,7 @@ fun MediaAnvilApp() {
                     library = library,
                     onOpenEditor = { overlay = Overlay.Editor(it) },
                 )
-                MainTab.Settings -> SettingsPage(library = library)
+                MainTab.Settings -> SettingsPage(library = library, controller = controller)
             }
         }
     }
@@ -138,7 +142,6 @@ fun MediaAnvilApp() {
                 library = library,
                 controller = controller,
                 onBack = { overlay = Overlay.None },
-                onOpenEditor = { overlay = Overlay.Editor(it) },
             )
         }
         is Overlay.Editor -> Box(Modifier.fillMaxSize()) {

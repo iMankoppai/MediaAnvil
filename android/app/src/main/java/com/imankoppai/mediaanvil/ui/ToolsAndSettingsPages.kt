@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
@@ -27,11 +28,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -43,10 +45,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.media3.session.MediaController
 import com.imankoppai.mediaanvil.R
-import kotlin.math.roundToInt
 import com.imankoppai.mediaanvil.model.AudioTrack
+import com.imankoppai.mediaanvil.playback.EqController
 import com.imankoppai.mediaanvil.tools.ImageTarget
+import kotlinx.coroutines.delay
 
 /** Tools hub mirroring the desktop sidebar's tool pages. */
 @Composable
@@ -86,6 +90,11 @@ internal fun ToolsHubPage(
             stringResource(R.string.tool_image_convert),
             stringResource(R.string.tool_image_convert_sub),
         ) { onOpenTool(ToolKind.ImageConvert) },
+        HubEntry(
+            Icons.Filled.ContentCut,
+            stringResource(R.string.tool_audio_clip),
+            stringResource(R.string.tool_audio_clip_sub),
+        ) { onOpenTool(ToolKind.AudioClip) },
     )
 
     Column(
@@ -148,9 +157,18 @@ internal fun ToolsHubPage(
 }
 
 @Composable
-internal fun SettingsPage(library: LibraryState) {
+internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
     val context = LocalContext.current
     var message by remember { mutableStateOf<String?>(null) }
+    var sleepDialog by remember { mutableStateOf(false) }
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(library.sleepTimerEndAt) {
+        nowMs = System.currentTimeMillis()
+        while (library.sleepTimerEndAt != null) {
+            delay(5_000)
+            nowMs = System.currentTimeMillis()
+        }
+    }
 
     fun applyLanguage(tag: String) {
         library.preferences.language = tag
@@ -230,6 +248,74 @@ internal fun SettingsPage(library: LibraryState) {
             }
         }
 
+        val sleepRemaining = library.sleepTimerEndAt?.let { end ->
+            ((end - nowMs) / 60_000).toInt().coerceAtLeast(1)
+        }
+        SettingsCard(title = stringResource(R.string.sleep_timer)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    if (sleepRemaining != null) stringResource(R.string.sleep_timer_remaining, sleepRemaining)
+                    else stringResource(R.string.sleep_timer_off),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (sleepRemaining != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                if (sleepRemaining != null) {
+                    OutlinedButton(onClick = { library.cancelSleepTimer() }) {
+                        Text(stringResource(R.string.sleep_timer_off))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                }
+                Button(onClick = { sleepDialog = true }) {
+                    Text(stringResource(R.string.sleep_timer_set))
+                }
+            }
+        }
+        if (sleepDialog) {
+            SleepTimerDialog(
+                initialMinutes = sleepRemaining ?: 30,
+                onStart = { minutes -> library.startSleepTimer(minutes) { controller?.pause() } },
+                onDismiss = { sleepDialog = false },
+            )
+        }
+
+        SettingsCard(title = stringResource(R.string.settings_eq_section)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    stringResource(R.string.settings_eq_enable),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = EqController.enabled,
+                    onCheckedChange = { EqController.applyEnabled(it) },
+                )
+            }
+            if (EqController.presets.isEmpty()) {
+                Text(
+                    stringResource(R.string.eq_hint),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            } else {
+                androidx.compose.foundation.lazy.LazyRow(
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    items(EqController.presets.size) { index ->
+                        FilterChip(
+                            selected = EqController.selectedPreset == index,
+                            onClick = { EqController.setPreset(index) },
+                            enabled = EqController.enabled,
+                            label = { Text(EqController.presets[index]) },
+                        )
+                    }
+                }
+            }
+        }
+
         SettingsCard(title = stringResource(R.string.settings_lyrics_section)) {
             Text(stringResource(R.string.settings_lrc_tail), style = MaterialTheme.typography.bodyMedium)
             androidx.compose.foundation.lazy.LazyRow(
@@ -293,17 +379,6 @@ internal fun SettingsPage(library: LibraryState) {
                     )
                 }
             }
-            Text(
-                stringResource(R.string.image_quality) + " — " + library.preferences.imageQuality,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 12.dp),
-            )
-            Slider(
-                value = library.preferences.imageQuality.toFloat(),
-                onValueChange = { library.preferences.imageQuality = it.roundToInt() },
-                valueRange = 1f..100f,
-                modifier = Modifier.fillMaxWidth(),
-            )
         }
 
         SettingsCard(title = stringResource(R.string.settings_save_section)) {
