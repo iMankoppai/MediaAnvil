@@ -169,7 +169,7 @@
     <string name="auto_load_lyrics_hint">播放时自动读取同目录 LRC/SRT/VTT 字幕</string>
     <string name="settings_eq_section">均衡器</string>
     <string name="settings_eq_enable">启用均衡器</string>
-    <string name="eq_hint">均衡器在播放音频时生效；如果没有可选预设，请先播放一首曲目。</string>
+    <string name="eq_hint">该设备未提供均衡器预设，此设备上均衡器可能不可用。</string>
     <string name="settings_lyrics_section">歌词</string>
     <string name="settings_lrc_tail">LRC 最后一句持续时间</string>
     <string name="lrc_tail_seconds">%1$d 秒</string>

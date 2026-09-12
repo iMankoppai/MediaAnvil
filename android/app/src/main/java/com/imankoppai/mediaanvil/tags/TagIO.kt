@@ -21,14 +21,14 @@ import java.io.File
  * Read/write audio tags through jaudiotagger, mirroring the desktop
  * mutagen-based behaviour: lyrics embed as LRC text, saving keeps every other
  * tag, and callers operate on a scratch copy so the source stays untouched.
- * Opus has no reader in jaudiotagger 3.0.1, so it stays playback-only here.
+ * Opus support comes from the Kaned1as jaudiotagger fork (JitPack).
  */
 object TagIO {
     const val LYRICS_DESCRIPTION = "Sub2LRC"
     const val COVER_DESCRIPTION = "Cover"
 
-    /** Same writable set as the desktop minus Opus (no jaudiotagger support). */
-    val writableExtensions = setOf("mp3", "flac", "m4a", "ogg")
+    /** Same writable set as the desktop, Opus included. */
+    val writableExtensions = setOf("mp3", "flac", "m4a", "ogg", "opus")
     val readableExtensions = writableExtensions + setOf("wav")
 
     fun isTagReadable(fileName: String): Boolean = fileName.substringAfterLast('.', "").lowercase() in readableExtensions
@@ -115,6 +115,7 @@ object TagIO {
             "flac" -> "FLAC"
             "m4a" -> "M4A"
             "ogg" -> "OGG Vorbis"
+            "opus" -> "Opus"
             else -> extension.uppercase()
         }
         val tagCount = runCatching { tag?.fieldCount ?: 0 }.getOrDefault(0)
@@ -301,6 +302,24 @@ object TagIO {
     }
 
     private fun writeCover(tag: Tag, changes: TagChanges) {
+        if (tag is org.jaudiotagger.tag.vorbiscomment.VorbisCommentTag) {
+            // The fork's Opus artwork writer needs java.awt images, which do not
+            // exist on Android; write the standard base64 picture field instead.
+            if (changes.removeCover) {
+                runCatching { tag.deleteField(METADATA_BLOCK_PICTURE) }
+                return
+            }
+            if (changes.coverData != null) {
+                runCatching { tag.deleteField(METADATA_BLOCK_PICTURE) }
+                tag.addField(
+                    METADATA_BLOCK_PICTURE,
+                    java.util.Base64.getEncoder().encodeToString(
+                        metadataBlockPicture(changes.coverData, changes.coverMime ?: sniffImageMime(changes.coverData)),
+                    ),
+                )
+            }
+            return
+        }
         if (changes.removeCover) {
             runCatching { tag.deleteArtworkField() }
         } else if (changes.coverData != null) {
@@ -311,6 +330,27 @@ object TagIO {
             runCatching { tag.deleteArtworkField() }
             tag.addField(artwork)
         }
+    }
+
+    private const val METADATA_BLOCK_PICTURE = "METADATA_BLOCK_PICTURE"
+
+    /** FLAC picture block (also used inside Vorbis comments), big-endian. */
+    private fun metadataBlockPicture(data: ByteArray, mime: String): ByteArray {
+        val mimeBytes = mime.toByteArray(Charsets.US_ASCII)
+        val buffer = java.nio.ByteBuffer
+            .allocate(4 * 8 + mimeBytes.size + data.size)
+            .order(java.nio.ByteOrder.BIG_ENDIAN)
+        buffer.putInt(3) // front cover
+        buffer.putInt(mimeBytes.size)
+        buffer.put(mimeBytes)
+        buffer.putInt(0) // description length
+        buffer.putInt(0) // width
+        buffer.putInt(0) // height
+        buffer.putInt(0) // depth
+        buffer.putInt(0) // colors
+        buffer.putInt(data.size)
+        buffer.put(data)
+        return buffer.array()
     }
 
     /**

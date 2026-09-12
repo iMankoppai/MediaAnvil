@@ -169,7 +169,7 @@
     <string name="auto_load_lyrics_hint">Read LRC/SRT/VTT files next to the audio during playback</string>
     <string name="settings_eq_section">Equalizer</string>
     <string name="settings_eq_enable">Enable equalizer</string>
-    <string name="eq_hint">The equalizer takes effect during playback. Start a track first if the presets are empty.</string>
+    <string name="eq_hint">No presets were exposed by this device; the equalizer may be unavailable on it.</string>
     <string name="settings_lyrics_section">Lyrics</string>
     <string name="settings_lrc_tail">LRC final line duration</string>
     <string name="lrc_tail_seconds">%1$d s</string>
