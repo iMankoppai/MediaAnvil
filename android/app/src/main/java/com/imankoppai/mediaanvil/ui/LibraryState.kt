@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.documentfile.provider.DocumentFile
 import com.imankoppai.mediaanvil.data.DocumentLibrary
 import com.imankoppai.mediaanvil.data.LibraryCache
 import com.imankoppai.mediaanvil.data.LibraryScan
@@ -83,7 +84,11 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
 
     val selectedTrack: AudioTrack? get() = tracks.getOrNull(selectedIndex)
 
-    fun loadFolder(uri: Uri, onLoaded: (Int) -> Unit = {}) {
+    /** Authorized library roots, aggregated into one library. */
+    var folders by mutableStateOf<List<Uri>>(emptyList())
+        private set
+
+    fun addFolder(uri: Uri, onLoaded: (Int) -> Unit = {}) {
         runCatching {
             appContext.contentResolver.takePersistableUriPermission(
                 uri,
@@ -95,15 +100,42 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
                 Intent.FLAG_GRANT_READ_URI_PERMISSION,
             )
         }
+        folders = (folders + uri).distinct()
+        preferences.folders = folders
         preferences.lastFolder = uri
-        scan(uri, quiet = false, onLoaded = onLoaded)
+        scanAll(quiet = false, onLoaded = onLoaded)
+    }
+
+    fun removeFolder(uri: Uri) {
+        folders = folders - uri
+        preferences.folders = folders
+        scanAll(quiet = true)
+    }
+
+    /** DocumentFile of the granted folder that contains [file], for saving next to it. */
+    fun resolveFolderFor(context: Context, file: ScannedFile): DocumentFile? {
+        val root = folders.firstOrNull { folder ->
+            val tree = folder.toString().substringBefore('?')
+            file.uri.toString().contains(tree)
+        } ?: preferences.lastFolder
+        return LibraryCache.resolveFolder(context, root, file.parentPath)
+    }
+
+    private fun ensureFolders(): List<Uri> {
+        if (folders.isEmpty()) {
+            val migrated = listOfNotNull(preferences.lastFolder)
+            folders = migrated
+            preferences.folders = migrated
+        }
+        return folders
     }
 
     /** Show the cached library instantly, then refresh quietly in the background. */
     fun startup() {
+        val roots = ensureFolders()
         val snapshot = LibraryCache.load(appContext)
-        val last = preferences.lastFolder
-        if (snapshot != null && last != null && last == snapshot.treeUri) {
+        val cacheRoot = roots.firstOrNull()
+        if (snapshot != null && cacheRoot != null && cacheRoot == snapshot.treeUri) {
             tracks = snapshot.tracks.map { record ->
                 com.imankoppai.mediaanvil.model.AudioTrack(
                     uri = record.uri,
@@ -123,32 +155,39 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
                 files = snapshot.files.map { ScannedFile(it.uri, it.name, it.parentPath) },
             )
             if (!LibraryCache.isFresh(snapshot)) {
-                rescan(quiet = true)
+                scanAll(quiet = true)
             }
-        } else if (last != null) {
-            scan(last, quiet = false)
+        } else if (roots.isNotEmpty()) {
+            scanAll(quiet = false)
         }
     }
 
     fun rescan(quiet: Boolean = false, onLoaded: (Int) -> Unit = {}) {
-        preferences.lastFolder?.let { scan(it, quiet, onLoaded) }
+        scanAll(quiet, onLoaded)
     }
 
-    private fun scan(uri: Uri, quiet: Boolean, onLoaded: (Int) -> Unit = {}) {
+    private fun scanAll(quiet: Boolean, onLoaded: (Int) -> Unit = {}) {
+        val roots = ensureFolders()
         loading = !quiet
         if (!quiet) message = null
         scope.launch {
             val previousUri = tracks.getOrNull(selectedIndex)?.uri
             val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    DocumentLibrary.scan(appContext, uri, preferences.includeSubfolders)
-                }.getOrElse { LibraryScan(emptyList(), emptyList()) }
+                val scans = roots.map { root ->
+                    runCatching {
+                        DocumentLibrary.scan(appContext, root, preferences.includeSubfolders)
+                    }.getOrElse { LibraryScan(emptyList(), emptyList()) }
+                }
+                LibraryScan(
+                    tracks = scans.flatMap { it.tracks }.distinctBy { it.uri },
+                    files = scans.flatMap { it.files }.distinctBy { it.uri },
+                )
             }
             files = result
             tracks = result.tracks
             selectedIndex = result.tracks.indexOfFirst { it.uri == previousUri }
             loading = false
-            LibraryCache.save(appContext, uri, result)
+            roots.firstOrNull()?.let { LibraryCache.save(appContext, it, result) }
             if (result.tracks.isEmpty() && !quiet) {
                 message = appContext.getString(com.imankoppai.mediaanvil.R.string.no_tracks)
             }

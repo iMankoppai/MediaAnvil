@@ -226,6 +226,7 @@ internal fun NowPlayingPage(
                 },
                 modifier = Modifier.fillMaxWidth(),
             )
+            AbLoopRow(controller = controller, positionMs = positionMs)
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -581,3 +582,50 @@ internal fun QueueSheet(library: LibraryState, controller: MediaController?, onD
     }
 }
 
+
+/** A/B loop controls backed by playback-service custom commands. */
+@Composable
+private fun AbLoopRow(controller: androidx.media3.session.MediaController?, positionMs: Long) {
+    var loopA by remember { mutableLongStateOf(-1L) }
+    var loopB by remember { mutableLongStateOf(-1L) }
+    androidx.compose.runtime.LaunchedEffect(controller?.currentMediaItemIndex) {
+        loopA = -1L
+        loopB = -1L
+    }
+    fun send(action: String) {
+        runCatching {
+            controller?.sendCustomCommand(
+                androidx.media3.session.SessionCommand(action, android.os.Bundle.EMPTY),
+                android.os.Bundle.EMPTY,
+            )
+        }
+    }
+    androidx.compose.foundation.layout.Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.material3.TextButton(onClick = { loopA = positionMs; send(com.imankoppai.mediaanvil.playback.PlaybackService.COMMAND_LOOP_A) }) {
+            Text(
+                if (loopA >= 0) stringResource(R.string.loop_a_set, formatTime(loopA))
+                else stringResource(R.string.loop_a),
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
+        androidx.compose.material3.TextButton(
+            enabled = loopA >= 0,
+            onClick = { loopB = positionMs; send(com.imankoppai.mediaanvil.playback.PlaybackService.COMMAND_LOOP_B) },
+        ) {
+            Text(
+                if (loopB > loopA) stringResource(R.string.loop_b_set, formatTime(loopB))
+                else stringResource(R.string.loop_b),
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
+        if (loopA >= 0 || loopB >= 0) {
+            androidx.compose.material3.TextButton(onClick = { loopA = -1L; loopB = -1L; send(com.imankoppai.mediaanvil.playback.PlaybackService.COMMAND_LOOP_CLEAR) }) {
+                Text(stringResource(R.string.loop_clear), style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}

@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MergeType
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderOpen
@@ -33,9 +34,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,11 +49,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.session.MediaController
+import com.imankoppai.mediaanvil.ui.theme.ThemeController
 import com.imankoppai.mediaanvil.R
 import com.imankoppai.mediaanvil.model.AudioTrack
 import com.imankoppai.mediaanvil.playback.EqController
 import com.imankoppai.mediaanvil.tools.ImageTarget
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** Tools hub mirroring the desktop sidebar's tool pages. */
 @Composable
@@ -60,6 +65,7 @@ internal fun ToolsHubPage(
     onOpenTool: (ToolKind) -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var message by remember { mutableStateOf<String?>(null) }
 
     data class HubEntry(
@@ -95,6 +101,11 @@ internal fun ToolsHubPage(
             stringResource(R.string.tool_audio_clip),
             stringResource(R.string.tool_audio_clip_sub),
         ) { onOpenTool(ToolKind.AudioClip) },
+        HubEntry(
+            Icons.AutoMirrored.Filled.MergeType,
+            stringResource(R.string.tool_audio_merge),
+            stringResource(R.string.tool_audio_merge_sub),
+        ) { onOpenTool(ToolKind.AudioMerge) },
     )
 
     Column(
@@ -159,6 +170,7 @@ internal fun ToolsHubPage(
 @Composable
 internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var message by remember { mutableStateOf<String?>(null) }
     var sleepDialog by remember { mutableStateOf(false) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -214,6 +226,59 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
                     label = { Text("English") },
                 )
             }
+        }
+
+        SettingsCard(title = stringResource(R.string.settings_appearance_section)) {
+            Text(stringResource(R.string.theme_mode), style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                FilterChip(
+                    selected = ThemeController.mode.isEmpty(),
+                    onClick = {
+                        ThemeController.mode = ""
+                        library.preferences.themeMode = ""
+                    },
+                    label = { Text(stringResource(R.string.theme_system)) },
+                )
+                FilterChip(
+                    selected = ThemeController.mode == "light",
+                    onClick = {
+                        ThemeController.mode = "light"
+                        library.preferences.themeMode = "light"
+                    },
+                    label = { Text(stringResource(R.string.theme_light)) },
+                )
+                FilterChip(
+                    selected = ThemeController.mode == "dark",
+                    onClick = {
+                        ThemeController.mode = "dark"
+                        library.preferences.themeMode = "dark"
+                    },
+                    label = { Text(stringResource(R.string.theme_dark)) },
+                )
+            }
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                SettingToggle(
+                    title = stringResource(R.string.theme_dynamic_color),
+                    hint = stringResource(R.string.theme_dynamic_color_hint),
+                    checked = ThemeController.useDynamicColor,
+                    onChange = {
+                        ThemeController.useDynamicColor = it
+                        library.preferences.useDynamicColor = it
+                    },
+                )
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            }
+            SettingToggle(
+                title = stringResource(R.string.theme_cover_color),
+                hint = stringResource(R.string.theme_cover_color_hint),
+                checked = ThemeController.useCoverColor,
+                onChange = {
+                    ThemeController.useCoverColor = it
+                    library.preferences.useCoverColor = it
+                    if (it) refreshCoverSeed(context, library, scope, controller?.currentMediaItem?.mediaId)
+                },
+            )
         }
 
         SettingsCard(title = stringResource(R.string.settings_playback_section)) {
@@ -277,6 +342,81 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
                 onStart = { minutes -> library.startSleepTimer(minutes) { controller?.pause() } },
                 onDismiss = { sleepDialog = false },
             )
+        }
+
+        SettingsCard(title = stringResource(R.string.settings_sound_section)) {
+            var gain by remember { mutableIntStateOf(library.preferences.loudnessGainDb) }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.loudness_gain), style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    if (gain > 0) stringResource(R.string.loudness_gain_value, gain)
+                    else stringResource(R.string.loudness_gain_off),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            androidx.compose.material3.Slider(
+                value = gain.toFloat(),
+                onValueChange = {
+                    gain = it.toInt()
+                    library.preferences.loudnessGainDb = gain
+                    com.imankoppai.mediaanvil.playback.LoudnessGain.setGain(gain)
+                },
+                valueRange = 0f..12f,
+                steps = 11,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                stringResource(R.string.loudness_gain_hint),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        SettingsCard(title = stringResource(R.string.headset_section)) {
+            Text(stringResource(R.string.headset_double), style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                listOf(
+                    "" to R.string.headset_double_next,
+                    "previous" to R.string.headset_double_previous,
+                    "speed" to R.string.headset_double_speed,
+                    "none" to R.string.headset_double_none,
+                ).forEach { (value, labelRes) ->
+                    FilterChip(
+                        selected = library.preferences.doublePressAction == value,
+                        onClick = { library.preferences.doublePressAction = value },
+                        label = { Text(stringResource(labelRes)) },
+                    )
+                }
+            }
+        }
+
+        SettingsCard(title = stringResource(R.string.settings_system_section)) {
+            val powerManager = context.getSystemService(android.os.PowerManager::class.java)
+            val ignoring = powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.battery_keepalive), style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        stringResource(
+                            if (ignoring) R.string.battery_ok else R.string.battery_hint,
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (!ignoring) {
+                    OutlinedButton(onClick = {
+                        runCatching {
+                            context.startActivity(
+                                android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+                            )
+                        }
+                    }) { Text(stringResource(R.string.battery_go)) }
+                }
+            }
         }
 
         SettingsCard(title = stringResource(R.string.settings_eq_section)) {
@@ -401,7 +541,7 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
         }
 
         SettingsCard(title = stringResource(R.string.settings_about_section)) {
-            Text("MediaAnvil Mobile 1.2.0-alpha", style = MaterialTheme.typography.bodyMedium)
+            Text("MediaAnvil Mobile 1.2.0-alpha.2", style = MaterialTheme.typography.bodyMedium)
             Text(
                 stringResource(R.string.local_only),
                 style = MaterialTheme.typography.labelSmall,
@@ -437,5 +577,20 @@ private fun SettingsCard(title: String, content: @Composable androidx.compose.fo
             )
             content()
         }
+    }
+}
+
+@Composable
+private fun SettingToggle(title: String, hint: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                hint,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }

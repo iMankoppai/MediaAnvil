@@ -26,9 +26,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.res.stringResource
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import kotlinx.coroutines.launch
 import com.imankoppai.mediaanvil.R
 import com.imankoppai.mediaanvil.model.AudioTrack
 import com.imankoppai.mediaanvil.playback.PlaybackService
@@ -56,7 +58,7 @@ fun MediaAnvilApp() {
     var overlay by remember { mutableStateOf<Overlay>(Overlay.None) }
 
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        uri?.let { library.loadFolder(it) }
+        uri?.let { library.addFolder(it) }
     }
 
     DisposableEffect(Unit) {
@@ -71,6 +73,7 @@ fun MediaAnvilApp() {
                 mediaController.addListener(object : androidx.media3.common.Player.Listener {
                     override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                         mediaItem?.mediaId?.let(library::recordRecent)
+                        refreshCoverSeed(context, library, scope, mediaItem?.mediaId)
                     }
 
                     override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
@@ -84,6 +87,7 @@ fun MediaAnvilApp() {
                     }
                 })
                 controller = mediaController
+                refreshCoverSeed(context, library, scope, mediaController.currentMediaItem?.mediaId)
             }
         }, androidx.core.content.ContextCompat.getMainExecutor(context))
         onDispose { MediaController.releaseFuture(future) }
@@ -147,5 +151,23 @@ fun MediaAnvilApp() {
         is Overlay.Editor -> Box(Modifier.fillMaxSize()) {
             TagEditorScreen(library, current.track, onBack = { overlay = Overlay.None })
         }
+    }
+}
+
+/** Extract a palette seed from the playing track's cover for cover-color theming. */
+internal fun refreshCoverSeed(
+    context: android.content.Context,
+    library: LibraryState,
+    scope: kotlinx.coroutines.CoroutineScope,
+    mediaId: String?,
+) {
+    if (!com.imankoppai.mediaanvil.ui.theme.ThemeController.useCoverColor || mediaId == null) return
+    val track = library.tracks.firstOrNull { it.uri.toString() == mediaId } ?: return
+    scope.launch {
+        val bitmap = runCatching { CoverLoader.load(context, track.uri)?.asAndroidBitmap() }.getOrNull()
+            ?: return@launch
+        val palette = androidx.palette.graphics.Palette.from(bitmap).clearFilters().generate()
+        val swatch = palette.vibrantSwatch ?: palette.mutedSwatch ?: palette.dominantSwatch ?: return@launch
+        com.imankoppai.mediaanvil.ui.theme.ThemeSeed.coverColor = androidx.compose.ui.graphics.Color(swatch.rgb)
     }
 }

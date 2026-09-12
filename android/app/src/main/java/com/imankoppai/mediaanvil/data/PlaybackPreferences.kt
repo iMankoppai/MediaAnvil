@@ -120,4 +120,54 @@ class PlaybackPreferences(context: Context) {
         set(value) {
             preferences.edit().putInt("eq_preset", value).apply()
         }
+
+    /** Theme mode: "" = follow system, "light", "dark". */
+    var themeMode: String
+        get() = preferences.getString("theme_mode", "") ?: ""
+        set(value) {
+            preferences.edit().putString("theme_mode", value).apply()
+        }
+
+    /** Material You wallpaper-derived colors (Android 12+). */
+    var useDynamicColor: Boolean
+        get() = preferences.getBoolean("use_dynamic_color", false)
+        set(value) {
+            preferences.edit().putBoolean("use_dynamic_color", value).apply()
+        }
+
+    /** Seed the palette from the playing track's cover art. */
+    var useCoverColor: Boolean
+        get() = preferences.getBoolean("use_cover_color", false)
+        set(value) {
+            preferences.edit().putBoolean("use_cover_color", value).apply()
+        }
+
+    /** Loudness boost in dB (0 = off, up to +15). */
+    var loudnessGainDb: Int
+        get() = preferences.getInt("loudness_gain_db", 0)
+        set(value) {
+            preferences.edit().putInt("loudness_gain_db", value).apply()
+        }
+
+    /** Media button double press action: "" = next track, "previous", "speed", "none". */
+    var doublePressAction: String
+        get() = preferences.getString("double_press_action", "") ?: ""
+        set(value) {
+            preferences.edit().putString("double_press_action", value).apply()
+        }
+
+    /** Authorized library roots; empty means fall back to [lastFolder]. */
+    var folders: List<android.net.Uri>
+        get() {
+            val raw = preferences.getString("library_folders", null) ?: return emptyList()
+            return runCatching {
+                val array = org.json.JSONArray(raw)
+                List(array.length()) { android.net.Uri.parse(array.getString(it)) }
+            }.getOrDefault(emptyList())
+        }
+        set(value) {
+            val array = org.json.JSONArray()
+            value.forEach { array.put(it.toString()) }
+            preferences.edit().putString("library_folders", array.toString()).apply()
+        }
 }

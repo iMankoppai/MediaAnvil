@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -107,6 +108,10 @@ internal fun ClipTool(library: LibraryState) {
     var endFraction by remember { mutableFloatStateOf(1f) }
     var running by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf<List<String>>(emptyList()) }
+    var lossless by remember { mutableStateOf(false) }
+    var fadeInSec by remember { mutableFloatStateOf(0f) }
+    var fadeOutSec by remember { mutableFloatStateOf(0f) }
+    val isWav = picked?.name?.endsWith(".wav", ignoreCase = true) == true
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         val known = uri?.let { candidate -> resolveScannedFile(context, library.files?.files, candidate) }
@@ -129,6 +134,9 @@ internal fun ClipTool(library: LibraryState) {
         peaks = null
         startFraction = 0f
         endFraction = 1f
+        lossless = file.name.endsWith(".wav", ignoreCase = true)
+        fadeInSec = 0f
+        fadeOutSec = 0f
         durationMs = withContext(Dispatchers.IO) {
             runCatching {
                 val retriever = android.media.MediaMetadataRetriever()
@@ -280,6 +288,45 @@ internal fun ClipTool(library: LibraryState) {
                 )
             }
         }
+        if (isWav) {
+            Text(
+                stringResource(R.string.clip_output),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = lossless,
+                    onClick = { lossless = true },
+                    label = { Text(stringResource(R.string.clip_lossless)) },
+                )
+                FilterChip(
+                    selected = !lossless,
+                    onClick = { lossless = false },
+                    label = { Text("M4A") },
+                )
+            }
+            if (lossless) {
+                Text(
+                    stringResource(R.string.clip_fade_in, formatFade(fadeInSec)),
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                androidx.compose.material3.Slider(
+                    value = fadeInSec,
+                    onValueChange = { fadeInSec = (it * 2).toInt() / 2f },
+                    valueRange = 0f..5f,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(stringResource(R.string.clip_fade_out, formatFade(fadeOutSec)), style = MaterialTheme.typography.labelSmall)
+                androidx.compose.material3.Slider(
+                    value = fadeOutSec,
+                    onValueChange = { fadeOutSec = (it * 2).toInt() / 2f },
+                    valueRange = 0f..5f,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
             OutlinedButton(
                 onClick = {
@@ -297,8 +344,17 @@ internal fun ClipTool(library: LibraryState) {
                     val file = picked ?: return@Button
                     running = true
                     scope.launch {
-                        results = withContext(Dispatchers.IO) {
-                            runClip(context, library, file, startMs, endMs)
+                        results = if (lossless) {
+                            withContext(Dispatchers.IO) {
+                                runLossless(
+                                    context, library, file, startMs, endMs,
+                                    (fadeInSec * 1000).toLong(), (fadeOutSec * 1000).toLong(),
+                                )
+                            }
+                        } else {
+                            withContext(Dispatchers.IO) {
+                                runClip(context, library, file, startMs, endMs)
+                            }
                         }
                         running = false
                         library.rescan(quiet = true)
@@ -541,7 +597,7 @@ private suspend fun runClip(
     startMs: Long,
     endMs: Long,
 ): List<String> {
-    val parent = LibraryCache.resolveFolder(context, library.preferences.lastFolder, file.parentPath)
+    val parent = library.resolveFolderFor(context, file)
         ?: return listOf(context.getString(R.string.need_folder_grant))
     val sourceCache = DocumentOps.copyToCache(context, file.uri, file.name)
     val output = File(context.cacheDir, "clip-${System.nanoTime()}.m4a")
@@ -592,3 +648,33 @@ private suspend fun runClip(
         DocumentOps.deleteCache(sourceCache)
     }
 }
+
+/** Lossless WAV trim: byte-slice the PCM between the marks with optional fades. */
+private suspend fun runLossless(
+    context: Context,
+    library: LibraryState,
+    file: ScannedFile,
+    startMs: Long,
+    endMs: Long,
+    fadeInMs: Long,
+    fadeOutMs: Long,
+): List<String> {
+    val parent = library.resolveFolderFor(context, file)
+        ?: return listOf(context.getString(R.string.need_folder_grant))
+    val output = File(context.cacheDir, "trim-${System.nanoTime()}.wav")
+    return try {
+        val format = com.imankoppai.mediaanvil.tools.WavTrimmer.parseFormat(context, file.uri)
+        com.imankoppai.mediaanvil.tools.WavTrimmer.trim(
+            context, file.uri, format, startMs, endMs, fadeInMs, fadeOutMs, output,
+        )
+        DocumentOps.saveConvertedDocument(context, parent, file.name, "wav", output)
+        output.delete()
+        listOf(context.getString(R.string.clip_done) + ": " + file.name)
+    } catch (error: Exception) {
+        output.delete()
+        listOf(context.getString(R.string.clip_failed_lossless) + " — " + (error.message ?: ""))
+    }
+}
+
+private fun formatFade(seconds: Float): String =
+    if (seconds <= 0f) "0" else java.lang.String.format(java.util.Locale.US, "%.1f", seconds)

@@ -18,10 +18,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.MoreVert
@@ -188,6 +190,7 @@ internal fun LibraryPage(
         when (selectedTab) {
             3 -> FolderView(
                 library = library,
+                onPickFolder = onPickFolder,
                 openFolder = openFolder,
                 onOpenFolder = { openFolder = it },
                 onOpenTrackTools = { toolsTrack = it },
@@ -416,12 +419,58 @@ private fun TopBar(
 @Composable
 private fun FolderView(
     library: LibraryState,
+    onPickFolder: () -> Unit,
     openFolder: String?,
     onOpenFolder: (String?) -> Unit,
     onOpenTrackTools: (AudioTrack) -> Unit,
     controller: androidx.media3.session.MediaController?,
 ) {
     if (openFolder == null) {
+        Column(Modifier.fillMaxSize()) {
+        Row(
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        ) {
+            Text(
+                stringResource(R.string.folder_roots),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            androidx.compose.material3.TextButton(onClick = onPickFolder) {
+                Icon(Icons.Filled.Add, contentDescription = null)
+                Spacer(Modifier.width(4.dp))
+                Text(stringResource(R.string.folder_add))
+            }
+        }
+        library.folders.forEach { root ->
+            Row(
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            ) {
+                Icon(
+                    Icons.Filled.Folder,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(end = 8.dp),
+                )
+                Text(
+                    root.lastPathSegment ?: root.toString(),
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { library.removeFolder(root) }) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = stringResource(R.string.folder_remove),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
         val folders = remember(library.tracks) {
             library.tracks.groupBy { it.parentPath }
                 .map { (path, tracks) -> path to tracks }
@@ -466,6 +515,7 @@ private fun FolderView(
                 }
                 item { Spacer(Modifier.height(96.dp)) }
             }
+        }
         }
     } else {
         Column(Modifier.fillMaxSize()) {

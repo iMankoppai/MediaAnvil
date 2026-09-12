@@ -25,6 +25,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -64,12 +66,14 @@ import com.imankoppai.mediaanvil.tools.AudioConverter
 import com.imankoppai.mediaanvil.tools.ImageConverter
 import com.imankoppai.mediaanvil.tools.ImageTarget
 import kotlinx.coroutines.Dispatchers
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.transformer.Transformer
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.roundToInt
 
-internal enum class ToolKind { LyricsConvert, AudioConvert, ImageConvert, AudioClip }
+internal enum class ToolKind { LyricsConvert, AudioConvert, ImageConvert, AudioClip, AudioMerge }
 
 @Composable
 internal fun ToolScreenHost(library: LibraryState, onOpenEditor: (AudioTrack?) -> Unit) {
@@ -99,6 +103,7 @@ internal fun ToolScreenHost(library: LibraryState, onOpenEditor: (AudioTrack?) -
                             ToolKind.AudioConvert -> R.string.tool_audio_convert
                             ToolKind.ImageConvert -> R.string.tool_image_convert
                             ToolKind.AudioClip -> R.string.tool_audio_clip
+                            ToolKind.AudioMerge -> R.string.tool_audio_merge
                         },
                     ),
                     style = MaterialTheme.typography.titleMedium,
@@ -111,6 +116,7 @@ internal fun ToolScreenHost(library: LibraryState, onOpenEditor: (AudioTrack?) -
                     ToolKind.AudioConvert -> AudioConvertTool(library)
                     ToolKind.ImageConvert -> ImageConvertTool(library)
                     ToolKind.AudioClip -> ClipTool(library)
+                    ToolKind.AudioMerge -> AudioMergeTool(library)
                 }
             }
         }
@@ -435,4 +441,130 @@ private fun runImageConvert(
         lines += line
     }
     return lines
+}
+
+/** ---------- 音频合并 ---------- */
+
+@Composable
+internal fun AudioMergeTool(library: LibraryState) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var picked by remember { mutableStateOf<List<ScannedFile>>(emptyList()) }
+    var running by remember { mutableStateOf(false) }
+    var results by remember { mutableStateOf<List<String>>(emptyList()) }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        val known = uris.mapNotNull { uri -> resolveScannedFile(context, library.files?.files, uri) }
+        picked = known
+        if (known.size < uris.size) results = listOf(context.getString(R.string.outside_tree_hint)) else results = emptyList()
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp),
+    ) {
+        ToolHeaderNote(stringResource(R.string.tool_audio_merge_sub))
+        OutlinedButton(onClick = { picker.launch(arrayOf("audio/*")) }) { Text(stringResource(R.string.pick_files)) }
+        picked.forEachIndexed { index, file ->
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "${index + 1}. ${file.name}",
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = {
+                    if (index > 0) picked = picked.toMutableList().apply { add(index - 1, removeAt(index)) }
+                }, enabled = index > 0) {
+                    Icon(Icons.Filled.KeyboardArrowUp, contentDescription = null)
+                }
+                IconButton(onClick = {
+                    if (index < picked.size - 1) picked = picked.toMutableList().apply { add(index + 1, removeAt(index)) }
+                }, enabled = index < picked.size - 1) {
+                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null)
+                }
+            }
+        }
+        Button(
+            onClick = {
+                if (picked.size < 2) {
+                    results = listOf(context.getString(R.string.merge_need_two))
+                    return@Button
+                }
+                running = true
+                scope.launch {
+                    results = withContext(Dispatchers.IO) { runMerge(context, library, picked) }
+                    running = false
+                    library.rescan(quiet = true)
+                }
+            },
+            enabled = picked.size >= 2 && !running,
+            modifier = Modifier.padding(vertical = 8.dp),
+        ) { Text(stringResource(R.string.merge_start)) }
+        if (running) {
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+        }
+        ResultLines(results)
+    }
+}
+
+@OptIn(UnstableApi::class)
+private suspend fun runMerge(context: Context, library: LibraryState, files: List<ScannedFile>): List<String> {
+    val parent = library.resolveFolderFor(context, files.first())
+        ?: return listOf(context.getString(R.string.need_folder_grant))
+    val output = File(context.cacheDir, "merge-${System.nanoTime()}.m4a")
+    return try {
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var failure: androidx.media3.transformer.ExportException? = null
+        val items = files.map { file ->
+            androidx.media3.transformer.EditedMediaItem.Builder(
+                androidx.media3.common.MediaItem.Builder().setUri(file.uri).build(),
+            )
+                .setRemoveVideo(true)
+                .build()
+        }
+        val sequence = androidx.media3.transformer.EditedMediaItemSequence.Builder(
+            com.google.common.collect.ImmutableList.copyOf(items),
+        ).build()
+        val composition = androidx.media3.transformer.Composition.Builder(
+            com.google.common.collect.ImmutableList.of(sequence),
+        ).build()
+        withContext(Dispatchers.Main) {
+            val transformer = Transformer.Builder(context)
+                .setAudioMimeType(androidx.media3.common.MimeTypes.AUDIO_AAC)
+                .addListener(object : androidx.media3.transformer.Transformer.Listener {
+                    override fun onCompleted(
+                        composition: androidx.media3.transformer.Composition,
+                        exportResult: androidx.media3.transformer.ExportResult,
+                    ) {
+                        latch.countDown()
+                    }
+
+                    override fun onError(
+                        composition: androidx.media3.transformer.Composition,
+                        exportResult: androidx.media3.transformer.ExportResult,
+                        exportException: androidx.media3.transformer.ExportException,
+                    ) {
+                        failure = exportException
+                        latch.countDown()
+                    }
+                })
+                .build()
+            transformer.start(composition, output.path)
+        }
+        if (!latch.await(30, java.util.concurrent.TimeUnit.MINUTES) || failure != null) {
+            val detail = failure?.let { " — ${it.errorCode} ${it.message ?: ""}" }.orEmpty()
+            android.util.Log.e("AudioMerge", "merge failed", failure)
+            return listOf(context.getString(R.string.convert_failed) + detail)
+        }
+        DocumentOps.saveConvertedDocument(context, parent, files.first().name, "m4a", output)
+        output.delete()
+        listOf(context.getString(R.string.merge_done) + ": " + files.joinToString(" + ") { it.name })
+    } catch (error: Exception) {
+        output.delete()
+        listOf(context.getString(R.string.convert_failed) + " — " + (error.message ?: ""))
+    }
 }
