@@ -1,8 +1,9 @@
 # MediaAnvil 1.0
 
-[![Release](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?label=release)](https://github.com/iMankoppai/MediaAnvil/releases/latest)
+[![Stable](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?label=stable)](https://github.com/iMankoppai/MediaAnvil/releases)
+[![Pre-release](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?include_prereleases&label=pre-release)](https://github.com/iMankoppai/MediaAnvil/releases)
 [![License](https://img.shields.io/github/license/iMankoppai/MediaAnvil)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows-1677ff)](https://github.com/iMankoppai/MediaAnvil/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-Windows-1677ff)](https://github.com/iMankoppai/MediaAnvil/releases)
 
 MediaAnvil 是一款面向 Windows 的本地多媒体工具箱。它使用 Qt 桌面界面，媒体文件始终在本机处理，默认保留原文件，并提供简体中文与英文界面。
 
@@ -71,6 +72,13 @@ MediaAnvil 是一款面向 Windows 的本地多媒体工具箱。它使用 Qt �
 - 后台任务结束前会阻止关闭窗口，避免处理中途损坏文件。
 
 ## 运行发行版
+
+| 版本 | 平台 | 说明 |
+| --- | --- | --- |
+| [v1.2.0-alpha.2](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.2.0-alpha.2) | Windows x64 · Android | **最新预览版**：波形裁剪、均衡器、媒体库升级 |
+| [v1.1](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.1) | Windows x64 · Android | 最新稳定版 |
+
+预览版包含开发中的功能，可能不稳定；日常使用建议选稳定版。全部版本见 [Releases](https://github.com/iMankoppai/MediaAnvil/releases)。
 
 下载并解压完整的 `MediaAnvilQt` 文件夹，然后运行：
 
