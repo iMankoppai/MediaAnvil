@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import android.os.Build
+import androidx.annotation.RequiresApi
 
 // Desktop visual language: light blue canvas, white rounded cards, #1677FF accent.
 private val LightColors = lightColorScheme(
@@ -111,9 +112,11 @@ fun MediaAnvilTheme(
 }
 
 @Composable
+@RequiresApi(Build.VERSION_CODES.S)
 private fun dynamicLightColorScheme(context: android.content.Context): ColorScheme =
     androidx.compose.material3.dynamicLightColorScheme(context)
 
 @Composable
+@RequiresApi(Build.VERSION_CODES.S)
 private fun dynamicDarkColorScheme(context: android.content.Context): ColorScheme =
     androidx.compose.material3.dynamicDarkColorScheme(context)

@@ -53,6 +53,7 @@ import com.imankoppai.mediaanvil.ui.theme.ThemeController
 import com.imankoppai.mediaanvil.R
 import com.imankoppai.mediaanvil.model.AudioTrack
 import com.imankoppai.mediaanvil.playback.EqController
+import com.imankoppai.mediaanvil.tools.AudioConverter
 import com.imankoppai.mediaanvil.tools.ImageTarget
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -497,7 +498,8 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
         SettingsCard(title = stringResource(R.string.settings_convert_section)) {
             Text(stringResource(R.string.settings_default_audio_format), style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                listOf("m4a", "flac", "ogg").forEach { ext ->
+                AudioConverter.targets.forEach { target ->
+                    val ext = target.extension
                     FilterChip(
                         selected = library.preferences.audioConvertTarget == ext,
                         onClick = { library.preferences.audioConvertTarget = ext },

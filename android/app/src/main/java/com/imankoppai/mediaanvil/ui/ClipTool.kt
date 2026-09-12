@@ -1,5 +1,6 @@
 package com.imankoppai.mediaanvil.ui
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.media.MediaCodec
 import android.media.MediaExtractor
@@ -53,7 +54,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.ExportException
@@ -589,7 +589,7 @@ private suspend fun computePeaks(
     }.getOrNull()
 }
 
-@UnstableApi
+@SuppressLint("UnsafeOptInUsageError")
 private suspend fun runClip(
     context: Context,
     library: LibraryState,

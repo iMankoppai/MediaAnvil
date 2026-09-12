@@ -1,0 +1,5 @@
+# Keep written QA reports in Git, but leave generated media, APKs, screenshots,
+# UI dumps, and device logs local.
+*
+!.gitignore
+!*.md

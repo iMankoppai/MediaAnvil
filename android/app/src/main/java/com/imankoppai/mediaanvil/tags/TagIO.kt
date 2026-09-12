@@ -15,6 +15,8 @@ import org.jaudiotagger.tag.id3.framebody.FrameBodySYLT
 import org.jaudiotagger.tag.id3.framebody.FrameBodyUSLT
 import org.jaudiotagger.tag.id3.valuepair.TextEncoding
 import org.jaudiotagger.tag.mp4.Mp4Tag
+import com.imankoppai.mediaanvil.tools.AudioConverter
+import java.io.ByteArrayOutputStream
 import java.io.File
 
 /**
@@ -360,23 +362,93 @@ object TagIO {
      * Copy source tags (basic fields, timed lyrics, cover) onto a converted
      * file, mirroring the desktop "keep tags" conversion option.
      */
-    fun preserveTags(source: File, target: File) {
+    fun preserveTags(source: File, target: File): Result<Unit> =
         runCatching {
             val snap = readSnapshot(source)
-            writeChanges(
-                target,
-                TagChanges(
-                    title = snap.title,
-                    artist = snap.artist,
-                    album = snap.album,
-                    lyricsLrc = if (snap.hasLyrics &&
-                        com.imankoppai.mediaanvil.subtitles.SubtitleFormats.hasLrcTimestamp(snap.lyrics)
-                    ) snap.lyrics else null,
-                    coverData = snap.coverData,
-                    coverMime = snap.coverMime,
+            if (target.extension.equals("flac", ignoreCase = true)) {
+                writeFlacComments(target, snap)
+            } else {
+                writeChanges(
+                    target,
+                    TagChanges(
+                        title = snap.title,
+                        artist = snap.artist,
+                        album = snap.album,
+                        lyricsLrc = if (snap.hasLyrics &&
+                            com.imankoppai.mediaanvil.subtitles.SubtitleFormats.hasLrcTimestamp(snap.lyrics)
+                        ) snap.lyrics else null,
+                        coverData = snap.coverData,
+                        coverMime = snap.coverMime,
+                    ),
+                )
+                if (target.extension.equals("m4a", ignoreCase = true)) {
+                    // jaudiotagger may rebuild the MP4 and restore the
+                    // platform's malformed version-1 edit list.
+                    AudioConverter.sanitizeMp4EditLists(target)
+                }
+            }
+        }
+
+    /**
+     * Add a standard VorbisComment block to the native FLAC stream produced by
+     * [FlacTranscoder]. jaudiotagger cannot update that minimal stream because
+     * it has no comment block yet, so conversion used to silently lose tags.
+     */
+    private fun writeFlacComments(file: File, snapshot: TagSnapshot) {
+        val original = file.readBytes()
+        require(original.size >= 42 && original.copyOfRange(0, 4).contentEquals(byteArrayOf(0x66, 0x4C, 0x61, 0x43))) {
+            "invalid_flac_stream"
+        }
+        val firstHeader = original[4].toInt() and 0xFF
+        require(firstHeader and 0x7F == 0 && original[5].toInt() and 0xFF == 0 &&
+            original[6].toInt() and 0xFF == 0 && original[7].toInt() and 0xFF == 34) {
+            "unsupported_flac_metadata"
+        }
+        val streamInfo = original.copyOfRange(8, 42)
+        val comments = mutableListOf<String>()
+        fun addComment(name: String, value: String) {
+            if (value.isNotBlank()) comments += "$name=${value.trim()}"
+        }
+        addComment("TITLE", snapshot.title)
+        addComment("ARTIST", snapshot.artist)
+        addComment("ALBUM", snapshot.album)
+        if (snapshot.hasLyrics && snapshot.lyrics.isNotBlank()) addComment("LYRICS", snapshot.lyrics)
+        snapshot.coverData?.let { data ->
+            addComment(
+                "METADATA_BLOCK_PICTURE",
+                java.util.Base64.getEncoder().encodeToString(
+                    metadataBlockPicture(data, snapshot.coverMime ?: sniffImageMime(data)),
                 ),
             )
         }
+        val vendor = "MediaAnvil".toByteArray(Charsets.UTF_8)
+        val commentBytes = comments.map { it.toByteArray(Charsets.UTF_8) }
+        val payloadSize = 4 + vendor.size + 4 + commentBytes.sumOf { 4 + it.size }
+        require(payloadSize <= 0xFFFFFF) { "flac_comments_too_large" }
+
+        val output = ByteArrayOutputStream(original.size + payloadSize + 8)
+        output.write(byteArrayOf(0x66, 0x4C, 0x61, 0x43))
+        // STREAMINFO is no longer the last metadata block after comments.
+        output.write(byteArrayOf(0, 0, 0, 34))
+        output.write(streamInfo)
+        output.write(byteArrayOf(0x84.toByte(), (payloadSize shr 16).toByte(), (payloadSize shr 8).toByte(), payloadSize.toByte()))
+        writeLittleEndianInt(output, vendor.size)
+        output.write(vendor)
+        writeLittleEndianInt(output, commentBytes.size)
+        commentBytes.forEach {
+            writeLittleEndianInt(output, it.size)
+            output.write(it)
+        }
+        // The audio frames begin immediately after the original STREAMINFO.
+        output.write(original, 42, original.size - 42)
+        file.outputStream().use { it.write(output.toByteArray()) }
+    }
+
+    private fun writeLittleEndianInt(output: ByteArrayOutputStream, value: Int) {
+        output.write(value and 0xFF)
+        output.write(value shr 8 and 0xFF)
+        output.write(value shr 16 and 0xFF)
+        output.write(value shr 24 and 0xFF)
     }
 
     fun sniffImageMime(data: ByteArray): String = when {

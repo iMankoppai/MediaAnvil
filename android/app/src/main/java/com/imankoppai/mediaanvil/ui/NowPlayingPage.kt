@@ -1,5 +1,6 @@
 package com.imankoppai.mediaanvil.ui
 
+import android.annotation.SuppressLint
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -590,6 +591,7 @@ internal fun QueueSheet(library: LibraryState, controller: MediaController?, onD
 
 /** A/B loop controls backed by playback-service custom commands. */
 @Composable
+@SuppressLint("UnsafeOptInUsageError")
 private fun AbLoopRow(controller: androidx.media3.session.MediaController?, positionMs: Long) {
     var loopA by remember { mutableLongStateOf(-1L) }
     var loopB by remember { mutableLongStateOf(-1L) }

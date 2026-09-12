@@ -4,7 +4,13 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
 
 /**
  * SAF bridge for tag editing: jaudiotagger needs real files, so edits run on a
@@ -29,6 +35,23 @@ object DocumentOps {
         }
         return target
     }
+
+    /** Copy a document off the UI thread and stop promptly when its job is cancelled. */
+    suspend fun copyToCacheCancellable(context: Context, uri: Uri, displayName: String): File =
+        withContext(Dispatchers.IO) {
+            val extension = displayName.substringAfterLast('.', "tmp")
+            val target = File(cacheDir(context), "${System.nanoTime()}-${Thread.currentThread().id}.$extension")
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    target.outputStream().use { output -> copyCancellable(input, output) }
+                } ?: throw IllegalStateException("open_failed")
+                if (target.length() == 0L) throw IllegalStateException("empty_document")
+                target
+            } catch (failure: Throwable) {
+                target.delete()
+                throw failure
+            }
+        }
 
     fun deleteCache(file: File) {
         runCatching { file.delete() }
@@ -98,6 +121,33 @@ object DocumentOps {
         return created.uri
     }
 
+    /** Cancellable variant for long conversions; removes a partial output on failure. */
+    suspend fun saveConvertedDocumentCancellable(
+        context: Context,
+        parent: DocumentFile,
+        sourceName: String,
+        newExtension: String,
+        edited: File,
+    ): Uri = withContext(Dispatchers.IO) {
+        val stem = sourceName.substringBeforeLast('.', sourceName)
+        var candidate = "$stem.$newExtension"
+        var index = 1
+        while (parent.findFile(candidate) != null) {
+            currentCoroutineContext().ensureActive()
+            candidate = "${stem}_$index.$newExtension"
+            index++
+        }
+        val created = parent.createFile("application/octet-stream", candidate)
+            ?: throw IllegalStateException("create_failed")
+        try {
+            writeAndVerifyCancellable(context, created.uri, edited)
+            created.uri
+        } catch (failure: Throwable) {
+            runCatching { created.delete() }
+            throw failure
+        }
+    }
+
     /**
      * In-place overwrite for documents picked outside the granted tree:
      * OpenDocument grants write access to the returned document itself.
@@ -145,5 +195,38 @@ object DocumentOps {
             count
         } ?: -1L
         if (written != edited.length()) throw IllegalStateException("verify_failed")
+    }
+
+    private suspend fun writeAndVerifyCancellable(context: Context, target: Uri, edited: File) {
+        context.contentResolver.openOutputStream(target, "wt")?.use { output ->
+            edited.inputStream().use { input -> copyCancellable(input, output) }
+        } ?: throw IllegalStateException("open_output_failed")
+        val written = context.contentResolver.openInputStream(target)?.use { input ->
+            countCancellable(input)
+        } ?: -1L
+        if (written != edited.length()) throw IllegalStateException("verify_failed")
+    }
+
+    private suspend fun copyCancellable(input: InputStream, output: OutputStream): Long {
+        var count = 0L
+        val buffer = ByteArray(256 * 1024)
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val read = input.read(buffer)
+            if (read < 0) return count
+            output.write(buffer, 0, read)
+            count += read
+        }
+    }
+
+    private suspend fun countCancellable(input: InputStream): Long {
+        var count = 0L
+        val buffer = ByteArray(256 * 1024)
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val read = input.read(buffer)
+            if (read < 0) return count
+            count += read
+        }
     }
 }

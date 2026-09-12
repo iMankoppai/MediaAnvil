@@ -1,5 +1,6 @@
 package com.imankoppai.mediaanvil.ui
 
+import android.annotation.SuppressLint
 import android.content.ComponentName
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -49,6 +50,7 @@ private sealed interface Overlay {
 }
 
 @Composable
+@SuppressLint("UnsafeOptInUsageError")
 fun MediaAnvilApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()

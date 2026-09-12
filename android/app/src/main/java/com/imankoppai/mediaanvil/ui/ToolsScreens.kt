@@ -1,5 +1,6 @@
 package com.imankoppai.mediaanvil.ui
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -40,6 +41,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,9 +67,12 @@ import com.imankoppai.mediaanvil.tags.TagIO
 import com.imankoppai.mediaanvil.tools.AudioConverter
 import com.imankoppai.mediaanvil.tools.ImageConverter
 import com.imankoppai.mediaanvil.tools.ImageTarget
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.transformer.Transformer
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -284,6 +289,11 @@ private fun AudioConvertTool(library: LibraryState) {
     var running by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<String>>(emptyList()) }
+    var conversionJob by remember { mutableStateOf<Job?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose { conversionJob?.cancel() }
+    }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         val known = uris.mapNotNull { uri -> resolveScannedFile(context, library.files?.files, uri) }
@@ -298,9 +308,9 @@ private fun AudioConvertTool(library: LibraryState) {
             targetExt = it
             library.preferences.audioConvertTarget = it
         }
-        if (targetExt == "m4a") {
+        if (targetExt == "m4a" || targetExt == "opus") {
             Text(
-                stringResource(R.string.convert_bitrate_label),
+                stringResource(if (targetExt == "opus") R.string.convert_opus_bitrate_label else R.string.convert_bitrate_label),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(top = 12.dp),
@@ -325,39 +335,67 @@ private fun AudioConvertTool(library: LibraryState) {
         Button(
             onClick = {
                 running = true
-                scope.launch {
+                conversionJob = scope.launch {
                     val files = picked
                     val lines = mutableListOf<String>()
-                    files.forEachIndexed { index, file ->
-                        progress = "${index + 1}/${files.size}: ${file.name}"
-                        val sourceExt = file.name.substringAfterLast('.', "").lowercase()
-                        val line = runCatching {
-                            if (sourceExt == targetExt) error(context.getString(R.string.skip_same_format, file.name))
-                            val parent = LibraryCache.resolveFolder(context, library.preferences.lastFolder, file.parentPath)
-                                ?: error(context.getString(R.string.need_folder_grant))
-                            val target = AudioConverter.targetFor(targetExt) ?: error("unknown_target")
-                            val sourceCache = DocumentOps.copyToCache(context, file.uri, file.name)
-                            try {
-                                val converted = AudioConverter.convert(context, android.net.Uri.fromFile(sourceCache), target, bitrateKbps)
-                                try {
-                                    TagIO.preserveTags(sourceCache, converted)
-                                    DocumentOps.saveConvertedDocument(context, parent, file.name, target.extension, converted)
-                                } finally {
-                                    converted.delete()
+                    try {
+                        files.forEachIndexed { index, file ->
+                            currentCoroutineContext().ensureActive()
+                            progress = "${index + 1}/${files.size}: ${file.name}"
+                            val sourceExt = file.name.substringAfterLast('.', "").lowercase()
+                            val line = try {
+                                if (sourceExt == targetExt) error(context.getString(R.string.skip_same_format, file.name))
+                                val tagsPreserved = withContext(Dispatchers.IO) {
+                                    val parent = LibraryCache.resolveFolder(context, library.preferences.lastFolder, file.parentPath)
+                                        ?: error(context.getString(R.string.need_folder_grant))
+                                    val target = AudioConverter.targetFor(targetExt) ?: error("unknown_target")
+                                    val sourceCache = DocumentOps.copyToCacheCancellable(context, file.uri, file.name)
+                                    try {
+                                        AudioConverter.requireTemporarySpace(context, sourceCache, target, bitrateKbps)
+                                        val converted = AudioConverter.convert(context, sourceCache, target, bitrateKbps)
+                                        try {
+                                            val tagsResult = TagIO.preserveTags(sourceCache, converted)
+                                            DocumentOps.saveConvertedDocumentCancellable(
+                                                context, parent, file.name, target.extension, converted,
+                                            )
+                                            tagsResult.isSuccess
+                                        } finally {
+                                            converted.delete()
+                                        }
+                                    } finally {
+                                        DocumentOps.deleteCache(sourceCache)
+                                    }
                                 }
-                            } finally {
-                                DocumentOps.deleteCache(sourceCache)
+                                if (tagsPreserved) {
+                                    context.getString(R.string.convert_done) + ": " + file.name
+                                } else {
+                                    context.getString(R.string.convert_done_tags_failed, file.name)
+                                }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (failure: Throwable) {
+                                val detail = if (failure is AudioConverter.InsufficientStorageException) {
+                                    context.getString(
+                                        R.string.convert_insufficient_space,
+                                        android.text.format.Formatter.formatShortFileSize(context, failure.requiredBytes),
+                                        android.text.format.Formatter.formatShortFileSize(context, failure.availableBytes),
+                                    )
+                                } else {
+                                    failure.message.orEmpty()
+                                }
+                                context.getString(R.string.convert_failed) + ": " + file.name + " — " + detail
                             }
-                        }.fold(
-                            onSuccess = { context.getString(R.string.convert_done) + ": " + file.name },
-                            onFailure = { context.getString(R.string.convert_failed) + ": " + file.name + " — " + it.message },
-                        )
-                        lines += line
-                        results = lines.toList()
+                            lines += line
+                            results = lines.toList()
+                        }
+                    } catch (_: CancellationException) {
+                        results = lines + context.getString(R.string.convert_cancelled)
+                    } finally {
+                        progress = ""
+                        running = false
+                        conversionJob = null
+                        library.rescan(quiet = true)
                     }
-                    progress = ""
-                    running = false
-                    library.rescan(quiet = true)
                 }
             },
             enabled = picked.isNotEmpty() && !running,
@@ -366,6 +404,9 @@ private fun AudioConvertTool(library: LibraryState) {
         if (running) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
             progress.let { if (it.isNotEmpty()) Text(it, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp)) }
+            OutlinedButton(onClick = { conversionJob?.cancel() }) {
+                Text(stringResource(R.string.cancel_conversion))
+            }
         }
         ResultLines(results)
     }
@@ -537,7 +578,7 @@ internal fun AudioMergeTool(library: LibraryState) {
     }
 }
 
-@OptIn(UnstableApi::class)
+@SuppressLint("UnsafeOptInUsageError")
 private suspend fun runMerge(context: Context, library: LibraryState, files: List<ScannedFile>): List<String> {
     val parent = library.resolveFolderFor(context, files.first())
         ?: return listOf(context.getString(R.string.need_folder_grant))

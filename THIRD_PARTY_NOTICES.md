@@ -20,9 +20,10 @@ The Qt runtime bundle includes ICU 78.3 for Unicode support. Its license text is
 
 ## jAudiotagger
 
-The Android client uses jAudiotagger 3.0.1 to read and write audio tags (MP3/FLAC/M4A/OGG). jAudiotagger is distributed under the GNU Lesser General Public License v2.1 and is loaded as a separate library by the Android runtime.
+The Android client uses the JitPack artifact `com.github.Kaned1as:jaudiotagger:2.3.15` to read and write audio tags for MP3, FLAC, M4A, OGG Vorbis, and Opus. This is the Kaned1as Android-oriented hard fork of jAudiotagger, with additional MP4-DASH and Opus support. It is loaded as a separate Java library by the Android runtime.
 
-- Project: https://www.jthink.net/jaudiotagger/
-- Source release: https://bitbucket.org/ijabz/jaudiotagger/src/master/
-- Maven Central artifact: https://repo1.maven.org/maven2/net/jthink/jaudiotagger/3.0.1/
-- License: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+- Fork source: https://github.com/Kaned1as/jaudiotagger
+- Upstream project: https://www.jthink.net/jaudiotagger/
+- License: GNU Lesser General Public License v2.1 or later
+- License text: https://github.com/Kaned1as/jaudiotagger/blob/master/license.txt
+- JitPack artifact: https://jitpack.io/#Kaned1as/jaudiotagger/2.3.15
