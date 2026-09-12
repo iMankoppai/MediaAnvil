@@ -1,7 +1,6 @@
 # MediaAnvil 1.0
 
-[![Stable](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?label=stable)](https://github.com/iMankoppai/MediaAnvil/releases)
-[![Pre-release](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?include_prereleases&label=pre-release)](https://github.com/iMankoppai/MediaAnvil/releases)
+[![Release](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?label=release)](https://github.com/iMankoppai/MediaAnvil/releases)
 [![License](https://img.shields.io/github/license/iMankoppai/MediaAnvil)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows-1677ff)](https://github.com/iMankoppai/MediaAnvil/releases)
 
@@ -75,10 +74,10 @@ Configure save behavior, conversion quality, lyrics preview, and file scanning i
 
 | Version | Platform | Notes |
 | --- | --- | --- |
-| [v1.2.0-alpha.2](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.2.0-alpha.2) | Windows x64 · Android | **Latest preview**: waveform clipping, equalizer, library upgrades |
-| [v1.1](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.1) | Windows x64 · Android | Latest stable |
+| [v1.2.0-alpha.2](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.2.0-alpha.2) | Windows x64 · Android | **Latest**: waveform clipping, equalizer, library upgrades |
+| [v1.1](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.1) | Windows x64 · Android | Previous version |
 
-Previews include work-in-progress features and may be unstable; pick the stable release for daily use. See [Releases](https://github.com/iMankoppai/MediaAnvil/releases) for all versions.
+See [Releases](https://github.com/iMankoppai/MediaAnvil/releases) for all versions.
 
 Download and extract the complete `MediaAnvilQt` folder, then run:
 
