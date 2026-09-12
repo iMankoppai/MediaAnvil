@@ -543,7 +543,7 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
         }
 
         SettingsCard(title = stringResource(R.string.settings_about_section)) {
-            Text("MediaAnvil Mobile 1.3", style = MaterialTheme.typography.bodyMedium)
+            Text("MediaAnvil Mobile 1.4", style = MaterialTheme.typography.bodyMedium)
             Text(
                 stringResource(R.string.local_only),
                 style = MaterialTheme.typography.labelSmall,
