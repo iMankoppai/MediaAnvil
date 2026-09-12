@@ -119,11 +119,14 @@ object TagIO {
             else -> extension.uppercase()
         }
         val tagCount = runCatching { tag?.fieldCount ?: 0 }.getOrDefault(0)
+        // The Opus fork reports broken header numbers (negative sample rate, empty
+        // bitrate); blank them instead of showing garbage in the editor.
+        val sampleRate = (header?.sampleRateAsNumber ?: 0).takeIf { it > 0 } ?: 0
         return AudioInfo(
             formatLabel = label,
             durationSeconds = header?.trackLength?.toDouble() ?: 0.0,
             bitrateKbps = header?.bitRate?.trim()?.toIntOrNull() ?: 0,
-            sampleRateHz = header?.sampleRateAsNumber ?: 0,
+            sampleRateHz = sampleRate,
             channels = header?.channels.orEmpty(),
             fileSizeBytes = file.length(),
             tagCount = tagCount,

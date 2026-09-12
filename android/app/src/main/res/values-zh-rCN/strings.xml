@@ -205,7 +205,6 @@
     <string name="save_tags">保存到音频</string>
     <string name="reset_edits">取消修改</string>
     <string name="read_only_hint">该格式只支持读取信息。</string>
-    <string name="opus_unsupported">安卓端暂不支持编辑 Opus 标签，播放不受影响。</string>
     <string name="crop_title">裁剪封面</string>
     <string name="crop_reset">恢复完整图片</string>
     <string name="crop_confirm">确定</string>

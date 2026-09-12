@@ -205,7 +205,6 @@
     <string name="save_tags">Save to audio</string>
     <string name="reset_edits">Reset changes</string>
     <string name="read_only_hint">This format only supports reading info.</string>
-    <string name="opus_unsupported">Tag editing for Opus is not supported on Android yet; playback still works.</string>
     <string name="crop_title">Crop cover</string>
     <string name="crop_reset">Reset to full image</string>
     <string name="crop_confirm">OK</string>

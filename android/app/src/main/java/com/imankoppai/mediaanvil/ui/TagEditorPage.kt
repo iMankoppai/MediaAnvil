@@ -195,11 +195,6 @@ internal fun TagEditorPage(library: LibraryState, track: AudioTrack) {
     }
 
     LaunchedEffect(track.uri) {
-        if (track.fileName.substringAfterLast('.', "").lowercase() == "opus") {
-            snapshot = null
-            message = context.getString(R.string.opus_unsupported)
-            return@LaunchedEffect
-        }
         working = true
         message = null
         val result = withContext(Dispatchers.IO) {
