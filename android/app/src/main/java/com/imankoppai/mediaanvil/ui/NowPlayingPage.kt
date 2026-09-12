@@ -107,8 +107,13 @@ internal fun NowPlayingPage(
                 isPlaying = player.isPlaying
                 positionMs = player.currentPosition.coerceAtLeast(0L)
                 durationMs = player.duration.coerceAtLeast(0L)
-                if (player.currentMediaItem != null && player.currentMediaItemIndex in library.tracks.indices) {
-                    library.selectedIndex = player.currentMediaItemIndex
+                // The player queue may be a filtered subset (favorites, search,
+                // album groups, shuffle order); map by media id instead of
+                // treating its index as an index into the full track list.
+                val currentId = player.currentMediaItem?.mediaId
+                val mapped = currentId?.let { id -> library.tracks.indexOfFirst { it.uri.toString() == id } } ?: -1
+                if (mapped >= 0) {
+                    library.selectedIndex = mapped
                 }
             }
         }

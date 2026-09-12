@@ -339,7 +339,10 @@ internal fun TagEditorPage(library: LibraryState, track: AudioTrack) {
                         )
                         TagIO.writeChanges(cache, changes)
                         val parent = track.parent
-                            ?: LibraryCache.resolveFolder(context, library.preferences.lastFolder, track.parentPath)
+                            ?: library.resolveFolderFor(
+                                context,
+                                com.imankoppai.mediaanvil.data.ScannedFile(track.uri, track.fileName, track.parentPath),
+                            )
                         when {
                             parent != null && overwrite ->
                                 DocumentOps.overwriteDocument(context, parent, track.fileName, cache)
