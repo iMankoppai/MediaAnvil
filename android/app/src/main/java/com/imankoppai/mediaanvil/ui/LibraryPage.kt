@@ -18,21 +18,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Album
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -87,8 +87,7 @@ internal fun LibraryPage(
     library: LibraryState,
     controller: androidx.media3.session.MediaController?,
     onPickFolder: () -> Unit,
-    onOpenNowPlaying: () -> Unit,
-    onOpenEditor: (AudioTrack) -> Unit,
+    onOpenPlayer: () -> Unit,
 ) {
     val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(0) }
@@ -96,7 +95,6 @@ internal fun LibraryPage(
     var searchQuery by remember { mutableStateOf("") }
     var menuOpen by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
-    var toolsTrack by remember { mutableStateOf<AudioTrack?>(null) }
     var openFolder by remember { mutableStateOf<String?>(null) }
     var queueOpen by remember { mutableStateOf(false) }
     var musicView by remember { mutableStateOf(MusicView.Songs) }
@@ -198,7 +196,6 @@ internal fun LibraryPage(
                 onPickFolder = onPickFolder,
                 openFolder = openFolder,
                 onOpenFolder = { openFolder = it },
-                onOpenTrackTools = { toolsTrack = it },
                 controller = controller,
             )
             1 -> TrackListView(
@@ -206,14 +203,12 @@ internal fun LibraryPage(
                 library = library,
                 controller = controller,
                 emptyText = stringResource(R.string.recent_empty),
-                onOpenTools = { toolsTrack = it },
             )
             2 -> TrackListView(
                 tracks = favoriteTracks,
                 library = library,
                 controller = controller,
                 emptyText = stringResource(R.string.favorites_empty),
-                onOpenTools = { toolsTrack = it },
             )
             else -> Column(Modifier.fillMaxSize()) {
                 if (library.loading) {
@@ -280,7 +275,6 @@ internal fun LibraryPage(
                                             favorite = library.isFavorite(track.uri),
                                             onToggleFavorite = { library.toggleFavorite(track.uri) },
                                             onClick = { playFromLibrary(library, controller, filtered.indexOf(track), filtered) },
-                                            onOpenTools = { toolsTrack = track },
                                         )
                                     }
                                     item { Spacer(Modifier.height(96.dp)) }
@@ -293,7 +287,6 @@ internal fun LibraryPage(
                                 groupIcon = Icons.Filled.Album,
                                 library = library,
                                 controller = controller,
-                                onOpenTools = { toolsTrack = it },
                             )
                             MusicView.Artists -> GroupBrowser(
                                 groups = artistGroups,
@@ -302,7 +295,6 @@ internal fun LibraryPage(
                                 groupIcon = Icons.Filled.Person,
                                 library = library,
                                 controller = controller,
-                                onOpenTools = { toolsTrack = it },
                             )
                         }
                     }
@@ -320,7 +312,7 @@ internal fun LibraryPage(
                 val player = controller
                 if (player?.isPlaying == true) player.pause() else player?.play()
             },
-            onOpen = onOpenNowPlaying,
+            onOpen = onOpenPlayer,
             onQueue = { queueOpen = true },
             modifier = Modifier.align(Alignment.BottomCenter),
         )
@@ -331,17 +323,6 @@ internal fun LibraryPage(
         QueueSheet(library, controller, onDismiss = { queueOpen = false })
     }
 
-    toolsTrack?.let { selected ->
-        ToolsSheet(
-            library = library,
-            track = selected,
-            onDismiss = { toolsTrack = null },
-            onOpenEditor = {
-                toolsTrack = null
-                onOpenEditor(it)
-            },
-        )
-    }
 }
 
 @Composable
@@ -370,7 +351,7 @@ private fun TopBar(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        "Your Media. Your Tools. Locally.",
+                        stringResource(R.string.library_tagline),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.secondary,
                     )
@@ -427,7 +408,6 @@ private fun FolderView(
     onPickFolder: () -> Unit,
     openFolder: String?,
     onOpenFolder: (String?) -> Unit,
-    onOpenTrackTools: (AudioTrack) -> Unit,
     controller: androidx.media3.session.MediaController?,
 ) {
     if (openFolder == null) {
@@ -512,7 +492,7 @@ private fun FolderView(
                             )
                         }
                         Icon(
-                            Icons.Filled.KeyboardArrowRight,
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -532,7 +512,7 @@ private fun FolderView(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    Icons.Filled.ArrowBack,
+                    Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = stringResource(R.string.back),
                     tint = MaterialTheme.colorScheme.primary,
                 )
@@ -554,7 +534,6 @@ private fun FolderView(
                         favorite = library.isFavorite(track.uri),
                         onToggleFavorite = { library.toggleFavorite(track.uri) },
                         onClick = { playFromLibrary(library, controller, folderTracks.indexOf(track), folderTracks) },
-                        onOpenTools = { onOpenTrackTools(track) },
                     )
                 }
                 item { Spacer(Modifier.height(96.dp)) }
@@ -569,7 +548,6 @@ private fun TrackListView(
     library: LibraryState,
     controller: androidx.media3.session.MediaController?,
     emptyText: String,
-    onOpenTools: (AudioTrack) -> Unit,
 ) {
     if (tracks.isEmpty()) {
         SectionPlaceholder(emptyText)
@@ -582,7 +560,6 @@ private fun TrackListView(
                     favorite = library.isFavorite(track.uri),
                     onToggleFavorite = { library.toggleFavorite(track.uri) },
                     onClick = { playFromLibrary(library, controller, tracks.indexOf(track), tracks) },
-                    onOpenTools = { onOpenTools(track) },
                 )
             }
             item { Spacer(Modifier.height(96.dp)) }
@@ -598,7 +575,6 @@ private fun GroupBrowser(
     groupIcon: ImageVector,
     library: LibraryState,
     controller: androidx.media3.session.MediaController?,
-    onOpenTools: (AudioTrack) -> Unit,
 ) {
     if (openGroup == null) {
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
@@ -629,7 +605,7 @@ private fun GroupBrowser(
                         )
                     }
                     Icon(
-                        Icons.Filled.KeyboardArrowRight,
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -647,7 +623,7 @@ private fun GroupBrowser(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    Icons.Filled.ArrowBack,
+                    Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = stringResource(R.string.back),
                     tint = MaterialTheme.colorScheme.primary,
                 )
@@ -669,7 +645,6 @@ private fun GroupBrowser(
                         favorite = library.isFavorite(track.uri),
                         onToggleFavorite = { library.toggleFavorite(track.uri) },
                         onClick = { playFromLibrary(library, controller, groupTracks.indexOf(track), groupTracks) },
-                        onOpenTools = { onOpenTools(track) },
                     )
                 }
                 item { Spacer(Modifier.height(96.dp)) }
@@ -685,7 +660,6 @@ private fun TrackRow(
     favorite: Boolean,
     onToggleFavorite: (() -> Unit)?,
     onClick: () -> Unit,
-    onOpenTools: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -727,13 +701,6 @@ private fun TrackRow(
                     tint = if (favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        }
-        IconButton(onClick = onOpenTools) {
-            Icon(
-                Icons.Filled.MoreVert,
-                contentDescription = stringResource(R.string.media_tools),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
@@ -820,7 +787,7 @@ private fun MiniPlayer(
             }
             IconButton(onClick = onQueue) {
                 Icon(
-                    Icons.Filled.QueueMusic,
+                    Icons.AutoMirrored.Filled.QueueMusic,
                     contentDescription = stringResource(R.string.play_queue),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -58,10 +58,7 @@ dependencies {
     implementation("androidx.media3:media3-common:1.11.0")
     implementation("androidx.media3:media3-exoplayer:1.11.0")
     implementation("androidx.media3:media3-session:1.11.0")
-    implementation("androidx.media3:media3-transformer:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    implementation("com.github.Kaned1as:jaudiotagger:2.3.15")
-
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
 }

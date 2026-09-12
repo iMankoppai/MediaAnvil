@@ -6,7 +6,6 @@ import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.documentfile.provider.DocumentFile
 import com.imankoppai.mediaanvil.data.DocumentLibrary
 import com.imankoppai.mediaanvil.data.LibraryCache
 import com.imankoppai.mediaanvil.data.LibraryScan
@@ -112,15 +111,6 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
         scanAll(quiet = true)
     }
 
-    /** DocumentFile of the granted folder that contains [file], for saving next to it. */
-    fun resolveFolderFor(context: Context, file: ScannedFile): DocumentFile? {
-        val root = folders.firstOrNull { folder ->
-            val tree = folder.toString().substringBefore('?')
-            file.uri.toString().contains(tree)
-        } ?: preferences.lastFolder
-        return LibraryCache.resolveFolder(context, root, file.parentPath)
-    }
-
     private fun ensureFolders(): List<Uri> {
         if (folders.isEmpty()) {
             val migrated = listOfNotNull(preferences.lastFolder)
@@ -146,7 +136,6 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
                     durationMs = record.durationMs,
                     subtitleUri = record.subtitleUri,
                     subtitleExtension = record.subtitleExtension,
-                    parent = null,
                     parentPath = record.parentPath,
                 )
             }

@@ -24,16 +24,14 @@ object DocumentLibrary {
 
     fun scan(context: Context, treeUri: Uri, includeSubfolders: Boolean = true): LibraryScan {
         val root = DocumentFile.fromTreeUri(context, treeUri) ?: return LibraryScan(emptyList(), emptyList())
-        val directories = mutableListOf<Pair<String, DocumentFile>>()
         val files = mutableListOf<Pair<String, DocumentFile>>()
-        collect(root, "", includeSubfolders, directories, files)
+        collect(root, "", includeSubfolders, files)
 
         val allFiles = files.map { (path, file) -> ScannedFile(file.uri, file.name.orEmpty(), path) }
         val tracks = files.mapNotNull { (path, file) ->
             file.name ?: return@mapNotNull null
             if (file.extension().lowercase() !in audioExtensions) return@mapNotNull null
-            val folder = directories.firstOrNull { it.first == path }?.second ?: root
-            file.toTrack(context, path, folder, files.filter { it.first == path })
+            file.toTrack(context, path, files.filter { it.first == path })
         }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.fileName })
         return LibraryScan(tracks, allFiles)
     }
@@ -42,15 +40,13 @@ object DocumentLibrary {
         directory: DocumentFile,
         path: String,
         includeSubfolders: Boolean,
-        directories: MutableList<Pair<String, DocumentFile>>,
         files: MutableList<Pair<String, DocumentFile>>,
     ) {
-        directories += path to directory
         directory.listFiles().forEach { file ->
             if (file.isDirectory) {
                 if (!includeSubfolders) return@forEach
                 val childPath = if (path.isEmpty()) file.name.orEmpty() else "$path/${file.name.orEmpty()}"
-                collect(file, childPath, includeSubfolders, directories, files)
+                collect(file, childPath, includeSubfolders, files)
             } else {
                 files += path to file
             }
@@ -78,7 +74,6 @@ object DocumentLibrary {
     private fun DocumentFile.toTrack(
         context: Context,
         parentPath: String,
-        parent: DocumentFile,
         siblings: List<Pair<String, DocumentFile>>,
     ): AudioTrack {
         val audioName = name.orEmpty()
@@ -94,7 +89,6 @@ object DocumentLibrary {
             durationMs = metadata.durationMs,
             subtitleUri = subtitle?.uri,
             subtitleExtension = subtitle?.extension(),
-            parent = parent,
             parentPath = parentPath,
         )
     }

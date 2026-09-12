@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import org.json.JSONArray
 import org.json.JSONObject
-import androidx.documentfile.provider.DocumentFile
 
 /**
  * Persisted snapshot of the last folder scan so the library opens instantly;
@@ -125,14 +124,4 @@ object LibraryCache {
     fun isFresh(snapshot: Snapshot): Boolean =
         System.currentTimeMillis() - snapshot.savedAt < MAX_AGE_MS
 
-    /** Resolve the DocumentFile of a cached track's folder on demand. */
-    fun resolveFolder(context: Context, treeUri: Uri?, parentPath: String): DocumentFile? {
-        if (treeUri == null) return null
-        var folder = DocumentFile.fromTreeUri(context, treeUri) ?: return null
-        if (parentPath.isEmpty()) return folder
-        for (segment in parentPath.split('/').filter { it.isNotEmpty() }) {
-            folder = folder.findFile(segment)?.takeIf { it.isDirectory } ?: return null
-        }
-        return folder
-    }
 }

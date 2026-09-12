@@ -2,7 +2,6 @@ package com.imankoppai.mediaanvil.ui
 
 import android.annotation.SuppressLint
 import android.content.ComponentName
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
@@ -10,7 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -33,20 +32,12 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import kotlinx.coroutines.launch
 import com.imankoppai.mediaanvil.R
-import com.imankoppai.mediaanvil.model.AudioTrack
 import com.imankoppai.mediaanvil.playback.PlaybackService
 
 private enum class MainTab(val titleRes: Int) {
     Media(R.string.tab_media),
-    Tools(R.string.tab_tools),
+    Player(R.string.tab_player),
     Settings(R.string.tab_settings),
-}
-
-/** Screens pushed above the tab shell. */
-private sealed interface Overlay {
-    data object None : Overlay
-    data object NowPlaying : Overlay
-    data class Editor(val track: AudioTrack?) : Overlay
 }
 
 @Composable
@@ -57,7 +48,6 @@ fun MediaAnvilApp() {
     val library = remember { LibraryState(context, scope) }
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var tab by remember { mutableStateOf(MainTab.Media) }
-    var overlay by remember { mutableStateOf<Overlay>(Overlay.None) }
 
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let { library.addFolder(it) }
@@ -99,10 +89,6 @@ fun MediaAnvilApp() {
         library.startup()
     }
 
-    BackHandler(enabled = overlay != Overlay.None) {
-        overlay = Overlay.None
-    }
-
     Scaffold(
         containerColor = androidx.compose.material3.MaterialTheme.colorScheme.background,
         bottomBar = {
@@ -110,7 +96,7 @@ fun MediaAnvilApp() {
                 MainTab.entries.forEach { entry ->
                     val icon = when (entry) {
                         MainTab.Media -> androidx.compose.material.icons.Icons.Filled.LibraryMusic
-                        MainTab.Tools -> androidx.compose.material.icons.Icons.Filled.Build
+                        MainTab.Player -> androidx.compose.material.icons.Icons.Filled.PlayCircle
                         MainTab.Settings -> androidx.compose.material.icons.Icons.Filled.Settings
                     }
                     NavigationBarItem(
@@ -129,29 +115,15 @@ fun MediaAnvilApp() {
                     library = library,
                     controller = controller,
                     onPickFolder = { folderPicker.launch(null) },
-                    onOpenNowPlaying = { overlay = Overlay.NowPlaying },
-                    onOpenEditor = { overlay = Overlay.Editor(it) },
+                    onOpenPlayer = { tab = MainTab.Player },
                 )
-                MainTab.Tools -> ToolScreenHost(
+                MainTab.Player -> NowPlayingPage(
                     library = library,
-                    onOpenEditor = { overlay = Overlay.Editor(it) },
+                    controller = controller,
+                    onOpenLibrary = { tab = MainTab.Media },
                 )
                 MainTab.Settings -> SettingsPage(library = library, controller = controller)
             }
-        }
-    }
-
-    when (val current = overlay) {
-        Overlay.None -> {}
-        Overlay.NowPlaying -> Box(Modifier.fillMaxSize()) {
-            NowPlayingPage(
-                library = library,
-                controller = controller,
-                onBack = { overlay = Overlay.None },
-            )
-        }
-        is Overlay.Editor -> Box(Modifier.fillMaxSize()) {
-            TagEditorScreen(library, current.track, onBack = { overlay = Overlay.None })
         }
     }
 }

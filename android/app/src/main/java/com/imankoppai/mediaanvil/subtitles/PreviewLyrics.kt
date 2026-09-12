@@ -2,35 +2,18 @@ package com.imankoppai.mediaanvil.subtitles
 
 import android.content.Context
 import android.net.Uri
-import com.imankoppai.mediaanvil.data.DocumentOps
 import com.imankoppai.mediaanvil.model.AudioTrack
 import com.imankoppai.mediaanvil.model.SubtitleCue
-import com.imankoppai.mediaanvil.tags.TagIO
-import java.io.File
 
 /**
- * Load the lyric timeline for the preview page with the desktop ordering:
- * external LRC/SRT/VTT files first (unless embedded is preferred), then MP3
- * embedded synced lyrics. LRC lines stay highlighted until the next line;
- * timed subtitle cues clear after their end.
+ * Load sidecar LRC/SRT/VTT lyrics for the player. LRC lines stay highlighted
+ * until the next line; timed subtitle cues clear after their end.
  */
 object PreviewLyrics {
     const val NO_END = Long.MAX_VALUE
 
-    data class Timeline(val cues: List<SubtitleCue>, val fromEmbedded: Boolean)
-
-    fun load(context: Context, track: AudioTrack, preferEmbedded: Boolean, autoLoadExternal: Boolean = true): Timeline {
-        if (preferEmbedded) {
-            embeddedCues(context, track)?.takeIf { it.isNotEmpty() }?.let { return Timeline(it, true) }
-        }
-        if (autoLoadExternal) {
-            externalCues(context, track)?.takeIf { it.isNotEmpty() }?.let { return Timeline(it, false) }
-        }
-        if (!preferEmbedded) {
-            embeddedCues(context, track)?.takeIf { it.isNotEmpty() }?.let { return Timeline(it, true) }
-        }
-        return Timeline(emptyList(), false)
-    }
+    fun load(context: Context, track: AudioTrack, autoLoadExternal: Boolean = true): List<SubtitleCue> =
+        if (autoLoadExternal) externalCues(context, track).orEmpty() else emptyList()
 
     private fun externalCues(context: Context, track: AudioTrack): List<SubtitleCue>? {
         val uri = track.subtitleUri ?: return null
@@ -40,18 +23,6 @@ object PreviewLyrics {
             "lrc" -> parseLrcTimeline(text)
             "srt", "vtt" -> SubtitleParser.parseTimedBlocks(text)
             else -> null
-        }
-    }
-
-    private fun embeddedCues(context: Context, track: AudioTrack): List<SubtitleCue>? {
-        if (track.fileName.substringAfterLast('.', "").lowercase() != "mp3") return null
-        val cache: File = DocumentOps.copyToCache(context, track.uri, track.fileName)
-        return try {
-            TagIO.embeddedSyncedLyricsText(cache)?.let(::parseLrcTimeline)
-        } catch (_: Exception) {
-            null
-        } finally {
-            DocumentOps.deleteCache(cache)
         }
     }
 
@@ -65,7 +36,7 @@ object PreviewLyrics {
         val entries = mutableListOf<Entry>()
         for (line in text.lineSequence()) {
             val matches = SubtitleParser.lrcTimestamp.findAll(line).toList()
-            if (matches.isEmpty() || SubtitleFormats.isMetadataLine(line)) continue
+            if (matches.isEmpty() || LrcText.isMetadataLine(line)) continue
             val content = line.substring(matches.last().range.last + 1).trim()
             for (match in matches) {
                 val minutes = match.groupValues[1].toLong()

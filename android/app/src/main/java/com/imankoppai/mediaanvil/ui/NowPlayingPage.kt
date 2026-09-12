@@ -26,12 +26,12 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -89,7 +90,7 @@ import kotlinx.coroutines.withContext
 internal fun NowPlayingPage(
     library: LibraryState,
     controller: MediaController?,
-    onBack: () -> Unit,
+    onOpenLibrary: () -> Unit,
 ) {
     val context = LocalContext.current
     val track = library.selectedTrack
@@ -98,6 +99,7 @@ internal fun NowPlayingPage(
     var durationMs by remember { mutableLongStateOf(0L) }
     var speed by remember { mutableStateOf(library.preferences.playbackSpeed) }
     var speedMenu by remember { mutableStateOf(false) }
+    var queueOpen by remember { mutableStateOf(false) }
     val pagerState = rememberPagerState(initialPage = 0) { 2 }
 
     LaunchedEffect(controller) {
@@ -125,9 +127,14 @@ internal fun NowPlayingPage(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.now_playing), fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                actions = {
+                    if (track != null) {
+                        IconButton(onClick = { queueOpen = true }) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.QueueMusic,
+                                contentDescription = stringResource(R.string.play_queue),
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
@@ -136,7 +143,13 @@ internal fun NowPlayingPage(
     ) { padding ->
         if (track == null) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text(stringResource(R.string.choose_track_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(stringResource(R.string.choose_track_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = onOpenLibrary) {
+                        Text(stringResource(R.string.open_library))
+                    }
+                }
             }
             return@Scaffold
         }
@@ -169,7 +182,6 @@ internal fun NowPlayingPage(
                         track = track,
                         positionMs = positionMs,
                         onSeek = { controller?.seekTo(it) },
-                        preferEmbedded = library.preferences.preferEmbeddedLyrics,
                         autoLoadExternal = library.preferences.autoLoadLyrics,
                     )
                 }
@@ -345,6 +357,10 @@ internal fun NowPlayingPage(
             Spacer(Modifier.height(24.dp))
         }
     }
+
+    if (queueOpen) {
+        QueueSheet(library, controller, onDismiss = { queueOpen = false })
+    }
 }
 
 private fun speedLabel(speed: Float): String =
@@ -389,16 +405,15 @@ private fun LyricsView(
     track: AudioTrack,
     positionMs: Long,
     onSeek: (Long) -> Unit,
-    preferEmbedded: Boolean,
     autoLoadExternal: Boolean,
 ) {
     val context = LocalContext.current
     var cues by remember { mutableStateOf<List<SubtitleCue>>(emptyList()) }
-    LaunchedEffect(track.uri, preferEmbedded, autoLoadExternal) {
+    LaunchedEffect(track.uri, autoLoadExternal) {
         cues = withContext(Dispatchers.IO) {
-            runCatching { PreviewLyrics.load(context, track, preferEmbedded, autoLoadExternal) }
-                .getOrDefault(PreviewLyrics.Timeline(emptyList(), false))
-        }.cues
+            runCatching { PreviewLyrics.load(context, track, autoLoadExternal) }
+                .getOrDefault(emptyList())
+        }
     }
     val currentIndex = cues.indexOfLast { cue ->
         positionMs >= cue.startMs && (cue.endMs == PreviewLyrics.NO_END || positionMs < cue.endMs)
@@ -569,7 +584,7 @@ internal fun QueueSheet(library: LibraryState, controller: MediaController?, onD
                     track?.let {
                         IconButton(onClick = { playNextAfterCurrent(controller, it, entry.index) }) {
                             Icon(
-                                Icons.Filled.PlaylistAdd,
+                                Icons.AutoMirrored.Filled.PlaylistAdd,
                                 contentDescription = stringResource(R.string.play_next),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

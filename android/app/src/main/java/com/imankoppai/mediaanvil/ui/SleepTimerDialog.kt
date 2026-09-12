@@ -81,11 +81,11 @@ internal fun SleepTimerDialog(
         },
         confirmButton = {
             TextButton(onClick = { onStart(total); onDismiss() }, enabled = total > 0) {
-                Text(stringResource(R.string.crop_confirm))
+                Text(stringResource(R.string.confirm))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.crop_cancel)) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         },
     )
 }

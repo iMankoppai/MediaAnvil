@@ -1,6 +1,5 @@
 package com.imankoppai.mediaanvil.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,24 +7,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.MergeType
-import androidx.compose.material.icons.filled.ContentCut
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Sell
-import androidx.compose.material.icons.filled.SyncAlt
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -42,131 +30,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.session.MediaController
 import com.imankoppai.mediaanvil.ui.theme.ThemeController
 import com.imankoppai.mediaanvil.R
-import com.imankoppai.mediaanvil.model.AudioTrack
 import com.imankoppai.mediaanvil.playback.EqController
-import com.imankoppai.mediaanvil.tools.AudioConverter
-import com.imankoppai.mediaanvil.tools.ImageTarget
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-
-/** Tools hub mirroring the desktop sidebar's tool pages. */
-@Composable
-internal fun ToolsHubPage(
-    library: LibraryState,
-    onOpenEditor: (AudioTrack?) -> Unit,
-    onOpenTool: (ToolKind) -> Unit,
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var message by remember { mutableStateOf<String?>(null) }
-
-    data class HubEntry(
-        val icon: ImageVector,
-        val title: String,
-        val subtitle: String,
-        val onClick: () -> Unit,
-    )
-
-    val entries = listOf(
-        HubEntry(
-            Icons.Filled.Sell,
-            stringResource(R.string.tab_tag_editor),
-            stringResource(R.string.tool_edit_tags_sub),
-        ) { onOpenEditor(library.selectedTrack) },
-        HubEntry(
-            Icons.Filled.Description,
-            stringResource(R.string.tool_lyrics_convert),
-            stringResource(R.string.tool_lyrics_convert_sub),
-        ) { onOpenTool(ToolKind.LyricsConvert) },
-        HubEntry(
-            Icons.Filled.SyncAlt,
-            stringResource(R.string.tool_audio_convert),
-            stringResource(R.string.tool_audio_convert_sub),
-        ) { onOpenTool(ToolKind.AudioConvert) },
-        HubEntry(
-            Icons.Filled.Image,
-            stringResource(R.string.tool_image_convert),
-            stringResource(R.string.tool_image_convert_sub),
-        ) { onOpenTool(ToolKind.ImageConvert) },
-        HubEntry(
-            Icons.Filled.ContentCut,
-            stringResource(R.string.tool_audio_clip),
-            stringResource(R.string.tool_audio_clip_sub),
-        ) { onOpenTool(ToolKind.AudioClip) },
-        HubEntry(
-            Icons.AutoMirrored.Filled.MergeType,
-            stringResource(R.string.tool_audio_merge),
-            stringResource(R.string.tool_audio_merge_sub),
-        ) { onOpenTool(ToolKind.AudioMerge) },
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp),
-    ) {
-        Text(
-            stringResource(R.string.tab_tools),
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(vertical = 12.dp),
-        )
-        entries.forEach { entry ->
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(enabled = true, onClick = entry.onClick)
-                        .padding(horizontal = 14.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        entry.icon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(26.dp),
-                    )
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(entry.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            entry.subtitle,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Icon(
-                        Icons.Filled.KeyboardArrowRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-        message?.let {
-            Text(
-                it,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(vertical = 8.dp),
-            )
-        }
-    }
-}
 
 @Composable
 internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
@@ -283,21 +155,6 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
         }
 
         SettingsCard(title = stringResource(R.string.settings_playback_section)) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.prefer_embedded), style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        stringResource(R.string.prefer_embedded_hint),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = library.preferences.preferEmbeddedLyrics,
-                    onCheckedChange = { library.preferences.preferEmbeddedLyrics = it },
-                )
-            }
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.weight(1f)) {
                     Text(stringResource(R.string.auto_load_lyrics), style = MaterialTheme.typography.bodyMedium)
@@ -457,24 +314,6 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
             }
         }
 
-        SettingsCard(title = stringResource(R.string.settings_lyrics_section)) {
-            Text(stringResource(R.string.settings_lrc_tail), style = MaterialTheme.typography.bodyMedium)
-            androidx.compose.foundation.lazy.LazyRow(
-                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
-                modifier = Modifier.padding(top = 8.dp),
-            ) {
-                items(5) { index ->
-                    val seconds = listOf(2, 3, 5, 8, 10)[index]
-                    FilterChip(
-                        selected = library.preferences.lrcTailSeconds == seconds,
-                        onClick = { library.preferences.lrcTailSeconds = seconds },
-                        label = { Text(stringResource(R.string.lrc_tail_seconds, seconds)) },
-                    )
-                }
-            }
-        }
-
         SettingsCard(title = stringResource(R.string.settings_scan_section)) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.weight(1f)) {
@@ -491,53 +330,6 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
                         library.preferences.includeSubfolders = checked
                         library.rescan(quiet = true)
                     },
-                )
-            }
-        }
-
-        SettingsCard(title = stringResource(R.string.settings_convert_section)) {
-            Text(stringResource(R.string.settings_default_audio_format), style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                AudioConverter.targets.forEach { target ->
-                    val ext = target.extension
-                    FilterChip(
-                        selected = library.preferences.audioConvertTarget == ext,
-                        onClick = { library.preferences.audioConvertTarget = ext },
-                        label = { Text(ext.uppercase()) },
-                    )
-                }
-            }
-            Text(
-                stringResource(R.string.settings_default_image_format),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 12.dp),
-            )
-            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                ImageTarget.entries.forEach { target ->
-                    FilterChip(
-                        selected = library.preferences.imageConvertTarget == target.extension,
-                        onClick = { library.preferences.imageConvertTarget = target.extension },
-                        label = { Text(target.extension.uppercase()) },
-                    )
-                }
-            }
-        }
-
-        SettingsCard(title = stringResource(R.string.settings_save_section)) {
-            Text(
-                stringResource(R.string.settings_default_save_mode),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                FilterChip(
-                    selected = !library.preferences.defaultOverwrite,
-                    onClick = { library.preferences.defaultOverwrite = false },
-                    label = { Text(stringResource(R.string.save_as)) },
-                )
-                FilterChip(
-                    selected = library.preferences.defaultOverwrite,
-                    onClick = { library.preferences.defaultOverwrite = true },
-                    label = { Text(stringResource(R.string.overwrite_original)) },
                 )
             }
         }
