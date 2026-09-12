@@ -1,8 +1,9 @@
 # MediaAnvil 1.0
 
-[![Release](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?label=release)](https://github.com/iMankoppai/MediaAnvil/releases/latest)
+[![Stable](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?label=stable)](https://github.com/iMankoppai/MediaAnvil/releases)
+[![Pre-release](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?include_prereleases&label=pre-release)](https://github.com/iMankoppai/MediaAnvil/releases)
 [![License](https://img.shields.io/github/license/iMankoppai/MediaAnvil)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows-1677ff)](https://github.com/iMankoppai/MediaAnvil/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-Windows-1677ff)](https://github.com/iMankoppai/MediaAnvil/releases)
 
 MediaAnvil is a local media toolbox for Windows. It provides a Qt desktop interface, processes media files entirely on your computer, preserves source files by default, and offers both Simplified Chinese and English interfaces.
 
@@ -71,6 +72,13 @@ Configure save behavior, conversion quality, lyrics preview, and file scanning i
 - The application prevents the window from closing while background work is still running, reducing the risk of interrupted writes.
 
 ## Run the Windows release
+
+| Version | Platform | Notes |
+| --- | --- | --- |
+| [v1.2.0-alpha.2](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.2.0-alpha.2) | Windows x64 · Android | **Latest preview**: waveform clipping, equalizer, library upgrades |
+| [v1.1](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.1) | Windows x64 · Android | Latest stable |
+
+Previews include work-in-progress features and may be unstable; pick the stable release for daily use. See [Releases](https://github.com/iMankoppai/MediaAnvil/releases) for all versions.
 
 Download and extract the complete `MediaAnvilQt` folder, then run:
 
