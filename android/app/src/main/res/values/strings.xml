@@ -87,12 +87,13 @@
     <string name="tool_lyrics_convert">Lyrics / subtitles</string>
     <string name="tool_lyrics_convert_sub">Convert between LRC, SRT, and VTT</string>
     <string name="tool_audio_convert">Audio conversion</string>
-    <string name="tool_audio_convert_sub">Batch convert to M4A, FLAC, OGG</string>
+    <string name="tool_audio_convert_sub">Batch convert to M4A (AAC, with bitrate choice)</string>
     <string name="tool_image_convert">Image conversion</string>
     <string name="tool_image_convert_sub">Batch convert JPG, PNG, WebP, BMP</string>
     <string name="tool_audio_clip">Audio clipping</string>
     <string name="tool_audio_clip_sub">Extract a segment and save it as M4A</string>
 
+    <string name="convert_bitrate_label">AAC bitrate</string>
     <string name="convert_target_label">Target format</string>
     <string name="pick_files">Pick files</string>
     <string name="picked_count">%1$d files selected</string>
@@ -101,7 +102,7 @@
     <string name="convert_done">Converted</string>
     <string name="convert_failed">Failed</string>
     <string name="outside_tree_hint">Some selected files are outside the granted folder and cannot be saved automatically. Pick them from the granted folder.</string>
-    <string name="audio_convert_note">Audio conversion uses the system encoders; MP3 output is not supported yet. Files already in the target format are skipped. Outputs are saved next to each source.</string>
+    <string name="audio_convert_note">Audio conversion uses the system AAC encoder and saves next to each source; files already in the target format are skipped. FLAC and OGG export are not available on Android yet, and MP3 encoding is not provided by the platform.</string>
     <string name="clip_note">The selected segment is re-encoded to M4A with the system encoder and saved next to the source. Clipping may take a moment.</string>
     <string name="clip_computing">Computing waveform…</string>
     <string name="clip_waveform_hint">Drag the two handles to choose the segment, drag inside it to move it. While previewing, tap the waveform to jump the playhead.</string>

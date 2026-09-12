@@ -149,6 +149,13 @@ class PlaybackPreferences(context: Context) {
             preferences.edit().putInt("loudness_gain_db", value).apply()
         }
 
+    /** Audio conversion AAC bitrate in kbps (128/192/256). */
+    var audioConvertBitrateKbps: Int
+        get() = preferences.getInt("audio_convert_bitrate_kbps", 192)
+        set(value) {
+            preferences.edit().putInt("audio_convert_bitrate_kbps", value).apply()
+        }
+
     /** Media button double press action: "" = next track, "previous", "speed", "none". */
     var doublePressAction: String
         get() = preferences.getString("double_press_action", "") ?: ""

@@ -273,7 +273,13 @@ private fun runSubtitleConvert(
 private fun AudioConvertTool(library: LibraryState) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var targetExt by remember { mutableStateOf(library.preferences.audioConvertTarget) }
+    var targetExt by remember {
+        mutableStateOf(
+            library.preferences.audioConvertTarget.takeIf { AudioConverter.targetFor(it) != null }
+                ?: AudioConverter.targets.first().extension,
+        )
+    }
+    var bitrateKbps by remember { mutableStateOf(library.preferences.audioConvertBitrateKbps) }
     var picked by remember { mutableStateOf<List<ScannedFile>>(emptyList()) }
     var running by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf("") }
@@ -291,6 +297,26 @@ private fun AudioConvertTool(library: LibraryState) {
         FormatChips(AudioConverter.targets.map { it.extension }, targetExt) {
             targetExt = it
             library.preferences.audioConvertTarget = it
+        }
+        if (targetExt == "m4a") {
+            Text(
+                stringResource(R.string.convert_bitrate_label),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                AudioConverter.aacBitratesKbps.forEach { kbps ->
+                    FilterChip(
+                        selected = bitrateKbps == kbps,
+                        onClick = {
+                            bitrateKbps = kbps
+                            library.preferences.audioConvertBitrateKbps = kbps
+                        },
+                        label = { Text("${kbps}k") },
+                    )
+                }
+            }
         }
         OutlinedButton(onClick = { picker.launch(arrayOf("audio/*")) }) { Text(stringResource(R.string.pick_files)) }
         if (picked.isNotEmpty()) {
@@ -312,7 +338,7 @@ private fun AudioConvertTool(library: LibraryState) {
                             val target = AudioConverter.targetFor(targetExt) ?: error("unknown_target")
                             val sourceCache = DocumentOps.copyToCache(context, file.uri, file.name)
                             try {
-                                val converted = AudioConverter.convert(context, android.net.Uri.fromFile(sourceCache), target)
+                                val converted = AudioConverter.convert(context, android.net.Uri.fromFile(sourceCache), target, bitrateKbps)
                                 try {
                                     TagIO.preserveTags(sourceCache, converted)
                                     DocumentOps.saveConvertedDocument(context, parent, file.name, target.extension, converted)
