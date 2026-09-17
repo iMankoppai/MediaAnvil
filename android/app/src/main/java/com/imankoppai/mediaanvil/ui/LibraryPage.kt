@@ -1,5 +1,6 @@
 package com.imankoppai.mediaanvil.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,10 +25,6 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Album
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
@@ -34,6 +32,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,6 +47,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,6 +67,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.imankoppai.mediaanvil.R
 import com.imankoppai.mediaanvil.model.AudioTrack
+import com.imankoppai.mediaanvil.model.TrackGroup
 import com.imankoppai.mediaanvil.subtitles.PreviewLyrics
 import com.imankoppai.mediaanvil.subtitles.SubtitleLoader
 import kotlinx.coroutines.Dispatchers
@@ -74,9 +76,7 @@ import kotlinx.coroutines.withContext
 
 private val libraryTabs = listOf(
     R.string.tab_music,
-    R.string.tab_recent,
-    R.string.tab_favorites,
-    R.string.tab_folders,
+    R.string.tab_groups,
 )
 
 private enum class MusicView { Songs, Albums, Artists }
@@ -86,8 +86,9 @@ private enum class MusicView { Songs, Albums, Artists }
 internal fun LibraryPage(
     library: LibraryState,
     controller: androidx.media3.session.MediaController?,
-    onPickFolder: () -> Unit,
+    onRequestStorageAccess: () -> Unit,
     onOpenPlayer: () -> Unit,
+    onEditTrack: (AudioTrack) -> Unit,
 ) {
     val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(0) }
@@ -95,7 +96,7 @@ internal fun LibraryPage(
     var searchQuery by remember { mutableStateOf("") }
     var menuOpen by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
-    var openFolder by remember { mutableStateOf<String?>(null) }
+    var openTrackGroupId by remember { mutableStateOf<String?>(null) }
     var queueOpen by remember { mutableStateOf(false) }
     var musicView by remember { mutableStateOf(MusicView.Songs) }
     var openGroup by remember { mutableStateOf<String?>(null) }
@@ -105,7 +106,7 @@ internal fun LibraryPage(
             delay(500)
             controller?.let { player ->
                 isPlaying = player.isPlaying
-                // The player queue may be a filtered subset (favorites, search,
+                // The player queue may be a filtered subset (group, search,
                 // album groups, shuffle order); map by media id instead of
                 // treating its index as an index into the full track list.
                 val currentId = player.currentMediaItem?.mediaId
@@ -118,6 +119,10 @@ internal fun LibraryPage(
     }
 
     var sortMode by remember { mutableStateOf(library.preferences.librarySort) }
+
+    BackHandler(enabled = selectedTab == 1 && openTrackGroupId != null) {
+        openTrackGroupId = null
+    }
 
     val filtered = remember(library.tracks, searchQuery, sortMode) {
         val matched = library.tracks.filter { track ->
@@ -134,12 +139,6 @@ internal fun LibraryPage(
         }
     }
 
-    val recentTracks = remember(library.recentUris, library.tracks) {
-        library.recentUris.mapNotNull { uri -> library.tracks.firstOrNull { it.uri.toString() == uri } }
-    }
-    val favoriteTracks = remember(library.favorites, library.tracks) {
-        library.tracks.filter { it.uri.toString() in library.favorites }
-    }
     val unknownAlbumLabel = stringResource(R.string.unknown_album)
     val unknownArtistLabel = stringResource(R.string.unknown_artist)
     val albumGroups = remember(library.tracks, unknownAlbumLabel) {
@@ -162,8 +161,9 @@ internal fun LibraryPage(
             onSearchQueryChange = { searchQuery = it },
             menuOpen = menuOpen,
             onMenuOpenChange = { menuOpen = it },
-            onPickFolder = onPickFolder,
             onRescan = { library.rescan() },
+            hiddenTrackCount = library.hiddenTrackUris.size,
+            onRestoreHiddenTracks = { library.restoreHiddenTracks() },
             sortLabelText = sortLabel(sortMode),
             onSortCycle = {
                 sortMode = when (sortMode) {
@@ -191,24 +191,12 @@ internal fun LibraryPage(
         }
 
         when (selectedTab) {
-            3 -> FolderView(
-                library = library,
-                onPickFolder = onPickFolder,
-                openFolder = openFolder,
-                onOpenFolder = { openFolder = it },
-                controller = controller,
-            )
-            1 -> TrackListView(
-                tracks = recentTracks,
+            1 -> TrackGroupView(
                 library = library,
                 controller = controller,
-                emptyText = stringResource(R.string.recent_empty),
-            )
-            2 -> TrackListView(
-                tracks = favoriteTracks,
-                library = library,
-                controller = controller,
-                emptyText = stringResource(R.string.favorites_empty),
+                openGroupId = openTrackGroupId,
+                onOpenGroup = { openTrackGroupId = it },
+                onEditTrack = onEditTrack,
             )
             else -> Column(Modifier.fillMaxSize()) {
                 if (library.loading) {
@@ -232,7 +220,7 @@ internal fun LibraryPage(
                 }
 
                 when {
-                    library.tracks.isEmpty() && !library.loading -> EmptyLibrary(onPickFolder)
+                    library.tracks.isEmpty() && !library.loading -> EmptyLibrary(onRequestStorageAccess)
                     else -> {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -272,9 +260,9 @@ internal fun LibraryPage(
                                         TrackRow(
                                             track = track,
                                             current = track.uri == library.selectedTrack?.uri,
-                                            favorite = library.isFavorite(track.uri),
-                                            onToggleFavorite = { library.toggleFavorite(track.uri) },
                                             onClick = { playFromLibrary(library, controller, filtered.indexOf(track), filtered) },
+                                            onEdit = { onEditTrack(track) },
+                                            onRemoveFromPlayer = { removeTrackFromPlayer(library, controller, track) },
                                         )
                                     }
                                     item { Spacer(Modifier.height(96.dp)) }
@@ -287,6 +275,7 @@ internal fun LibraryPage(
                                 groupIcon = Icons.Filled.Album,
                                 library = library,
                                 controller = controller,
+                                onEditTrack = onEditTrack,
                             )
                             MusicView.Artists -> GroupBrowser(
                                 groups = artistGroups,
@@ -295,6 +284,7 @@ internal fun LibraryPage(
                                 groupIcon = Icons.Filled.Person,
                                 library = library,
                                 controller = controller,
+                                onEditTrack = onEditTrack,
                             )
                         }
                     }
@@ -333,8 +323,9 @@ private fun TopBar(
     onSearchQueryChange: (String) -> Unit,
     menuOpen: Boolean,
     onMenuOpenChange: (Boolean) -> Unit,
-    onPickFolder: () -> Unit,
     onRescan: () -> Unit,
+    hiddenTrackCount: Int,
+    onRestoreHiddenTracks: () -> Unit,
     onSortCycle: () -> Unit,
     sortLabelText: String,
 ) {
@@ -372,19 +363,21 @@ private fun TopBar(
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.choose_folder)) },
-                            onClick = {
-                                onMenuOpenChange(false)
-                                onPickFolder()
-                            },
-                        )
-                        DropdownMenuItem(
                             text = { Text(stringResource(R.string.rescan)) },
                             onClick = {
                                 onMenuOpenChange(false)
                                 onRescan()
                             },
                         )
+                        if (hiddenTrackCount > 0) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.restore_hidden_tracks, hiddenTrackCount)) },
+                                onClick = {
+                                    onMenuOpenChange(false)
+                                    onRestoreHiddenTracks()
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -403,168 +396,273 @@ private fun TopBar(
 }
 
 @Composable
-private fun FolderView(
+private fun TrackGroupView(
     library: LibraryState,
-    onPickFolder: () -> Unit,
-    openFolder: String?,
-    onOpenFolder: (String?) -> Unit,
     controller: androidx.media3.session.MediaController?,
+    openGroupId: String?,
+    onOpenGroup: (String?) -> Unit,
+    onEditTrack: (AudioTrack) -> Unit,
 ) {
-    if (openFolder == null) {
-        Column(Modifier.fillMaxSize()) {
-        Row(
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        ) {
-            Text(
-                stringResource(R.string.folder_roots),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
-            )
-            androidx.compose.material3.TextButton(onClick = onPickFolder) {
-                Icon(Icons.Filled.Add, contentDescription = null)
-                Spacer(Modifier.width(4.dp))
-                Text(stringResource(R.string.folder_add))
-            }
-        }
-        library.folders.forEach { root ->
-            Row(
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            ) {
-                Icon(
-                    Icons.Filled.Folder,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(end = 8.dp),
-                )
-                Text(
-                    root.lastPathSegment ?: root.toString(),
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = { library.removeFolder(root) }) {
-                    Icon(
-                        Icons.Filled.Close,
-                        contentDescription = stringResource(R.string.folder_remove),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        val folders = remember(library.tracks) {
-            library.tracks.groupBy { it.parentPath }
-                .map { (path, tracks) -> path to tracks }
-                .sortedBy { it.first }
-        }
-        if (folders.isEmpty()) {
-            SectionPlaceholder(stringResource(R.string.no_tracks))
-        } else {
-            LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-                itemsIndexed(folders) { _, folder ->
-                    val (path, tracks) = folder
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .clickable { onOpenFolder(path) }
-                            .padding(horizontal = 8.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Filled.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                path.ifEmpty { stringResource(R.string.folder_root) },
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                stringResource(R.string.folder_track_count, tracks.size),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Icon(
-                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                item { Spacer(Modifier.height(96.dp)) }
-            }
-        }
-        }
-    } else {
+    var editingNameFor by remember { mutableStateOf<String?>(null) }
+    var nameInput by remember { mutableStateOf("") }
+    var nameError by remember { mutableStateOf(false) }
+    var selectingTracksFor by remember { mutableStateOf<String?>(null) }
+
+    fun openNameDialog(group: TrackGroup?) {
+        editingNameFor = group?.id ?: ""
+        nameInput = group?.name.orEmpty()
+        nameError = false
+    }
+
+    val openGroup = library.trackGroups.firstOrNull { it.id == openGroupId }
+    if (openGroupId != null && openGroup == null) {
+        LaunchedEffect(openGroupId) { onOpenGroup(null) }
+    }
+
+    if (openGroup == null) {
         Column(Modifier.fillMaxSize()) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onOpenFolder(null) }
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = stringResource(R.string.back),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.width(8.dp))
                 Text(
-                    openFolder.ifEmpty { stringResource(R.string.folder_root) },
+                    stringResource(R.string.groups_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { openNameDialog(null) }) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Spacer(Modifier.width(4.dp))
+                    Text(stringResource(R.string.group_create))
+                }
+            }
+            if (library.trackGroups.isEmpty()) {
+                SectionPlaceholder(stringResource(R.string.groups_empty))
+            } else {
+                LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+                    itemsIndexed(library.trackGroups, key = { _, group -> group.id }) { _, group ->
+                        val availableCount = library.tracks.count { it.uri.toString() in group.trackUris }
+                        var menuOpen by remember(group.id) { mutableStateOf(false) }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { onOpenGroup(group.id) }
+                                .padding(start = 8.dp, top = 10.dp, bottom = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(group.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    stringResource(R.string.folder_track_count, availableCount),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Box {
+                                IconButton(onClick = { menuOpen = true }) {
+                                    Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.group_manage))
+                                }
+                                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.group_rename)) },
+                                        onClick = {
+                                            menuOpen = false
+                                            openNameDialog(group)
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.group_delete)) },
+                                        onClick = {
+                                            menuOpen = false
+                                            library.deleteGroup(group.id)
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    item { Spacer(Modifier.height(96.dp)) }
+                }
+            }
+        }
+    } else {
+        val groupTracks = remember(library.tracks, openGroup.trackUris) {
+            library.tracks.filter { it.uri.toString() in openGroup.trackUris }
+        }
+        var menuOpen by remember(openGroup.id) { mutableStateOf(false) }
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = { onOpenGroup(null) }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                }
+                Text(
+                    openGroup.name,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
-            }
-            val folderTracks = library.tracks.filter { it.parentPath == openFolder }
-            LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-                itemsIndexed(folderTracks, key = { _, track -> track.uri.toString() }) { _, track ->
-                    TrackRow(
-                        track = track,
-                        current = track.uri == library.selectedTrack?.uri,
-                        favorite = library.isFavorite(track.uri),
-                        onToggleFavorite = { library.toggleFavorite(track.uri) },
-                        onClick = { playFromLibrary(library, controller, folderTracks.indexOf(track), folderTracks) },
-                    )
+                TextButton(onClick = { selectingTracksFor = openGroup.id }) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Text(stringResource(R.string.group_add_tracks))
                 }
-                item { Spacer(Modifier.height(96.dp)) }
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.group_manage))
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.group_rename)) },
+                            onClick = {
+                                menuOpen = false
+                                openNameDialog(openGroup)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.group_delete)) },
+                            onClick = {
+                                menuOpen = false
+                                library.deleteGroup(openGroup.id)
+                                onOpenGroup(null)
+                            },
+                        )
+                    }
+                }
             }
+            if (groupTracks.isEmpty()) {
+                SectionPlaceholder(stringResource(R.string.group_tracks_empty))
+            } else {
+                LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+                    itemsIndexed(groupTracks, key = { _, track -> track.uri.toString() }) { _, track ->
+                        TrackRow(
+                            track = track,
+                            current = track.uri == library.selectedTrack?.uri,
+                            onClick = { playFromLibrary(library, controller, groupTracks.indexOf(track), groupTracks) },
+                            onEdit = { onEditTrack(track) },
+                            onRemoveFromGroup = { library.removeTrackFromGroup(openGroup.id, track.uri) },
+                            onRemoveFromPlayer = { removeTrackFromPlayer(library, controller, track) },
+                        )
+                    }
+                    item { Spacer(Modifier.height(96.dp)) }
+                }
+            }
+        }
+    }
+
+    editingNameFor?.let { groupId ->
+        AlertDialog(
+            onDismissRequest = { editingNameFor = null },
+            title = { Text(stringResource(if (groupId.isEmpty()) R.string.group_create else R.string.group_rename)) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = nameInput,
+                        onValueChange = {
+                            nameInput = it
+                            nameError = false
+                        },
+                        label = { Text(stringResource(R.string.group_name)) },
+                        singleLine = true,
+                        isError = nameError,
+                    )
+                    if (nameError) {
+                        Text(
+                            stringResource(R.string.group_name_error),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val saved = if (groupId.isEmpty()) library.createGroup(nameInput)
+                    else library.renameGroup(groupId, nameInput)
+                    if (saved) editingNameFor = null else nameError = true
+                }) { Text(stringResource(R.string.save)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingNameFor = null }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
+
+    selectingTracksFor?.let { groupId ->
+        library.trackGroups.firstOrNull { it.id == groupId }?.let { group ->
+            GroupTrackPicker(
+                group = group,
+                tracks = library.tracks,
+                onSave = {
+                    library.setGroupTracks(group.id, it)
+                    selectingTracksFor = null
+                },
+                onDismiss = { selectingTracksFor = null },
+            )
         }
     }
 }
 
 @Composable
-private fun TrackListView(
+private fun GroupTrackPicker(
+    group: TrackGroup,
     tracks: List<AudioTrack>,
-    library: LibraryState,
-    controller: androidx.media3.session.MediaController?,
-    emptyText: String,
+    onSave: (Set<String>) -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    if (tracks.isEmpty()) {
-        SectionPlaceholder(emptyText)
-    } else {
-        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-            itemsIndexed(tracks, key = { _, track -> track.uri.toString() }) { _, track ->
-                TrackRow(
-                    track = track,
-                    current = track.uri == library.selectedTrack?.uri,
-                    favorite = library.isFavorite(track.uri),
-                    onToggleFavorite = { library.toggleFavorite(track.uri) },
-                    onClick = { playFromLibrary(library, controller, tracks.indexOf(track), tracks) },
-                )
+    var selected by remember(group.id, group.trackUris) { mutableStateOf(group.trackUris) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.group_choose_tracks, group.name)) },
+        text = {
+            if (tracks.isEmpty()) {
+                Text(stringResource(R.string.no_tracks))
+            } else {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 440.dp)) {
+                    itemsIndexed(tracks, key = { _, track -> track.uri.toString() }) { _, track ->
+                        val key = track.uri.toString()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { selected = if (key in selected) selected - key else selected + key }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = key in selected,
+                                onCheckedChange = { checked ->
+                                    selected = if (checked) selected + key else selected - key
+                                },
+                            )
+                            Column(Modifier.weight(1f)) {
+                                Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    track.artist ?: stringResource(R.string.unknown_artist),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
             }
-            item { Spacer(Modifier.height(96.dp)) }
-        }
-    }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(selected) }) { Text(stringResource(R.string.save)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
 }
 
 @Composable
@@ -575,6 +673,7 @@ private fun GroupBrowser(
     groupIcon: ImageVector,
     library: LibraryState,
     controller: androidx.media3.session.MediaController?,
+    onEditTrack: (AudioTrack) -> Unit,
 ) {
     if (openGroup == null) {
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
@@ -642,9 +741,9 @@ private fun GroupBrowser(
                     TrackRow(
                         track = track,
                         current = track.uri == library.selectedTrack?.uri,
-                        favorite = library.isFavorite(track.uri),
-                        onToggleFavorite = { library.toggleFavorite(track.uri) },
                         onClick = { playFromLibrary(library, controller, groupTracks.indexOf(track), groupTracks) },
+                        onEdit = { onEditTrack(track) },
+                        onRemoveFromPlayer = { removeTrackFromPlayer(library, controller, track) },
                     )
                 }
                 item { Spacer(Modifier.height(96.dp)) }
@@ -657,10 +756,12 @@ private fun GroupBrowser(
 private fun TrackRow(
     track: AudioTrack,
     current: Boolean,
-    favorite: Boolean,
-    onToggleFavorite: (() -> Unit)?,
     onClick: () -> Unit,
+    onEdit: (() -> Unit)? = null,
+    onRemoveFromGroup: (() -> Unit)? = null,
+    onRemoveFromPlayer: (() -> Unit)? = null,
 ) {
+    var actionsOpen by remember(track.uri) { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -693,16 +794,56 @@ private fun TrackRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        onToggleFavorite?.let { toggle ->
-            IconButton(onClick = toggle) {
-                Icon(
-                    if (favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                    contentDescription = stringResource(if (favorite) R.string.unfavorite else R.string.favorite),
-                    tint = if (favorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        if (onEdit != null || onRemoveFromGroup != null || onRemoveFromPlayer != null) {
+            Box {
+                IconButton(onClick = { actionsOpen = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.track_actions))
+                }
+                DropdownMenu(expanded = actionsOpen, onDismissRequest = { actionsOpen = false }) {
+                    onEdit?.let { edit ->
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.edit_tags)) },
+                            onClick = {
+                                actionsOpen = false
+                                edit()
+                            },
+                        )
+                    }
+                    onRemoveFromGroup?.let { remove ->
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.remove_from_group)) },
+                            onClick = {
+                                actionsOpen = false
+                                remove()
+                            },
+                        )
+                    }
+                    onRemoveFromPlayer?.let { remove ->
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.remove_from_player)) },
+                            onClick = {
+                                actionsOpen = false
+                                remove()
+                            },
+                        )
+                    }
+                }
             }
         }
     }
+}
+
+private fun removeTrackFromPlayer(
+    library: LibraryState,
+    controller: androidx.media3.session.MediaController?,
+    track: AudioTrack,
+) {
+    controller?.let { player ->
+        val queueIndex = (0 until player.mediaItemCount)
+            .firstOrNull { player.getMediaItemAt(it).mediaId == track.uri.toString() }
+        if (queueIndex != null) player.removeMediaItem(queueIndex)
+    }
+    library.hideTrack(track.uri)
 }
 
 @Composable
@@ -797,7 +938,7 @@ private fun MiniPlayer(
 }
 
 @Composable
-private fun EmptyLibrary(onPickFolder: () -> Unit) {
+private fun EmptyLibrary(onRequestStorageAccess: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -810,9 +951,9 @@ private fun EmptyLibrary(onPickFolder: () -> Unit) {
             modifier = Modifier.size(64.dp),
         )
         Spacer(Modifier.height(12.dp))
-        Text(stringResource(R.string.choose_folder_hint), style = MaterialTheme.typography.bodyMedium)
+        Text(stringResource(R.string.storage_access_hint), style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(16.dp))
-        Button(onClick = onPickFolder) { Text(stringResource(R.string.choose_folder)) }
+        Button(onClick = onRequestStorageAccess) { Text(stringResource(R.string.storage_access_action)) }
     }
 }
 

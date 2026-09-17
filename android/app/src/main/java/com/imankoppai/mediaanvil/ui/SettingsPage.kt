@@ -1,5 +1,9 @@
 package com.imankoppai.mediaanvil.ui
 
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -37,8 +42,13 @@ import androidx.compose.ui.unit.dp
 import androidx.media3.session.MediaController
 import com.imankoppai.mediaanvil.ui.theme.ThemeController
 import com.imankoppai.mediaanvil.R
-import com.imankoppai.mediaanvil.playback.EqController
+import com.imankoppai.mediaanvil.data.PlayerDataBackup
+import com.imankoppai.mediaanvil.update.AppRelease
+import com.imankoppai.mediaanvil.update.AppUpdateChecker
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
@@ -47,6 +57,30 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
     var message by remember { mutableStateOf<String?>(null) }
     var sleepDialog by remember { mutableStateOf(false) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var seekBackSeconds by remember { mutableIntStateOf(library.preferences.seekBackSeconds) }
+    var seekForwardSeconds by remember { mutableIntStateOf(library.preferences.seekForwardSeconds) }
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var releaseInfo by remember { mutableStateOf<AppRelease?>(null) }
+    var pendingImport by remember { mutableStateOf<Uri?>(null) }
+    val currentVersion = remember {
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0"
+    }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { PlayerDataBackup.export(context, uri, library.preferences) }
+            }
+            message = context.getString(
+                if (result.isSuccess) R.string.backup_exported else R.string.backup_export_failed,
+            )
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> if (uri != null) pendingImport = uri }
     LaunchedEffect(library.sleepTimerEndAt) {
         nowMs = System.currentTimeMillis()
         while (library.sleepTimerEndAt != null) {
@@ -129,29 +163,6 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
                     label = { Text(stringResource(R.string.theme_dark)) },
                 )
             }
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            if (android.os.Build.VERSION.SDK_INT >= 31) {
-                SettingToggle(
-                    title = stringResource(R.string.theme_dynamic_color),
-                    hint = stringResource(R.string.theme_dynamic_color_hint),
-                    checked = ThemeController.useDynamicColor,
-                    onChange = {
-                        ThemeController.useDynamicColor = it
-                        library.preferences.useDynamicColor = it
-                    },
-                )
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            }
-            SettingToggle(
-                title = stringResource(R.string.theme_cover_color),
-                hint = stringResource(R.string.theme_cover_color_hint),
-                checked = ThemeController.useCoverColor,
-                onChange = {
-                    ThemeController.useCoverColor = it
-                    library.preferences.useCoverColor = it
-                    if (it) refreshCoverSeed(context, library, scope, controller?.currentMediaItem?.mediaId)
-                },
-            )
         }
 
         SettingsCard(title = stringResource(R.string.settings_playback_section)) {
@@ -169,6 +180,26 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
                     onCheckedChange = { library.preferences.autoLoadLyrics = it },
                 )
             }
+            HorizontalDivider(Modifier.padding(vertical = 10.dp))
+            SeekIntervalSetting(
+                title = stringResource(R.string.seek_back_setting),
+                selectedSeconds = seekBackSeconds,
+                choices = listOf(5, 10, 15, 30),
+                onSelected = {
+                    seekBackSeconds = it
+                    library.preferences.seekBackSeconds = it
+                },
+            )
+            Spacer(Modifier.height(10.dp))
+            SeekIntervalSetting(
+                title = stringResource(R.string.seek_forward_setting),
+                selectedSeconds = seekForwardSeconds,
+                choices = listOf(10, 15, 30, 60),
+                onSelected = {
+                    seekForwardSeconds = it
+                    library.preferences.seekForwardSeconds = it
+                },
+            )
         }
 
         val sleepRemaining = library.sleepTimerEndAt?.let { end ->
@@ -202,45 +233,13 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
             )
         }
 
-        SettingsCard(title = stringResource(R.string.settings_sound_section)) {
-            var gain by remember { mutableIntStateOf(library.preferences.loudnessGainDb) }
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.loudness_gain), style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.weight(1f))
-                Text(
-                    if (gain > 0) stringResource(R.string.loudness_gain_value, gain)
-                    else stringResource(R.string.loudness_gain_off),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-            androidx.compose.material3.Slider(
-                value = gain.toFloat(),
-                onValueChange = {
-                    gain = it.toInt()
-                    library.preferences.loudnessGainDb = gain
-                    com.imankoppai.mediaanvil.playback.LoudnessGain.setGain(gain)
-                },
-                valueRange = 0f..12f,
-                steps = 11,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Text(
-                stringResource(R.string.loudness_gain_hint),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
         SettingsCard(title = stringResource(R.string.headset_section)) {
             Text(stringResource(R.string.headset_double), style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
                 listOf(
                     "" to R.string.headset_double_next,
                     "previous" to R.string.headset_double_previous,
-                    "speed" to R.string.headset_double_speed,
-                    "none" to R.string.headset_double_none,
+                    "pause" to R.string.headset_double_pause,
                 ).forEach { (value, labelRes) ->
                     FilterChip(
                         selected = library.preferences.doublePressAction == value,
@@ -277,71 +276,58 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
             }
         }
 
-        SettingsCard(title = stringResource(R.string.settings_eq_section)) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    stringResource(R.string.settings_eq_enable),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                Switch(
-                    checked = EqController.enabled,
-                    onCheckedChange = { EqController.applyEnabled(it) },
-                )
-            }
-            if (EqController.presets.isEmpty()) {
-                Text(
-                    stringResource(R.string.eq_hint),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            } else {
-                androidx.compose.foundation.lazy.LazyRow(
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
-                    modifier = Modifier.padding(top = 8.dp),
-                ) {
-                    items(EqController.presets.size) { index ->
-                        FilterChip(
-                            selected = EqController.selectedPreset == index,
-                            onClick = { EqController.setPreset(index) },
-                            enabled = EqController.enabled,
-                            label = { Text(EqController.presets[index]) },
-                        )
-                    }
-                }
-            }
-        }
-
-        SettingsCard(title = stringResource(R.string.settings_scan_section)) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.include_subfolders), style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        stringResource(R.string.include_subfolders_hint),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = library.preferences.includeSubfolders,
-                    onCheckedChange = { checked ->
-                        library.preferences.includeSubfolders = checked
-                        library.rescan(quiet = true)
-                    },
-                )
+        SettingsCard(title = stringResource(R.string.settings_data_section)) {
+            Text(
+                stringResource(R.string.backup_hint),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(top = 10.dp),
+            ) {
+                OutlinedButton(onClick = {
+                    exportLauncher.launch("MediaAnvil-backup.json")
+                }) { Text(stringResource(R.string.backup_export)) }
+                OutlinedButton(onClick = {
+                    importLauncher.launch(arrayOf("application/json", "text/plain"))
+                }) { Text(stringResource(R.string.backup_import)) }
             }
         }
 
         SettingsCard(title = stringResource(R.string.settings_about_section)) {
-            Text("MediaAnvil Mobile 1.4", style = MaterialTheme.typography.bodyMedium)
+            Text("MediaAnvil Mobile $currentVersion", style = MaterialTheme.typography.bodyMedium)
             Text(
                 stringResource(R.string.local_only),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
             )
+            OutlinedButton(
+                enabled = !checkingUpdate,
+                onClick = {
+                    checkingUpdate = true
+                    message = null
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            runCatching { AppUpdateChecker.fetchLatest() }
+                        }
+                        checkingUpdate = false
+                        result.onSuccess { release ->
+                            if (AppUpdateChecker.isNewer(release.tagName, currentVersion)) {
+                                releaseInfo = release
+                            } else {
+                                message = context.getString(R.string.update_latest)
+                            }
+                        }.onFailure {
+                            message = context.getString(R.string.update_failed)
+                        }
+                    }
+                },
+                modifier = Modifier.padding(top = 10.dp),
+            ) {
+                Text(stringResource(if (checkingUpdate) R.string.update_checking else R.string.update_check))
+            }
         }
         message?.let {
             Text(
@@ -352,6 +338,85 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
             )
         }
         Spacer(Modifier.height(24.dp))
+    }
+
+
+    releaseInfo?.let { release ->
+        AlertDialog(
+            onDismissRequest = { releaseInfo = null },
+            title = { Text(stringResource(R.string.update_available, release.title)) },
+            text = {
+                Text(release.notes.ifBlank { stringResource(R.string.update_no_notes) })
+            },
+            confirmButton = {
+                Button(onClick = {
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.pageUrl)))
+                    }.onFailure { message = context.getString(R.string.update_open_failed) }
+                    releaseInfo = null
+                }) { Text(stringResource(R.string.update_download)) }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { releaseInfo = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
+    pendingImport?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { pendingImport = null },
+            title = { Text(stringResource(R.string.backup_import_confirm_title)) },
+            text = { Text(stringResource(R.string.backup_import_confirm_body)) },
+            confirmButton = {
+                Button(onClick = {
+                    pendingImport = null
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            runCatching { PlayerDataBackup.import(context, uri, library.preferences) }
+                        }
+                        if (result.isSuccess) {
+                            seekBackSeconds = library.preferences.seekBackSeconds
+                            seekForwardSeconds = library.preferences.seekForwardSeconds
+                            ThemeController.mode = library.preferences.themeMode
+                            library.reloadAfterPreferencesRestore()
+                            message = context.getString(R.string.backup_imported)
+                        } else {
+                            message = context.getString(R.string.backup_import_failed)
+                        }
+                    }
+                }) { Text(stringResource(R.string.confirm)) }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { pendingImport = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun SeekIntervalSetting(
+    title: String,
+    selectedSeconds: Int,
+    choices: List<Int>,
+    onSelected: (Int) -> Unit,
+) {
+    Text(title, style = MaterialTheme.typography.bodyMedium)
+    androidx.compose.foundation.lazy.LazyRow(
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(top = 6.dp),
+    ) {
+        items(choices.size) { index ->
+            val seconds = choices[index]
+            FilterChip(
+                selected = selectedSeconds == seconds,
+                onClick = { onSelected(seconds) },
+                label = { Text(stringResource(R.string.seconds_value, seconds)) },
+            )
+        }
     }
 }
 
@@ -371,20 +436,5 @@ private fun SettingsCard(title: String, content: @Composable androidx.compose.fo
             )
             content()
         }
-    }
-}
-
-@Composable
-private fun SettingToggle(title: String, hint: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                hint,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Switch(checked = checked, onCheckedChange = onChange)
     }
 }

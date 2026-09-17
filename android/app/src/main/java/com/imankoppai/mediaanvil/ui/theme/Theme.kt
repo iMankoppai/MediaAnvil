@@ -1,6 +1,5 @@
 package com.imankoppai.mediaanvil.ui.theme
 
-import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -9,9 +8,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import android.os.Build
-import androidx.annotation.RequiresApi
 
 // Desktop visual language: light blue canvas, white rounded cards, #1677FF accent.
 private val LightColors = lightColorScheme(
@@ -54,69 +50,22 @@ private val DarkColors = darkColorScheme(
     error = Color(0xFFFF8B90),
 )
 
-/** Cover-art seed shared between the player and the theme; null = use the fixed palette. */
-object ThemeSeed {
-    var coverColor by mutableStateOf<Color?>(null)
-}
-
 /** Observable mirror of the persisted theme prefs so toggles apply without recreation. */
 object ThemeController {
     var mode by mutableStateOf("")
-    var useDynamicColor by mutableStateOf(false)
-    var useCoverColor by mutableStateOf(false)
 
     fun load(preferences: com.imankoppai.mediaanvil.data.PlaybackPreferences) {
         mode = preferences.themeMode
-        useDynamicColor = preferences.useDynamicColor
-        useCoverColor = preferences.useCoverColor
     }
 }
-
-private fun mix(base: Color, target: Color, fraction: Float): Color = Color(
-    red = base.red + (target.red - base.red) * fraction,
-    green = base.green + (target.green - base.green) * fraction,
-    blue = base.blue + (target.blue - base.blue) * fraction,
-    alpha = 1f,
-)
-
-private fun onColorFor(color: Color): Color =
-    if (0.299 * color.red + 0.587 * color.green + 0.114 * color.blue > 0.6) Color.Black else Color.White
-
-/** Re-accent the base scheme with the cover color; backgrounds stay close to the base look. */
-private fun seededScheme(base: ColorScheme, seed: Color): ColorScheme = base.copy(
-    primary = seed,
-    onPrimary = onColorFor(seed),
-    primaryContainer = mix(base.background, seed, 0.28f),
-    onPrimaryContainer = mix(base.onBackground, seed, 0.55f),
-)
 
 @Composable
 fun MediaAnvilTheme(
     darkTheme: Boolean,
-    useDynamicColor: Boolean,
-    seedColor: Color?,
     content: @Composable () -> Unit,
 ) {
-    val context = LocalContext.current
-    val scheme = when {
-        useDynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        seedColor != null -> seededScheme(if (darkTheme) DarkColors else LightColors, seedColor)
-        darkTheme -> DarkColors
-        else -> LightColors
-    }
     MaterialTheme(
-        colorScheme = scheme,
+        colorScheme = if (darkTheme) DarkColors else LightColors,
         content = content,
     )
 }
-
-@Composable
-@RequiresApi(Build.VERSION_CODES.S)
-private fun dynamicLightColorScheme(context: android.content.Context): ColorScheme =
-    androidx.compose.material3.dynamicLightColorScheme(context)
-
-@Composable
-@RequiresApi(Build.VERSION_CODES.S)
-private fun dynamicDarkColorScheme(context: android.content.Context): ColorScheme =
-    androidx.compose.material3.dynamicDarkColorScheme(context)

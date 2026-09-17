@@ -46,7 +46,6 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         preferences = PlaybackPreferences(this)
-        EqController.init(preferences)
         val audioAttributes = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .setUsage(C.USAGE_MEDIA)
@@ -55,17 +54,10 @@ class PlaybackService : MediaSessionService() {
             .setAudioAttributes(audioAttributes, true)
             .build()
         player.addListener(object : Player.Listener {
-            override fun onAudioSessionIdChanged(audioSessionId: Int) {
-                EqController.attach(audioSessionId)
-                LoudnessGain.attach(audioSessionId, preferences.loudnessGainDb)
-            }
-
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 clearLoop()
             }
         })
-        EqController.attach(player.audioSessionId)
-        LoudnessGain.attach(player.audioSessionId, preferences.loudnessGainDb)
         mediaSession = MediaSession.Builder(this, player)
             .setCallback(object : MediaSession.Callback {
                 override fun onConnect(
@@ -141,14 +133,7 @@ class PlaybackService : MediaSessionService() {
             pendingSinglePress = null
             when (preferences.doublePressAction) {
                 "previous" -> player.seekToPreviousMediaItem()
-                "speed" -> {
-                    val speeds = floatArrayOf(1.0f, 1.25f, 1.5f, 2.0f, 0.75f)
-                    val index = speeds.indexOfFirst { it == player.playbackParameters.speed }
-                    val next = speeds[(index + 1).mod(speeds.size)]
-                    player.setPlaybackSpeed(next)
-                    preferences.playbackSpeed = next
-                }
-                "none" -> {}
+                "pause" -> player.pause()
                 else -> player.seekToNextMediaItem()
             }
             return
@@ -172,8 +157,6 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         clearLoop()
-        LoudnessGain.release()
-        EqController.release()
         mediaSession?.run {
             player.release()
             release()

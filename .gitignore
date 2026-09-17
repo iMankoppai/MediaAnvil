@@ -33,3 +33,8 @@ aqtinstall.log
 /*.png
 /*.webp
 /*.bmp
+
+# Android release-signing secrets
+android/signing.properties
+*.jks
+*.keystore

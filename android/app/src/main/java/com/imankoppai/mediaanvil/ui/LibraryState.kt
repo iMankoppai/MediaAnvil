@@ -1,22 +1,23 @@
 package com.imankoppai.mediaanvil.ui
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.imankoppai.mediaanvil.data.DocumentLibrary
+import com.imankoppai.mediaanvil.data.DeviceAudioLibrary
 import com.imankoppai.mediaanvil.data.LibraryCache
 import com.imankoppai.mediaanvil.data.LibraryScan
 import com.imankoppai.mediaanvil.data.PlaybackPreferences
 import com.imankoppai.mediaanvil.data.ScannedFile
 import com.imankoppai.mediaanvil.model.AudioTrack
+import com.imankoppai.mediaanvil.model.TrackGroup
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /** Shared folder library state used by both the playback and tag editor pages. */
 class LibraryState(context: Context, private val scope: CoroutineScope) {
@@ -59,73 +60,97 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
         sleepTimerEndAt = null
     }
 
-    /** Favorite track URIs (string forms), mirrored into preferences. */
-    var favorites by mutableStateOf(preferences.favorites)
+    /** User-created playlist-like groups, mirrored into preferences. */
+    var trackGroups by mutableStateOf(preferences.trackGroups)
         private set
 
-    /** Recently played track URIs, newest first. */
-    var recentUris by mutableStateOf(preferences.recentUris)
+    var hiddenTrackUris by mutableStateOf(preferences.hiddenTrackUris)
         private set
 
-    fun recordRecent(uri: String) {
-        val updated = (listOf(uri) + recentUris.filterNot { it == uri }).take(50)
-        recentUris = updated
-        preferences.recentUris = updated
-    }
-
-    fun toggleFavorite(uri: Uri) {
+    fun hideTrack(uri: Uri) {
         val key = uri.toString()
-        favorites = if (key in favorites) favorites - key else favorites + key
-        preferences.favorites = favorites
+        val selectedUri = selectedTrack?.uri
+        hiddenTrackUris = hiddenTrackUris + key
+        preferences.hiddenTrackUris = hiddenTrackUris
+        tracks = tracks.filterNot { it.uri == uri }
+        selectedIndex = tracks.indexOfFirst { it.uri == selectedUri }
     }
 
-    fun isFavorite(uri: Uri): Boolean = uri.toString() in favorites
+    fun restoreHiddenTracks() {
+        hiddenTrackUris = emptySet()
+        preferences.hiddenTrackUris = emptySet()
+        rescan(quiet = false)
+    }
+
+    fun reloadAfterPreferencesRestore() {
+        trackGroups = preferences.trackGroups
+        hiddenTrackUris = preferences.hiddenTrackUris
+        rescan(quiet = false)
+    }
+
+    fun createGroup(name: String): Boolean {
+        val clean = name.trim()
+        if (clean.isEmpty() || trackGroups.any { it.name.equals(clean, ignoreCase = true) }) return false
+        trackGroups = trackGroups + TrackGroup(java.util.UUID.randomUUID().toString(), clean, emptySet())
+        preferences.trackGroups = trackGroups
+        return true
+    }
+
+    fun renameGroup(id: String, name: String): Boolean {
+        val clean = name.trim()
+        if (clean.isEmpty() || trackGroups.any { it.id != id && it.name.equals(clean, ignoreCase = true) }) return false
+        trackGroups = trackGroups.map { if (it.id == id) it.copy(name = clean) else it }
+        preferences.trackGroups = trackGroups
+        return true
+    }
+
+    fun deleteGroup(id: String) {
+        trackGroups = trackGroups.filterNot { it.id == id }
+        preferences.trackGroups = trackGroups
+    }
+
+    fun setGroupTracks(id: String, uris: Set<String>) {
+        trackGroups = trackGroups.map { if (it.id == id) it.copy(trackUris = uris) else it }
+        preferences.trackGroups = trackGroups
+    }
+
+    fun removeTrackFromGroup(id: String, uri: Uri) {
+        val group = trackGroups.firstOrNull { it.id == id } ?: return
+        setGroupTracks(id, group.trackUris - uri.toString())
+    }
 
     val selectedTrack: AudioTrack? get() = tracks.getOrNull(selectedIndex)
 
-    /** Authorized library roots, aggregated into one library. */
-    var folders by mutableStateOf<List<Uri>>(emptyList())
-        private set
-
-    fun addFolder(uri: Uri, onLoaded: (Int) -> Unit = {}) {
-        runCatching {
-            appContext.contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
-            )
-        }.recoverCatching {
-            appContext.contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION,
-            )
+    fun attachLyrics(trackUri: Uri, lyricsFile: File) {
+        val selectedUri = selectedTrack?.uri
+        tracks = tracks.map { track ->
+            if (track.uri == trackUri) {
+                track.copy(subtitleUri = Uri.fromFile(lyricsFile), subtitleExtension = lyricsFile.extension.lowercase())
+            } else {
+                track
+            }
         }
-        folders = (folders + uri).distinct()
-        preferences.folders = folders
-        preferences.lastFolder = uri
-        scanAll(quiet = false, onLoaded = onLoaded)
+        selectedIndex = tracks.indexOfFirst { it.uri == selectedUri }
+        val currentFiles = files?.files.orEmpty()
+        files = LibraryScan(tracks, currentFiles)
+        LibraryCache.save(appContext, DEVICE_LIBRARY_URI, LibraryScan(tracks, currentFiles))
     }
 
-    fun removeFolder(uri: Uri) {
-        folders = folders - uri
-        preferences.folders = folders
-        scanAll(quiet = true)
-    }
-
-    private fun ensureFolders(): List<Uri> {
-        if (folders.isEmpty()) {
-            val migrated = listOfNotNull(preferences.lastFolder)
-            folders = migrated
-            preferences.folders = migrated
+    fun detachLyrics(trackUri: Uri) {
+        val selectedUri = selectedTrack?.uri
+        tracks = tracks.map { track ->
+            if (track.uri == trackUri) track.copy(subtitleUri = null, subtitleExtension = null) else track
         }
-        return folders
+        selectedIndex = tracks.indexOfFirst { it.uri == selectedUri }
+        val currentFiles = files?.files.orEmpty()
+        files = LibraryScan(tracks, currentFiles)
+        LibraryCache.save(appContext, DEVICE_LIBRARY_URI, LibraryScan(tracks, currentFiles))
     }
 
     /** Show the cached library instantly, then refresh quietly in the background. */
     fun startup() {
-        val roots = ensureFolders()
         val snapshot = LibraryCache.load(appContext)
-        val cacheRoot = roots.firstOrNull()
-        if (snapshot != null && cacheRoot != null && cacheRoot == snapshot.treeUri) {
+        if (snapshot != null && snapshot.treeUri == DEVICE_LIBRARY_URI) {
             tracks = snapshot.tracks.map { record ->
                 com.imankoppai.mediaanvil.model.AudioTrack(
                     uri = record.uri,
@@ -138,7 +163,7 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
                     subtitleExtension = record.subtitleExtension,
                     parentPath = record.parentPath,
                 )
-            }
+            }.filterNot { it.uri.toString() in hiddenTrackUris }
             files = LibraryScan(
                 tracks = emptyList(),
                 files = snapshot.files.map { ScannedFile(it.uri, it.name, it.parentPath) },
@@ -146,7 +171,7 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
             if (!LibraryCache.isFresh(snapshot)) {
                 scanAll(quiet = true)
             }
-        } else if (roots.isNotEmpty()) {
+        } else {
             scanAll(quiet = false)
         }
     }
@@ -156,31 +181,32 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
     }
 
     private fun scanAll(quiet: Boolean, onLoaded: (Int) -> Unit = {}) {
-        val roots = ensureFolders()
         loading = !quiet
         if (!quiet) message = null
         scope.launch {
             val previousUri = tracks.getOrNull(selectedIndex)?.uri
             val result = withContext(Dispatchers.IO) {
-                val scans = roots.map { root ->
-                    runCatching {
-                        DocumentLibrary.scan(appContext, root, preferences.includeSubfolders)
-                    }.getOrElse { LibraryScan(emptyList(), emptyList()) }
-                }
-                LibraryScan(
-                    tracks = scans.flatMap { it.tracks }.distinctBy { it.uri },
-                    files = scans.flatMap { it.files }.distinctBy { it.uri },
-                )
+                runCatching { DeviceAudioLibrary.scan(appContext) }
+                    .getOrElse { LibraryScan(emptyList(), emptyList()) }
             }
-            files = result
-            tracks = result.tracks
-            selectedIndex = result.tracks.indexOfFirst { it.uri == previousUri }
+            val visibleResult = result.copy(
+                tracks = result.tracks.filterNot { it.uri.toString() in hiddenTrackUris },
+            )
+            files = visibleResult
+            tracks = visibleResult.tracks
+            selectedIndex = visibleResult.tracks.indexOfFirst { it.uri == previousUri }
             loading = false
-            roots.firstOrNull()?.let { LibraryCache.save(appContext, it, result) }
-            if (result.tracks.isEmpty() && !quiet) {
+            // Keep the complete scan in cache; hidden tracks are filtered only in the UI state.
+            // This makes restoring them reliable even if the app closes during the restore scan.
+            LibraryCache.save(appContext, DEVICE_LIBRARY_URI, result)
+            if (visibleResult.tracks.isEmpty() && !quiet) {
                 message = appContext.getString(com.imankoppai.mediaanvil.R.string.no_tracks)
             }
-            onLoaded(result.tracks.size)
+            onLoaded(visibleResult.tracks.size)
         }
+    }
+
+    companion object {
+        private val DEVICE_LIBRARY_URI = Uri.parse("mediaanvil://device-library")
     }
 }

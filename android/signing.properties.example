@@ -1,0 +1,5 @@
+# Copy this file to signing.properties and keep the real file private.
+storeFile=C:/secure/location/mediaanvil-release.jks
+storePassword=replace-with-your-store-password
+keyAlias=mediaanvil
+keyPassword=replace-with-your-key-password

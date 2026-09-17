@@ -2,15 +2,12 @@ package com.imankoppai.mediaanvil.data
 
 import android.content.Context
 import android.net.Uri
+import com.imankoppai.mediaanvil.model.TrackGroup
+import org.json.JSONArray
+import org.json.JSONObject
 
 class PlaybackPreferences(context: Context) {
     private val preferences = context.getSharedPreferences("mediaanvil_playback", Context.MODE_PRIVATE)
-
-    var lastFolder: Uri?
-        get() = preferences.getString("last_folder", null)?.let(Uri::parse)
-        set(value) {
-            preferences.edit().putString("last_folder", value?.toString()).apply()
-        }
 
     /** "", "zh-CN" or "en"; empty follows the system language. */
     var language: String
@@ -25,16 +22,22 @@ class PlaybackPreferences(context: Context) {
             preferences.edit().putBoolean("auto_load_lyrics", value).apply()
         }
 
-    var includeSubfolders: Boolean
-        get() = preferences.getBoolean("include_subfolders", true)
-        set(value) {
-            preferences.edit().putBoolean("include_subfolders", value).apply()
-        }
-
     var playbackSpeed: Float
         get() = preferences.getFloat("playback_speed", 1f)
         set(value) {
             preferences.edit().putFloat("playback_speed", value).apply()
+        }
+
+    var seekBackSeconds: Int
+        get() = preferences.getInt("seek_back_seconds", 5).coerceIn(1, 300)
+        set(value) {
+            preferences.edit().putInt("seek_back_seconds", value.coerceIn(1, 300)).apply()
+        }
+
+    var seekForwardSeconds: Int
+        get() = preferences.getInt("seek_forward_seconds", 30).coerceIn(1, 300)
+        set(value) {
+            preferences.edit().putInt("seek_forward_seconds", value.coerceIn(1, 300)).apply()
         }
 
     var shuffleEnabled: Boolean
@@ -56,37 +59,43 @@ class PlaybackPreferences(context: Context) {
             preferences.edit().putString("library_sort", value).apply()
         }
 
-    /** Favourite track URIs (string forms). */
-    var favorites: Set<String>
-        get() = preferences.getStringSet("favorites", emptySet()) ?: emptySet()
-        set(value) {
-            preferences.edit().putStringSet("favorites", value).apply()
-        }
-
-    /** Recently played track URIs, newest first; the caller caps the length. */
-    var recentUris: List<String>
+    /** User-created local groups containing stable SAF document URIs. */
+    var trackGroups: List<TrackGroup>
         get() {
-            val raw = preferences.getString("recent_uris", null) ?: return emptyList()
+            val raw = preferences.getString("track_groups", null) ?: return emptyList()
             return runCatching {
                 val array = org.json.JSONArray(raw)
-                List(array.length()) { array.getString(it) }
+                List(array.length()) { index ->
+                    val item = array.getJSONObject(index)
+                    val uris = item.optJSONArray("trackUris") ?: org.json.JSONArray()
+                    TrackGroup(
+                        id = item.getString("id"),
+                        name = item.getString("name"),
+                        trackUris = buildSet {
+                            for (uriIndex in 0 until uris.length()) add(uris.getString(uriIndex))
+                        },
+                    )
+                }
             }.getOrDefault(emptyList())
         }
         set(value) {
-            preferences.edit().putString("recent_uris", org.json.JSONArray(value).toString()).apply()
+            val array = org.json.JSONArray()
+            value.forEach { group ->
+                array.put(
+                    org.json.JSONObject()
+                        .put("id", group.id)
+                        .put("name", group.name)
+                        .put("trackUris", org.json.JSONArray(group.trackUris.toList())),
+                )
+            }
+            preferences.edit().putString("track_groups", array.toString()).apply()
         }
 
-    /** Equalizer state; the Equalizer itself lives in the playback service process. */
-    var eqEnabled: Boolean
-        get() = preferences.getBoolean("eq_enabled", false)
+    /** Tracks hidden from the player library; the underlying documents are untouched. */
+    var hiddenTrackUris: Set<String>
+        get() = preferences.getStringSet("hidden_track_uris", emptySet())?.toSet() ?: emptySet()
         set(value) {
-            preferences.edit().putBoolean("eq_enabled", value).apply()
-        }
-
-    var eqPreset: Int
-        get() = preferences.getInt("eq_preset", 0)
-        set(value) {
-            preferences.edit().putInt("eq_preset", value).apply()
+            preferences.edit().putStringSet("hidden_track_uris", value.toSet()).apply()
         }
 
     /** Theme mode: "" = follow system, "light", "dark". */
@@ -96,46 +105,100 @@ class PlaybackPreferences(context: Context) {
             preferences.edit().putString("theme_mode", value).apply()
         }
 
-    /** Material You wallpaper-derived colors (Android 12+). */
-    var useDynamicColor: Boolean
-        get() = preferences.getBoolean("use_dynamic_color", false)
-        set(value) {
-            preferences.edit().putBoolean("use_dynamic_color", value).apply()
-        }
-
-    /** Seed the palette from the playing track's cover art. */
-    var useCoverColor: Boolean
-        get() = preferences.getBoolean("use_cover_color", false)
-        set(value) {
-            preferences.edit().putBoolean("use_cover_color", value).apply()
-        }
-
-    /** Loudness boost in dB (0 = off, up to +15). */
-    var loudnessGainDb: Int
-        get() = preferences.getInt("loudness_gain_db", 0)
-        set(value) {
-            preferences.edit().putInt("loudness_gain_db", value).apply()
-        }
-
-    /** Media button double press action: "" = next track, "previous", "speed", "none". */
+    /** Media button double press action: "" = next track, "previous" or "none". */
     var doublePressAction: String
-        get() = preferences.getString("double_press_action", "") ?: ""
+        get() = when (val saved = preferences.getString("double_press_action", "") ?: "") {
+            "none" -> "pause"
+            "", "previous", "pause" -> saved
+            else -> ""
+        }
         set(value) {
             preferences.edit().putString("double_press_action", value).apply()
         }
 
-    /** Authorized library roots; empty means fall back to [lastFolder]. */
-    var folders: List<android.net.Uri>
-        get() {
-            val raw = preferences.getString("library_folders", null) ?: return emptyList()
-            return runCatching {
-                val array = org.json.JSONArray(raw)
-                List(array.length()) { android.net.Uri.parse(array.getString(it)) }
-            }.getOrDefault(emptyList())
+    fun customCoverFor(trackUri: Uri): Uri? {
+        val raw = preferences.getString("custom_covers", null) ?: return null
+        return runCatching {
+            org.json.JSONObject(raw).optString(trackUri.toString())
+                .takeIf(String::isNotEmpty)
+                ?.let(Uri::parse)
+        }.getOrNull()
+    }
+
+    fun setCustomCover(trackUri: Uri, coverUri: Uri) {
+        val covers = runCatching {
+            org.json.JSONObject(preferences.getString("custom_covers", null) ?: "{}")
+        }.getOrElse { org.json.JSONObject() }
+        covers.put(trackUri.toString(), coverUri.toString())
+        preferences.edit().putString("custom_covers", covers.toString()).apply()
+    }
+
+    fun lyricsOffsetFor(trackUri: Uri): Long = runCatching {
+        JSONObject(preferences.getString("lyrics_offsets", null) ?: "{}")
+            .optLong(trackUri.toString(), 0L)
+            .coerceIn(-60_000L, 60_000L)
+    }.getOrDefault(0L)
+
+    fun setLyricsOffset(trackUri: Uri, offsetMs: Long) {
+        val offsets = runCatching {
+            JSONObject(preferences.getString("lyrics_offsets", null) ?: "{}")
+        }.getOrElse { JSONObject() }
+        val value = offsetMs.coerceIn(-60_000L, 60_000L)
+        if (value == 0L) offsets.remove(trackUri.toString()) else offsets.put(trackUri.toString(), value)
+        preferences.edit().putString("lyrics_offsets", offsets.toString()).apply()
+    }
+
+    internal fun customCoversJson(): JSONObject = runCatching {
+        JSONObject(preferences.getString("custom_covers", null) ?: "{}")
+    }.getOrElse { JSONObject() }
+
+    internal fun lyricsOffsetsJson(): JSONObject = runCatching {
+        JSONObject(preferences.getString("lyrics_offsets", null) ?: "{}")
+    }.getOrElse { JSONObject() }
+
+    internal fun restoreFromBackup(root: JSONObject) {
+        val settings = root.getJSONObject("settings")
+        val groupsJson = root.getJSONArray("groups")
+        val restoredGroups = List(groupsJson.length()) { index ->
+            val item = groupsJson.getJSONObject(index)
+            val uris = item.optJSONArray("trackUris") ?: JSONArray()
+            TrackGroup(
+                id = item.getString("id"),
+                name = item.getString("name"),
+                trackUris = buildSet {
+                    for (uriIndex in 0 until uris.length()) add(uris.getString(uriIndex))
+                },
+            )
         }
-        set(value) {
-            val array = org.json.JSONArray()
-            value.forEach { array.put(it.toString()) }
-            preferences.edit().putString("library_folders", array.toString()).apply()
-        }
+        val hidden = root.optJSONArray("hiddenTrackUris") ?: JSONArray()
+        val covers = root.optJSONObject("customCovers") ?: JSONObject()
+        val offsets = root.optJSONObject("lyricsOffsets") ?: JSONObject()
+
+        preferences.edit()
+            .putString("language", settings.optString("language", ""))
+            .putBoolean("auto_load_lyrics", settings.optBoolean("autoLoadLyrics", true))
+            .putFloat("playback_speed", settings.optDouble("playbackSpeed", 1.0).toFloat().coerceIn(0.25f, 3f))
+            .putInt("seek_back_seconds", settings.optInt("seekBackSeconds", 5).coerceIn(1, 300))
+            .putInt("seek_forward_seconds", settings.optInt("seekForwardSeconds", 30).coerceIn(1, 300))
+            .putBoolean("shuffle_enabled", settings.optBoolean("shuffleEnabled", false))
+            .putInt("repeat_mode", settings.optInt("repeatMode", 0))
+            .putString("library_sort", settings.optString("librarySort", "fileName"))
+            .putString("theme_mode", settings.optString("themeMode", ""))
+            .putString("double_press_action", settings.optString("doublePressAction", ""))
+            .putString("track_groups", JSONArray().apply {
+                restoredGroups.forEach { group ->
+                    put(JSONObject()
+                        .put("id", group.id)
+                        .put("name", group.name)
+                        .put("trackUris", JSONArray(group.trackUris.toList())))
+                }
+            }.toString())
+            .putStringSet("hidden_track_uris", buildSet {
+                for (index in 0 until hidden.length()) add(hidden.getString(index))
+            })
+            .putString("custom_covers", covers.toString())
+            .putString("lyrics_offsets", offsets.toString())
+            .commit()
+    }
+
 }

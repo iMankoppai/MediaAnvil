@@ -25,4 +25,16 @@ class PreviewLyricsTest {
         assertEquals(1_000L, cues[0].startMs)
         assertEquals(5_000L, cues[0].endMs)
     }
+
+    @Test
+    fun lrcTimelineMergesOriginalAndTranslationAtSameTimestamp() {
+        val cues = PreviewLyrics.parseLrcTimeline(
+            "[00:02.00]Hello world\n[00:02.00]你好，世界\n[00:05.00]Next",
+        )
+
+        assertEquals(2, cues.size)
+        assertEquals("Hello world\n你好，世界", cues[0].text)
+        assertEquals(2_000L, cues[0].startMs)
+        assertEquals(5_000L, cues[0].endMs)
+    }
 }

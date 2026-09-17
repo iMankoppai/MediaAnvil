@@ -17,3 +17,16 @@ The Qt runtime bundle includes ICU 78.3 for Unicode support. Its license text is
 
 - ICU project: https://icu.unicode.org/
 - Source release: https://github.com/unicode-org/icu/releases/tag/release-78.3
+
+## jAudioTagger
+
+The Android client bundles the `com.github.Kaned1as:jaudiotagger:2.3.15` library
+for the optional two-field audio tag editor. It supports reading and writing the
+title and artist fields for MP3, FLAC, M4A, OGG Vorbis, and Opus files. WAV
+title and artist fields use MediaAnvil's built-in RIFF/INFO implementation.
+
+- Fork source: https://github.com/Kaned1as/jaudiotagger
+- Upstream project: https://www.jthink.net/jaudiotagger/
+- License: GNU Lesser General Public License v2.1 or later
+- License text: https://github.com/Kaned1as/jaudiotagger/blob/master/license.txt
+- Original artifact: https://jitpack.io/#Kaned1as/jaudiotagger/2.3.15

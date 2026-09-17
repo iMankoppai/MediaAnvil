@@ -50,10 +50,16 @@ object PreviewLyrics {
                 entries += Entry(minutes * 60_000 + seconds * 1_000 + fraction, content)
             }
         }
-        return entries.sortedBy { it.startMs }.mapIndexed { index, entry ->
+        val merged = entries
+            .groupBy { it.startMs }
+            .toSortedMap()
+            .map { (startMs, sameTime) ->
+                Entry(startMs, sameTime.map { it.text }.filter(String::isNotEmpty).distinct().joinToString("\n"))
+            }
+        return merged.mapIndexed { index, entry ->
             SubtitleCue(
                 startMs = entry.startMs,
-                endMs = entries.getOrNull(index + 1)?.startMs ?: NO_END,
+                endMs = merged.getOrNull(index + 1)?.startMs ?: NO_END,
                 text = entry.text,
             )
         }
