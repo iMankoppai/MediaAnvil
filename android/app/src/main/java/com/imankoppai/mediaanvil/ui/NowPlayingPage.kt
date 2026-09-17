@@ -439,6 +439,9 @@ internal fun NowPlayingPage(
 private fun speedLabel(speed: Float): String =
     if (speed % 1f == 0f) "${speed.toInt()}×" else "${speed}×"
 
+/** Hold the cover this long to open the cover picker. */
+private const val COVER_LONG_PRESS_MS = 600L
+
 @Composable
 private fun NowPlayingCover(
     track: AudioTrack,
@@ -446,6 +449,7 @@ private fun NowPlayingCover(
     onChooseCover: () -> Unit,
 ) {
     val context = LocalContext.current
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     var cover by remember(track.uri) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     LaunchedEffect(track.uri, customCoverUri) {
         cover = customCoverUri?.let { CoverLoader.loadImage(context, it) }
@@ -459,10 +463,15 @@ private fun NowPlayingCover(
             .pointerInput(track.uri, customCoverUri) {
                 detectTapGestures(
                     onPress = {
-                        val releasedBeforeThreshold = withTimeoutOrNull(2_000L) {
+                        val releasedBeforeThreshold = withTimeoutOrNull(COVER_LONG_PRESS_MS) {
                             tryAwaitRelease()
                         }
-                        if (releasedBeforeThreshold == null) onChooseCover()
+                        if (releasedBeforeThreshold == null) {
+                            haptics.performHapticFeedback(
+                                androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress,
+                            )
+                            onChooseCover()
+                        }
                     },
                 )
             },
