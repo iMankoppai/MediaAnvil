@@ -66,6 +66,20 @@ class PlaybackPreferences(context: Context) {
             preferences.edit().putBoolean("sleep_close_app", value).apply()
         }
 
+    /** "all" imports every supported audio file; "folders" only imports scanFolders. */
+    var libraryScanMode: String
+        get() = preferences.getString("library_scan_mode", "all") ?: "all"
+        set(value) {
+            preferences.edit().putString("library_scan_mode", value).apply()
+        }
+
+    /** Relative folder paths (trailing slash) that are scanned in "folders" mode. */
+    var scanFolders: Set<String>
+        get() = preferences.getStringSet("scan_folders", emptySet())?.toSet() ?: emptySet()
+        set(value) {
+            preferences.edit().putStringSet("scan_folders", value).apply()
+        }
+
     /** "fileName", "title" or "duration". */
     var librarySort: String
         get() = preferences.getString("library_sort", "fileName") ?: "fileName"

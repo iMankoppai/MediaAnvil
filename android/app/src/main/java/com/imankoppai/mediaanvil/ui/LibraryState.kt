@@ -183,10 +183,11 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
     private fun scanAll(quiet: Boolean, onLoaded: (Int) -> Unit = {}) {
         loading = !quiet
         if (!quiet) message = null
+        val allowedFolders = allowedScanFolders()
         scope.launch {
             val previousUri = tracks.getOrNull(selectedIndex)?.uri
             val result = withContext(Dispatchers.IO) {
-                runCatching { DeviceAudioLibrary.scan(appContext) }
+                runCatching { DeviceAudioLibrary.scan(appContext, allowedFolders) }
                     .getOrElse { LibraryScan(emptyList(), emptyList()) }
             }
             val visibleResult = result.copy(
@@ -203,6 +204,20 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
                 message = appContext.getString(com.imankoppai.mediaanvil.R.string.no_tracks)
             }
             onLoaded(visibleResult.tracks.size)
+        }
+    }
+
+    /** Folders scanned in "folders" mode; empty means scan everything. */
+    private fun allowedScanFolders(): Set<String> =
+        if (preferences.libraryScanMode == "folders") preferences.scanFolders else emptySet()
+
+    /** Audio folders on the device with track counts, for the scan-scope picker. */
+    fun loadAudioFolders(onLoaded: (List<DeviceAudioLibrary.AudioFolder>) -> Unit) {
+        scope.launch {
+            val folders = withContext(Dispatchers.IO) {
+                runCatching { DeviceAudioLibrary.listFolders(appContext) }.getOrElse { emptyList() }
+            }
+            onLoaded(folders)
         }
     }
 

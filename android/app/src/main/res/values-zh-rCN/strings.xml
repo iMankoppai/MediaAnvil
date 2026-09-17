@@ -18,6 +18,12 @@
     <string name="sleep_timer_minutes">分钟</string>
     <string name="sleep_finish_track">播完整首歌再停止</string>
     <string name="sleep_close_app">定时结束后关闭软件</string>
+    <string name="scan_scope">扫描范围</string>
+    <string name="scan_mode_all">扫描全部</string>
+    <string name="scan_mode_folders">按文件夹</string>
+    <string name="scan_folders_hint">只导入勾选的文件夹（不含子文件夹）</string>
+    <string name="scan_folders_empty">没有找到包含受支持音频的文件夹</string>
+    <string name="scan_tracks_count">%1$d 首</string>
     <string name="sort_menu_label">排序：%1$s</string>
     <string name="sort_file_name">文件名</string>
     <string name="sort_title">标题</string>

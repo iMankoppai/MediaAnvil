@@ -252,6 +252,87 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
             )
         }
 
+        var scanMode by remember { mutableStateOf(library.preferences.libraryScanMode) }
+        var scanFolders by remember { mutableStateOf(library.preferences.scanFolders) }
+        var audioFolders by remember { mutableStateOf<List<com.imankoppai.mediaanvil.data.DeviceAudioLibrary.AudioFolder>?>(null) }
+        LaunchedEffect(scanMode) {
+            if (scanMode == "folders" && audioFolders == null) {
+                library.loadAudioFolders { audioFolders = it }
+            }
+        }
+        fun updateScanFolders(updated: Set<String>) {
+            scanFolders = updated
+            library.preferences.scanFolders = updated
+            library.rescan(quiet = true)
+        }
+        SettingsCard(title = stringResource(R.string.scan_scope)) {
+            Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = scanMode == "all",
+                    onClick = {
+                        if (scanMode != "all") {
+                            scanMode = "all"
+                            library.preferences.libraryScanMode = "all"
+                            library.rescan(quiet = true)
+                        }
+                    },
+                    label = { Text(stringResource(R.string.scan_mode_all)) },
+                )
+                FilterChip(
+                    selected = scanMode == "folders",
+                    onClick = {
+                        if (scanMode != "folders") {
+                            scanMode = "folders"
+                            library.preferences.libraryScanMode = "folders"
+                            library.rescan(quiet = true)
+                        }
+                    },
+                    label = { Text(stringResource(R.string.scan_mode_folders)) },
+                )
+            }
+            if (scanMode == "folders") {
+                Text(
+                    stringResource(R.string.scan_folders_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                val loaded = audioFolders
+                when {
+                    loaded == null -> androidx.compose.material3.CircularProgressIndicator(Modifier.padding(top = 12.dp))
+                    loaded.isEmpty() -> Text(
+                        stringResource(R.string.scan_folders_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    else -> loaded.forEach { folder ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            androidx.compose.material3.Checkbox(
+                                checked = folder.path in scanFolders,
+                                onCheckedChange = { checked ->
+                                    updateScanFolders(
+                                        if (checked) scanFolders + folder.path else scanFolders - folder.path,
+                                    )
+                                },
+                            )
+                            Column(Modifier.weight(1f)) {
+                                Text(folder.path.trimEnd('/'), style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    stringResource(R.string.scan_tracks_count, folder.trackCount),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         val sleepRemaining = library.sleepTimerEndAt?.let { end ->
             ((end - nowMs) / 60_000).toInt().coerceAtLeast(1)
         }

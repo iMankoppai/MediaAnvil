@@ -18,6 +18,12 @@
     <string name="sleep_timer_minutes">Minutes</string>
     <string name="sleep_finish_track">Finish current track before stopping</string>
     <string name="sleep_close_app">Close app when timer ends</string>
+    <string name="scan_scope">Scan scope</string>
+    <string name="scan_mode_all">All audio</string>
+    <string name="scan_mode_folders">By folder</string>
+    <string name="scan_folders_hint">Only checked folders are imported (subfolders not included)</string>
+    <string name="scan_folders_empty">No folders containing supported audio were found</string>
+    <string name="scan_tracks_count">%1$d tracks</string>
     <string name="sort_menu_label">Sort: %1$s</string>
     <string name="sort_file_name">File name</string>
     <string name="sort_title">Title</string>
