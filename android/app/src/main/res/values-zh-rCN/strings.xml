@@ -16,6 +16,8 @@
     <string name="sleep_timer_set">设定时间</string>
     <string name="sleep_timer_hours">小时</string>
     <string name="sleep_timer_minutes">分钟</string>
+    <string name="sleep_finish_track">播完整首歌再停止</string>
+    <string name="sleep_close_app">定时结束后关闭软件</string>
     <string name="sort_menu_label">排序：%1$s</string>
     <string name="sort_file_name">文件名</string>
     <string name="sort_title">标题</string>

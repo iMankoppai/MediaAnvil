@@ -43,14 +43,14 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
 
     private var sleepJob: kotlinx.coroutines.Job? = null
 
-    /** Pause playback when the deadline passes; [onPause] comes from the player owner. */
-    fun startSleepTimer(minutes: Int, onPause: () -> Unit) {
+    /** Fire [onFire] when the deadline passes; the caller owns the player policy. */
+    fun startSleepTimer(minutes: Int, onFire: () -> Unit) {
         sleepJob?.cancel()
         sleepTimerEndAt = System.currentTimeMillis() + minutes * 60_000L
         sleepJob = scope.launch {
             delay(minutes * 60_000L)
             sleepTimerEndAt = null
-            onPause()
+            onFire()
         }
     }
 

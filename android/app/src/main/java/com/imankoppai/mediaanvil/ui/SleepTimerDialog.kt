@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -44,39 +45,62 @@ import kotlin.math.abs
 @Composable
 internal fun SleepTimerDialog(
     initialMinutes: Int,
+    preferences: com.imankoppai.mediaanvil.data.PlaybackPreferences,
     onStart: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var hours by remember { mutableStateOf(initialMinutes / 60) }
     var minutes by remember { mutableStateOf(initialMinutes % 60) }
+    // SharedPreferences is not Compose-observable; mirror the flags locally so
+    // the switches re-render, and persist on every change.
+    var finishTrack by remember { mutableStateOf(preferences.sleepFinishTrack) }
+    var closeApp by remember { mutableStateOf(preferences.sleepCloseApp) }
     val total = hours * 60 + minutes
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.sleep_timer)) },
         text = {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                    WheelPicker(values = (0..23).toList(), initialIndex = hours, onSelect = { hours = it })
-                    Text(
-                        stringResource(R.string.sleep_timer_hours),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                        WheelPicker(values = (0..23).toList(), initialIndex = hours, onSelect = { hours = it })
+                        Text(
+                            stringResource(R.string.sleep_timer_hours),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                        WheelPicker(values = (0..59).toList(), initialIndex = minutes, onSelect = { minutes = it })
+                        Text(
+                            stringResource(R.string.sleep_timer_minutes),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
                 }
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                    WheelPicker(values = (0..59).toList(), initialIndex = minutes, onSelect = { minutes = it })
-                    Text(
-                        stringResource(R.string.sleep_timer_minutes),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
-                }
+                ToggleRow(
+                    label = stringResource(R.string.sleep_finish_track),
+                    checked = finishTrack,
+                    onCheckedChange = {
+                        finishTrack = it
+                        preferences.sleepFinishTrack = it
+                    },
+                )
+                ToggleRow(
+                    label = stringResource(R.string.sleep_close_app),
+                    checked = closeApp,
+                    onCheckedChange = {
+                        closeApp = it
+                        preferences.sleepCloseApp = it
+                    },
+                )
             }
         },
         confirmButton = {
@@ -88,6 +112,25 @@ internal fun SleepTimerDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         },
     )
+}
+
+@Composable
+private fun ToggleRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
 }
 
 @Composable

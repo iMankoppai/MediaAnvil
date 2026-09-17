@@ -52,6 +52,20 @@ class PlaybackPreferences(context: Context) {
             preferences.edit().putInt("repeat_mode", value).apply()
         }
 
+    /** Sleep timer waits for the current track to finish before pausing. */
+    var sleepFinishTrack: Boolean
+        get() = preferences.getBoolean("sleep_finish_track", false)
+        set(value) {
+            preferences.edit().putBoolean("sleep_finish_track", value).apply()
+        }
+
+    /** Sleep timer closes the app when it fires. */
+    var sleepCloseApp: Boolean
+        get() = preferences.getBoolean("sleep_close_app", false)
+        set(value) {
+            preferences.edit().putBoolean("sleep_close_app", value).apply()
+        }
+
     /** "fileName", "title" or "duration". */
     var librarySort: String
         get() = preferences.getString("library_sort", "fileName") ?: "fileName"

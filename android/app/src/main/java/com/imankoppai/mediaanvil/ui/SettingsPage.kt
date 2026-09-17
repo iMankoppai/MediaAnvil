@@ -89,6 +89,54 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
         }
     }
 
+    fun closeApp() {
+        runCatching {
+            context.stopService(Intent(context, com.imankoppai.mediaanvil.playback.PlaybackService::class.java))
+        }
+        (context as? android.app.Activity)?.finishAffinity()
+    }
+
+    /** Sleep-timer fire: pause now, or after the current track ends; optionally close the app. */
+    fun onSleepTimerFired() {
+        val finishTrack = library.preferences.sleepFinishTrack
+        val closeApp = library.preferences.sleepCloseApp
+        val stopNow = {
+            controller?.pause()
+            if (closeApp) closeApp()
+        }
+        if (finishTrack && controller?.isPlaying == true) {
+            val player = checkNotNull(controller)
+            // An active A/B loop would keep the track from ever ending.
+            runCatching {
+                player.sendCustomCommand(
+                    androidx.media3.session.SessionCommand(
+                        com.imankoppai.mediaanvil.playback.PlaybackService.COMMAND_LOOP_CLEAR,
+                        android.os.Bundle.EMPTY,
+                    ),
+                    android.os.Bundle.EMPTY,
+                )
+            }
+            player.addListener(object : androidx.media3.common.Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == androidx.media3.common.Player.STATE_ENDED) {
+                        player.removeListener(this)
+                        stopNow()
+                    }
+                }
+
+                override fun onMediaItemTransition(
+                    mediaItem: androidx.media3.common.MediaItem?,
+                    reason: Int,
+                ) {
+                    player.removeListener(this)
+                    stopNow()
+                }
+            })
+        } else {
+            stopNow()
+        }
+    }
+
     fun applyLanguage(tag: String) {
         library.preferences.language = tag
         if (android.os.Build.VERSION.SDK_INT >= 33) {
@@ -228,7 +276,8 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
         if (sleepDialog) {
             SleepTimerDialog(
                 initialMinutes = sleepRemaining ?: 30,
-                onStart = { minutes -> library.startSleepTimer(minutes) { controller?.pause() } },
+                preferences = library.preferences,
+                onStart = { minutes -> library.startSleepTimer(minutes) { onSleepTimerFired() } },
                 onDismiss = { sleepDialog = false },
             )
         }
