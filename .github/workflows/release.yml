@@ -39,10 +39,11 @@ jobs:
         with:
           gradle-version: "9.6.0"
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Accept Android SDK licenses and install packages
+        run: |
+          SDKM="$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | head -n1)"
+          yes | "$SDKM" --licenses >/dev/null
+          "$SDKM" "platforms;android-36" "build-tools;36.0.0" >/dev/null
 
       - name: Restore release keystore
         env:
