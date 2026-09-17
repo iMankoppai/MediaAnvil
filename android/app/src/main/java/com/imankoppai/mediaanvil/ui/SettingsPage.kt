@@ -59,6 +59,11 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var seekBackSeconds by remember { mutableIntStateOf(library.preferences.seekBackSeconds) }
     var seekForwardSeconds by remember { mutableIntStateOf(library.preferences.seekForwardSeconds) }
+    // SharedPreferences is not Compose-observable; mirror settings locally so the
+    // chips and switches refresh immediately instead of after re-entering the page.
+    var language by remember { mutableStateOf(library.preferences.language) }
+    var autoLoadLyrics by remember { mutableStateOf(library.preferences.autoLoadLyrics) }
+    var doublePressAction by remember { mutableStateOf(library.preferences.doublePressAction) }
     var checkingUpdate by remember { mutableStateOf(false) }
     var releaseInfo by remember { mutableStateOf<AppRelease?>(null) }
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
@@ -140,6 +145,7 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
     }
 
     fun applyLanguage(tag: String) {
+        language = tag
         library.preferences.language = tag
         if (android.os.Build.VERSION.SDK_INT >= 33) {
             val localeManager = context.getSystemService(android.app.LocaleManager::class.java)
@@ -168,17 +174,17 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
             Text(stringResource(R.string.settings_language), style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
                 FilterChip(
-                    selected = library.preferences.language.isEmpty(),
+                    selected = language.isEmpty(),
                     onClick = { applyLanguage("") },
                     label = { Text(stringResource(R.string.language_system)) },
                 )
                 FilterChip(
-                    selected = library.preferences.language == "zh-CN",
+                    selected = language == "zh-CN",
                     onClick = { applyLanguage("zh-CN") },
                     label = { Text("简体中文") },
                 )
                 FilterChip(
-                    selected = library.preferences.language == "en",
+                    selected = language == "en",
                     onClick = { applyLanguage("en") },
                     label = { Text("English") },
                 )
@@ -226,8 +232,11 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
                     )
                 }
                 Switch(
-                    checked = library.preferences.autoLoadLyrics,
-                    onCheckedChange = { library.preferences.autoLoadLyrics = it },
+                    checked = autoLoadLyrics,
+                    onCheckedChange = {
+                        autoLoadLyrics = it
+                        library.preferences.autoLoadLyrics = it
+                    },
                 )
             }
             HorizontalDivider(Modifier.padding(vertical = 10.dp))
@@ -374,8 +383,11 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
                     "pause" to R.string.headset_double_pause,
                 ).forEach { (value, labelRes) ->
                     FilterChip(
-                        selected = library.preferences.doublePressAction == value,
-                        onClick = { library.preferences.doublePressAction = value },
+                        selected = doublePressAction == value,
+                        onClick = {
+                            doublePressAction = value
+                            library.preferences.doublePressAction = value
+                        },
                         label = { Text(stringResource(labelRes)) },
                     )
                 }
