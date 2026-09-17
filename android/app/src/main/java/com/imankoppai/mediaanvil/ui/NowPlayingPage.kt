@@ -113,6 +113,13 @@ internal fun NowPlayingPage(
     var isPlaying by remember { mutableStateOf(false) }
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
+    // A/B loop points in ms, shared with the seek bar markers; -1 means unset.
+    var loopA by remember { mutableLongStateOf(-1L) }
+    var loopB by remember { mutableLongStateOf(-1L) }
+    LaunchedEffect(controller?.currentMediaItemIndex) {
+        loopA = -1L
+        loopB = -1L
+    }
     var speed by remember { mutableStateOf(library.preferences.playbackSpeed) }
     var queueOpen by remember { mutableStateOf(false) }
     var pendingCoverTrack by remember { mutableStateOf<android.net.Uri?>(null) }
@@ -264,20 +271,55 @@ internal fun NowPlayingPage(
                     } else {
                         0f
                     }
-                    Box(
+                    BoxWithConstraints(
                         Modifier
                             .fillMaxWidth()
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                            .height(8.dp),
                     ) {
+                        val trackWidth = maxWidth
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .align(Alignment.CenterStart)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                        )
                         Box(
                             Modifier
                                 .fillMaxWidth(fraction)
                                 .height(4.dp)
+                                .align(Alignment.CenterStart)
                                 .clip(RoundedCornerShape(2.dp))
                                 .background(MaterialTheme.colorScheme.primary),
                         )
+                        val loopSpan = durationMs.coerceAtLeast(1L).toFloat()
+                        val tickFractions = buildList {
+                            if (loopA >= 0L) add((loopA / loopSpan).coerceIn(0f, 1f))
+                            if (loopB > loopA) add((loopB / loopSpan).coerceIn(0f, 1f))
+                        }
+                        if (tickFractions.size == 2) {
+                            Box(
+                                Modifier
+                                    .offset(x = trackWidth * tickFractions[0])
+                                    .width(trackWidth * (tickFractions[1] - tickFractions[0]))
+                                    .height(4.dp)
+                                    .align(Alignment.CenterStart)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.45f)),
+                            )
+                        }
+                        tickFractions.forEach { tickFraction ->
+                            Box(
+                                Modifier
+                                    .offset(x = trackWidth * tickFraction - 1.dp)
+                                    .width(2.dp)
+                                    .height(8.dp)
+                                    .align(Alignment.CenterStart)
+                                    .clip(RoundedCornerShape(1.dp))
+                                    .background(MaterialTheme.colorScheme.tertiary),
+                            )
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -295,6 +337,10 @@ internal fun NowPlayingPage(
                 controller = controller,
                 positionMs = positionMs,
                 speed = speed,
+                loopA = loopA,
+                loopB = loopB,
+                onLoopA = { loopA = it },
+                onLoopB = { loopB = it },
                 onSpeedChange = { option ->
                     speed = option
                     library.preferences.playbackSpeed = option
@@ -1126,21 +1172,19 @@ private fun PlaybackModeRow(
     controller: androidx.media3.session.MediaController?,
     positionMs: Long,
     speed: Float,
+    loopA: Long,
+    loopB: Long,
+    onLoopA: (Long) -> Unit,
+    onLoopB: (Long) -> Unit,
     onSpeedChange: (Float) -> Unit,
     onShuffleChange: (Boolean) -> Unit,
     onRepeatChange: (Int) -> Unit,
     onOpenQueue: () -> Unit,
 ) {
     val context = LocalContext.current
-    var loopA by remember { mutableLongStateOf(-1L) }
-    var loopB by remember { mutableLongStateOf(-1L) }
     var speedMenu by remember { mutableStateOf(false) }
     var shuffleEnabled by remember(controller) { mutableStateOf(controller?.shuffleModeEnabled == true) }
     var repeatMode by remember(controller) { mutableIntStateOf(controller?.repeatMode ?: Player.REPEAT_MODE_OFF) }
-    androidx.compose.runtime.LaunchedEffect(controller?.currentMediaItemIndex) {
-        loopA = -1L
-        loopB = -1L
-    }
     fun send(action: String) {
         runCatching {
             controller?.sendCustomCommand(
@@ -1175,7 +1219,7 @@ private fun PlaybackModeRow(
             androidx.compose.material3.TextButton(onClick = {
                 when {
                     loopA < 0L -> {
-                        loopA = positionMs
+                        onLoopA(positionMs)
                         send(com.imankoppai.mediaanvil.playback.PlaybackService.COMMAND_LOOP_A)
                         android.widget.Toast.makeText(
                             context,
@@ -1184,7 +1228,7 @@ private fun PlaybackModeRow(
                         ).show()
                     }
                     loopB <= loopA && positionMs > loopA -> {
-                        loopB = positionMs
+                        onLoopB(positionMs)
                         send(com.imankoppai.mediaanvil.playback.PlaybackService.COMMAND_LOOP_B)
                         android.widget.Toast.makeText(
                             context,
@@ -1200,8 +1244,8 @@ private fun PlaybackModeRow(
                         ).show()
                     }
                     else -> {
-                        loopA = -1L
-                        loopB = -1L
+                        onLoopA(-1L)
+                        onLoopB(-1L)
                         send(com.imankoppai.mediaanvil.playback.PlaybackService.COMMAND_LOOP_CLEAR)
                         android.widget.Toast.makeText(
                             context,
