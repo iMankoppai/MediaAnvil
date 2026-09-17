@@ -89,6 +89,7 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
         }
     }
 
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     fun closeApp() {
         runCatching {
             context.stopService(Intent(context, com.imankoppai.mediaanvil.playback.PlaybackService::class.java))
@@ -97,6 +98,7 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
     }
 
     /** Sleep-timer fire: pause now, or after the current track ends; optionally close the app. */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     fun onSleepTimerFired() {
         val finishTrack = library.preferences.sleepFinishTrack
         val closeApp = library.preferences.sleepCloseApp
