@@ -3,6 +3,7 @@ package com.imankoppai.mediaanvil.ui
 import android.content.Context
 import android.net.Uri
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.imankoppai.mediaanvil.data.DeviceAudioLibrary
@@ -220,6 +221,91 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
     private fun allowedScanFolders(): Set<String> =
         if (preferences.libraryScanMode == "folders") preferences.scanFolders else emptySet()
 
+    /** Newest GitHub release when an in-app update is available, else null. */
+    var updateRelease by mutableStateOf<com.imankoppai.mediaanvil.update.AppRelease?>(null)
+        private set
+
+    /** -1 while idle, 0..100 while the update APK is downloading. */
+    var updateProgress by mutableIntStateOf(-1)
+        private set
+
+    /** True once the update APK is fully downloaded and ready to install. */
+    var updateApkReady by mutableStateOf(false)
+        private set
+
+    /** True when the last download attempt failed; offers a retry. */
+    var updateFailed by mutableStateOf(false)
+        private set
+
+    fun reportUpdateRelease(release: com.imankoppai.mediaanvil.update.AppRelease?) {
+        updateRelease = release
+        updateProgress = -1
+        updateApkReady = false
+        updateFailed = false
+    }
+
+    fun dismissUpdate() {
+        updateRelease = null
+    }
+
+    /** Silent startup check for a newer GitHub release, throttled to once a day. */
+    fun maybeCheckForUpdate() {
+        val now = System.currentTimeMillis()
+        if (now - preferences.updateLastCheckAt < UPDATE_CHECK_INTERVAL_MS) return
+        preferences.updateLastCheckAt = now
+        scope.launch {
+            val release = withContext(Dispatchers.IO) {
+                runCatching { com.imankoppai.mediaanvil.update.AppUpdateChecker.fetchLatest() }.getOrNull()
+            } ?: return@launch
+            val current = runCatching {
+                appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
+            }.getOrNull() ?: return@launch
+            if (com.imankoppai.mediaanvil.update.AppUpdateChecker.isNewer(release.tagName, current)) {
+                reportUpdateRelease(release)
+            }
+        }
+    }
+
+    fun startUpdateDownload() {
+        val release = updateRelease ?: return
+        if (updateProgress >= 0) return
+        updateProgress = 0
+        updateFailed = false
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    com.imankoppai.mediaanvil.update.AppUpdateInstaller.downloadApk(
+                        appContext,
+                        release.apkUrl,
+                    ) { percent -> updateProgress = percent }
+                }
+            }
+            result.onSuccess {
+                updateProgress = 100
+                updateFailed = false
+                updateApkReady = true
+                if (com.imankoppai.mediaanvil.update.AppUpdateInstaller.canInstall(appContext)) {
+                    installDownloadedUpdate()
+                }
+            }.onFailure {
+                updateProgress = -1
+                updateApkReady = false
+                updateFailed = true
+            }
+        }
+    }
+
+    /** Launches the system installer, or the one-time unknown-sources permission page. */
+    fun installDownloadedUpdate() {
+        if (!updateApkReady) return
+        val installer = com.imankoppai.mediaanvil.update.AppUpdateInstaller
+        if (installer.canInstall(appContext)) {
+            installer.install(appContext, installer.apkFile(appContext))
+        } else {
+            installer.unknownSourcesSettings(appContext)
+        }
+    }
+
     /** Audio folders on the device with track counts, for the scan-scope picker. */
     fun loadAudioFolders(onLoaded: (List<DeviceAudioLibrary.AudioFolder>) -> Unit) {
         scope.launch {
@@ -232,5 +318,6 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
 
     companion object {
         private val DEVICE_LIBRARY_URI = Uri.parse("mediaanvil://device-library")
+        private const val UPDATE_CHECK_INTERVAL_MS = 24L * 60 * 60 * 1000
     }
 }

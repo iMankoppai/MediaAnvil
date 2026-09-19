@@ -43,7 +43,6 @@ import androidx.media3.session.MediaController
 import com.imankoppai.mediaanvil.ui.theme.ThemeController
 import com.imankoppai.mediaanvil.R
 import com.imankoppai.mediaanvil.data.PlayerDataBackup
-import com.imankoppai.mediaanvil.update.AppRelease
 import com.imankoppai.mediaanvil.update.AppUpdateChecker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -64,7 +63,6 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
     var language by remember { mutableStateOf(library.preferences.language) }
     var doublePressAction by remember { mutableStateOf(library.preferences.doublePressAction) }
     var checkingUpdate by remember { mutableStateOf(false) }
-    var releaseInfo by remember { mutableStateOf<AppRelease?>(null) }
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
     val currentVersion = remember {
         context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0"
@@ -172,6 +170,7 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
             modifier = Modifier.padding(vertical = 12.dp),
         )
 
+        // The update card sits just above About, at the bottom of the page.
         SettingsCard(title = stringResource(R.string.settings_general_section)) {
             Text(stringResource(R.string.settings_language), style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
@@ -438,6 +437,51 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
             }
         }
 
+        library.updateRelease?.let { release ->
+            SettingsCard(title = stringResource(R.string.update_banner_title, release.tagName)) {
+                if (library.updateApkReady) {
+                    Text(stringResource(R.string.update_ready_to_install), style = MaterialTheme.typography.bodyMedium)
+                    Button(
+                        onClick = { library.installDownloadedUpdate() },
+                        modifier = Modifier.padding(top = 10.dp),
+                    ) { Text(stringResource(R.string.update_install_button)) }
+                } else if (library.updateProgress >= 0) {
+                    Text(
+                        stringResource(R.string.update_downloading, library.updateProgress),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { library.updateProgress.coerceIn(0, 100) / 100f },
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    )
+                } else if (library.updateFailed) {
+                    Text(
+                        stringResource(R.string.update_download_failed),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Button(
+                        onClick = { library.startUpdateDownload() },
+                        modifier = Modifier.padding(top = 10.dp),
+                    ) { Text(stringResource(R.string.update_retry)) }
+                    OutlinedButton(
+                        onClick = { library.dismissUpdate() },
+                        modifier = Modifier.padding(top = 4.dp),
+                    ) { Text(stringResource(R.string.update_dismiss)) }
+                } else {
+                    Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { library.startUpdateDownload() },
+                            enabled = release.apkUrl.isNotBlank(),
+                        ) { Text(stringResource(R.string.update_action)) }
+                        OutlinedButton(onClick = { library.dismissUpdate() }) {
+                            Text(stringResource(R.string.update_dismiss))
+                        }
+                    }
+                }
+            }
+        }
+
         SettingsCard(title = stringResource(R.string.settings_about_section)) {
             Text("MediaAnvil Mobile $currentVersion", style = MaterialTheme.typography.bodyMedium)
             Text(
@@ -458,7 +502,7 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
                         checkingUpdate = false
                         result.onSuccess { release ->
                             if (AppUpdateChecker.isNewer(release.tagName, currentVersion)) {
-                                releaseInfo = release
+                                library.reportUpdateRelease(release)
                             } else {
                                 message = context.getString(R.string.update_latest)
                             }
@@ -483,29 +527,6 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
         Spacer(Modifier.height(24.dp))
     }
 
-
-    releaseInfo?.let { release ->
-        AlertDialog(
-            onDismissRequest = { releaseInfo = null },
-            title = { Text(stringResource(R.string.update_available, release.title)) },
-            text = {
-                Text(release.notes.ifBlank { stringResource(R.string.update_no_notes) })
-            },
-            confirmButton = {
-                Button(onClick = {
-                    runCatching {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.pageUrl)))
-                    }.onFailure { message = context.getString(R.string.update_open_failed) }
-                    releaseInfo = null
-                }) { Text(stringResource(R.string.update_download)) }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { releaseInfo = null }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            },
-        )
-    }
 
     pendingImport?.let { uri ->
         AlertDialog(

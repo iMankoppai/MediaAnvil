@@ -166,6 +166,14 @@
     <string name="backup_imported">Player data restored; rescanning the library</string>
     <string name="backup_import_failed">The backup is invalid or could not be read</string>
     <string name="update_check">Check for updates</string>
+    <string name="update_retry">Retry download</string>
+    <string name="update_download_failed">Download failed</string>
+    <string name="update_install_button">Install update</string>
+    <string name="update_banner_title">New version %1$s available</string>
+    <string name="update_action">Update now</string>
+    <string name="update_dismiss">Dismiss</string>
+    <string name="update_downloading">Downloading %1$d%%</string>
+    <string name="update_ready_to_install">Download complete; tap to install (data and settings are kept)</string>
     <string name="update_checking">Checking…</string>
     <string name="update_latest">You already have the latest version</string>
     <string name="update_failed">Could not check for updates; check your connection and retry</string>

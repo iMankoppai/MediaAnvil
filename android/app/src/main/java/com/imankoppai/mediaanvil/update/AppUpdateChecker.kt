@@ -9,6 +9,7 @@ data class AppRelease(
     val title: String,
     val notes: String,
     val pageUrl: String,
+    val apkUrl: String,
 )
 
 object AppUpdateChecker {
@@ -34,11 +35,24 @@ object AppUpdateChecker {
     internal fun parseRelease(json: String): AppRelease {
         val item = JSONObject(json)
         val tag = item.getString("tag_name")
+        var apkUrl = ""
+        val assets = item.optJSONArray("assets")
+        if (assets != null) {
+            for (index in 0 until assets.length()) {
+                val asset = assets.optJSONObject(index) ?: continue
+                val url = asset.optString("browser_download_url")
+                if (asset.optString("name").endsWith(".apk") && url.isNotBlank()) {
+                    apkUrl = url
+                    break
+                }
+            }
+        }
         return AppRelease(
             tagName = tag,
             title = item.optString("name").ifBlank { tag },
             notes = item.optString("body"),
             pageUrl = item.getString("html_url"),
+            apkUrl = apkUrl,
         )
     }
 

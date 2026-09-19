@@ -80,6 +80,13 @@ class PlaybackPreferences(context: Context) {
             preferences.edit().putStringSet("scan_folders", value).apply()
         }
 
+    /** Epoch-ms of the last automatic update check, throttling it to once a day. */
+    var updateLastCheckAt: Long
+        get() = preferences.getLong("update_last_check_at", 0L)
+        set(value) {
+            preferences.edit().putLong("update_last_check_at", value).apply()
+        }
+
     /** "fileName", "title" or "duration". */
     var librarySort: String
         get() = preferences.getString("library_sort", "fileName") ?: "fileName"
