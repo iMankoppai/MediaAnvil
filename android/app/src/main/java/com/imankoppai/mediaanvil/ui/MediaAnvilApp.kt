@@ -225,6 +225,7 @@ fun MediaAnvilApp() {
                     controller = controller,
                     onRequestStorageAccess = ::requestStorageAccess,
                     onOpenPlayer = { tab = MainTab.Player },
+                    onOpenSettings = { tab = MainTab.Settings },
                     onEditTrack = { editingTrack = it },
                 )
                 MainTab.Player -> NowPlayingPage(

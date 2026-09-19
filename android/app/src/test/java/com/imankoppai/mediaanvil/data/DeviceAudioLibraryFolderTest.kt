@@ -28,13 +28,21 @@ class DeviceAudioLibraryFolderTest {
     }
 
     @Test
-    fun `exact folder match decides inclusion`() {
+    fun `selected folders include their subfolders`() {
         val folders = setOf("Music/")
         assertTrue(DeviceAudioLibrary.isFolderAllowed("$root/Music", folders, root))
         assertTrue(DeviceAudioLibrary.isFolderAllowed("$root/Music/", folders, root))
-        assertFalse(DeviceAudioLibrary.isFolderAllowed("$root/Music/sub", folders, root))
+        assertTrue(DeviceAudioLibrary.isFolderAllowed("$root/Music/sub", folders, root))
         assertFalse(DeviceAudioLibrary.isFolderAllowed("$root/Recordings", folders, root))
         assertFalse(DeviceAudioLibrary.isFolderAllowed("", folders, root))
+    }
+
+    @Test
+    fun `tree document ids convert to relative folders`() {
+        assertEquals("Music/sub/", DeviceAudioLibrary.treeDocumentIdToRelativeFolder("primary:Music/sub"))
+        assertEquals("Music/", DeviceAudioLibrary.treeDocumentIdToRelativeFolder("primary:Music"))
+        assertEquals("34FE-19F0/Music/", DeviceAudioLibrary.treeDocumentIdToRelativeFolder("34FE-19F0:Music"))
+        assertEquals(null, DeviceAudioLibrary.treeDocumentIdToRelativeFolder("primary:"))
     }
 
     @Test

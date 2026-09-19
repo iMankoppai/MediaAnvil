@@ -1,7 +1,10 @@
 <resources>
     <string name="app_name">MediaAnvil</string>
     <string name="storage_access_action">授予存储访问权限</string>
-    <string name="storage_access_hint">授予存储访问权限后，将自动扫描手机中的全部受支持音频。</string>
+    <string name="empty_folder_hint">所选文件夹中没有找到受支持的音频，可在下方添加或更换文件夹。</string>
+    <string name="empty_go_settings">选择文件夹</string>
+    <string name="empty_no_audio_hint">手机中没有找到受支持的音频文件。</string>
+    <string name="storage_access_hint">授予存储访问权限后，将自动扫描手机中的受支持音频。</string>
     <string name="no_tracks">没有找到支持的音频文件。</string>
     <string name="no_lyrics">没有找到匹配的外挂歌词或字幕</string>
     <string name="play">播放</string>
@@ -21,9 +24,9 @@
     <string name="scan_scope">扫描范围</string>
     <string name="scan_mode_all">扫描全部</string>
     <string name="scan_mode_folders">按文件夹</string>
-    <string name="scan_folders_hint">只导入勾选的文件夹（不含子文件夹）</string>
-    <string name="scan_folders_empty">没有找到包含受支持音频的文件夹</string>
-    <string name="scan_tracks_count">%1$d 首</string>
+    <string name="scan_folders_hint">所选文件夹及其子文件夹中的音频会被导入</string>
+    <string name="scan_add_folder">添加文件夹</string>
+    <string name="delete_action">删除</string>
     <string name="sort_menu_label">排序：%1$s</string>
     <string name="sort_file_name">文件名</string>
     <string name="sort_title">标题</string>

@@ -1,6 +1,7 @@
 package com.imankoppai.mediaanvil.data
 
 import android.content.ContentUris
+import android.content.Intent
 import android.content.Context
 import android.net.Uri
 import android.os.Build
@@ -14,9 +15,6 @@ import java.io.File
 object DeviceAudioLibrary {
     private val audioExtensions = setOf("mp3", "wav", "flac", "m4a", "aac", "ogg", "opus")
     private val subtitleExtensions = listOf("lrc", "srt", "vtt")
-
-    /** A folder that contains audio files, keyed by its storage-relative path. */
-    data class AudioFolder(val path: String, val trackCount: Int)
 
     @Suppress("DEPRECATION")
     fun scan(context: Context, allowedFolders: Set<String> = emptySet()): LibraryScan {
@@ -78,32 +76,6 @@ object DeviceAudioLibrary {
         )
     }
 
-    /** Folders that directly contain at least one supported audio file, sorted by path. */
-    @Suppress("DEPRECATION")
-    fun listFolders(context: Context): List<AudioFolder> {
-        val storageRoot = storageRoot()
-        val counts = mutableMapOf<String, Int>()
-        audioCollections(context).forEach { collection ->
-            val projection = arrayOf(MediaStore.Audio.Media.DISPLAY_NAME, MediaStore.Audio.Media.DATA)
-            context.contentResolver.query(collection, projection, null, null, null)?.use { cursor ->
-                val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
-                val dataColumn = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
-                while (cursor.moveToNext()) {
-                    val name = cursor.getString(nameColumn).orEmpty()
-                    if (name.substringAfterLast('.', "").lowercase() !in audioExtensions) continue
-                    val parentPath = dataColumn.takeIf { it >= 0 }
-                        ?.let { cursor.getString(it) }
-                        ?.let { File(it).parent }
-                        .orEmpty()
-                    val folder = relativeFolder(parentPath, storageRoot)
-                    counts[folder] = (counts[folder] ?: 0) + 1
-                }
-            }
-        }
-        return counts.map { AudioFolder(it.key, it.value) }
-            .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.path })
-    }
-
     private fun audioCollections(context: Context): List<Uri> =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             MediaStore.getExternalVolumeNames(context).map(MediaStore.Audio.Media::getContentUri)
@@ -129,10 +101,39 @@ object DeviceAudioLibrary {
         return relative.trimEnd('/') + "/"
     }
 
-    /** Empty [folders] scans everything; otherwise the track's own folder must be selected exactly. */
+    /** "primary:Music/sub" from a SAF tree Uri becomes the relative folder "Music/sub/". */
+    internal fun treeDocumentIdToRelativeFolder(documentId: String): String? {
+        val parts = documentId.split(":", limit = 2)
+        if (parts.size != 2) return null
+        val path = parts[1].trim('/')
+        if (path.isEmpty()) return null
+        val relative = if (parts[0].equals("primary", ignoreCase = true)) path else "${parts[0]}/$path"
+        return relative.trimEnd('/') + "/"
+    }
+
+    /** AOSP documentsui uses standard tree ids; vendor file managers often do not. */
+    fun folderPickerIntent(context: Context): Intent {
+        val base = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+            .addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+        val aosp = Intent(base).setPackage("com.android.documentsui")
+        val resolved = runCatching {
+            context.packageManager.resolveActivity(aosp, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+        }.getOrNull() != null
+        return if (resolved) aosp else base
+    }
+
+    fun treeUriToRelativeFolder(uri: Uri): String? =
+        try {
+            treeDocumentIdToRelativeFolder(android.provider.DocumentsContract.getTreeDocumentId(uri))
+        } catch (failure: Throwable) {
+            null
+        }
+
+    /** Empty [folders] scans everything; otherwise the folder must sit inside a selected one. */
     internal fun isFolderAllowed(parentPath: String, folders: Set<String>, storageRoot: String): Boolean {
         if (folders.isEmpty()) return true
-        return relativeFolder(parentPath, storageRoot) in folders
+        val folder = relativeFolder(parentPath, storageRoot)
+        return folders.any { selected -> folder.startsWith(selected) }
     }
 
     private fun findSubtitle(audio: File): File? {

@@ -1,7 +1,10 @@
 <resources>
     <string name="app_name">MediaAnvil</string>
     <string name="storage_access_action">Grant storage access</string>
-    <string name="storage_access_hint">Grant storage access to scan supported audio across this device automatically.</string>
+    <string name="empty_folder_hint">No supported audio was found in the selected folders. Add or change them below.</string>
+    <string name="empty_go_settings">Choose folders</string>
+    <string name="empty_no_audio_hint">No supported audio files were found on this device.</string>
+    <string name="storage_access_hint">Grant storage access and supported audio on the device is scanned automatically.</string>
     <string name="no_tracks">No supported audio files were found.</string>
     <string name="no_lyrics">No matching sidecar lyrics or subtitles</string>
     <string name="play">Play</string>
@@ -21,9 +24,9 @@
     <string name="scan_scope">Scan scope</string>
     <string name="scan_mode_all">All audio</string>
     <string name="scan_mode_folders">By folder</string>
-    <string name="scan_folders_hint">Only checked folders are imported (subfolders not included)</string>
-    <string name="scan_folders_empty">No folders containing supported audio were found</string>
-    <string name="scan_tracks_count">%1$d tracks</string>
+    <string name="scan_folders_hint">Audio inside the selected folders and their subfolders is imported</string>
+    <string name="scan_add_folder">Add folder</string>
+    <string name="delete_action">Delete</string>
     <string name="sort_menu_label">Sort: %1$s</string>
     <string name="sort_file_name">File name</string>
     <string name="sort_title">Title</string>

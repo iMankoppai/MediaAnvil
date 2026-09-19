@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
@@ -276,16 +278,26 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
 
         var scanMode by remember { mutableStateOf(library.preferences.libraryScanMode) }
         var scanFolders by remember { mutableStateOf(library.preferences.scanFolders) }
-        var audioFolders by remember { mutableStateOf<List<com.imankoppai.mediaanvil.data.DeviceAudioLibrary.AudioFolder>?>(null) }
-        LaunchedEffect(scanMode) {
-            if (scanMode == "folders" && audioFolders == null) {
-                library.loadAudioFolders { audioFolders = it }
-            }
-        }
         fun updateScanFolders(updated: Set<String>) {
             scanFolders = updated
             library.preferences.scanFolders = updated
             library.rescan(quiet = true)
+        }
+        val pickFolderLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.StartActivityForResult(),
+        ) { result ->
+            android.util.Log.d("MediaAnvilUpdate", "picker result code=${result.resultCode} data=${result.data}")
+            val uri = result.data?.data ?: return@rememberLauncherForActivityResult
+            val folder = com.imankoppai.mediaanvil.data.DeviceAudioLibrary.treeUriToRelativeFolder(uri)
+            android.util.Log.d("MediaAnvilUpdate", "picker folder=$folder")
+            if (folder != null && folder !in scanFolders) {
+                updateScanFolders(scanFolders + folder)
+            }
+        }
+        fun launchFolderPicker() {
+            pickFolderLauncher.launch(
+                com.imankoppai.mediaanvil.data.DeviceAudioLibrary.folderPickerIntent(context),
+            )
         }
         SettingsCard(title = stringResource(R.string.scan_scope)) {
             Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
@@ -319,36 +331,27 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
                 )
-                val loaded = audioFolders
-                when {
-                    loaded == null -> androidx.compose.material3.CircularProgressIndicator(Modifier.padding(top = 12.dp))
-                    loaded.isEmpty() -> Text(
-                        stringResource(R.string.scan_folders_empty),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                    else -> loaded.forEach { folder ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            androidx.compose.material3.Checkbox(
-                                checked = folder.path in scanFolders,
-                                onCheckedChange = { checked ->
-                                    updateScanFolders(
-                                        if (checked) scanFolders + folder.path else scanFolders - folder.path,
-                                    )
-                                },
+                OutlinedButton(
+                    onClick = { launchFolderPicker() },
+                    modifier = Modifier.padding(top = 10.dp),
+                ) { Text(stringResource(R.string.scan_add_folder)) }
+                scanFolders.sorted().forEach { folder ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            folder.trimEnd('/'),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        androidx.compose.material3.IconButton(onClick = {
+                            updateScanFolders(scanFolders - folder)
+                        }) {
+                            androidx.compose.material3.Icon(
+                                Icons.Filled.Close,
+                                contentDescription = stringResource(R.string.delete_action),
                             )
-                            Column(Modifier.weight(1f)) {
-                                Text(folder.path.trimEnd('/'), style = MaterialTheme.typography.bodyMedium)
-                                Text(
-                                    stringResource(R.string.scan_tracks_count, folder.trackCount),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
                         }
                     }
                 }

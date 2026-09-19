@@ -1,6 +1,8 @@
 package com.imankoppai.mediaanvil.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -88,9 +90,20 @@ internal fun LibraryPage(
     controller: androidx.media3.session.MediaController?,
     onRequestStorageAccess: () -> Unit,
     onOpenPlayer: () -> Unit,
+    onOpenSettings: () -> Unit,
     onEditTrack: (AudioTrack) -> Unit,
 ) {
     val context = LocalContext.current
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val uri = result.data?.data ?: return@rememberLauncherForActivityResult
+        val folder = com.imankoppai.mediaanvil.data.DeviceAudioLibrary.treeUriToRelativeFolder(uri)
+        if (folder != null) {
+            library.preferences.scanFolders = library.preferences.scanFolders + folder
+            library.rescan(quiet = true)
+        }
+    }
     var selectedTab by remember { mutableStateOf(0) }
     var searchOpen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -220,7 +233,27 @@ internal fun LibraryPage(
                 }
 
                 when {
-                    library.tracks.isEmpty() && !library.loading -> EmptyLibrary(onRequestStorageAccess)
+                    library.tracks.isEmpty() && !library.loading -> when {
+                        !library.hasStorageAccess() -> EmptyLibrary(
+                            hint = stringResource(R.string.storage_access_hint),
+                            actionLabel = stringResource(R.string.storage_access_action),
+                            onAction = onRequestStorageAccess,
+                        )
+                        library.preferences.libraryScanMode == "folders" -> EmptyLibrary(
+                            hint = stringResource(R.string.empty_folder_hint),
+                            actionLabel = stringResource(R.string.empty_go_settings),
+                            onAction = {
+                                folderPickerLauncher.launch(
+                                    com.imankoppai.mediaanvil.data.DeviceAudioLibrary.folderPickerIntent(context),
+                                )
+                            },
+                        )
+                        else -> EmptyLibrary(
+                            hint = stringResource(R.string.empty_no_audio_hint),
+                            actionLabel = null,
+                            onAction = {},
+                        )
+                    }
                     else -> {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -938,7 +971,11 @@ private fun MiniPlayer(
 }
 
 @Composable
-private fun EmptyLibrary(onRequestStorageAccess: () -> Unit) {
+private fun EmptyLibrary(
+    hint: String,
+    actionLabel: String?,
+    onAction: () -> Unit,
+) {
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -951,9 +988,11 @@ private fun EmptyLibrary(onRequestStorageAccess: () -> Unit) {
             modifier = Modifier.size(64.dp),
         )
         Spacer(Modifier.height(12.dp))
-        Text(stringResource(R.string.storage_access_hint), style = MaterialTheme.typography.bodyMedium)
-        Spacer(Modifier.height(16.dp))
-        Button(onClick = onRequestStorageAccess) { Text(stringResource(R.string.storage_access_action)) }
+        Text(hint, style = MaterialTheme.typography.bodyMedium)
+        if (actionLabel != null) {
+            Spacer(Modifier.height(16.dp))
+            Button(onClick = onAction) { Text(actionLabel) }
+        }
     }
 }
 

@@ -44,6 +44,15 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
 
     private var sleepJob: kotlinx.coroutines.Job? = null
 
+    fun hasStorageAccess(): Boolean =
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            android.os.Environment.isExternalStorageManager()
+        } else {
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                appContext, android.Manifest.permission.READ_EXTERNAL_STORAGE,
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+
     /** Mirrors [PlaybackPreferences.autoLoadLyrics] so open screens react immediately. */
     var autoLoadLyrics by mutableStateOf(preferences.autoLoadLyrics)
         private set
@@ -312,16 +321,6 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
             installer.install(appContext, installer.apkFile(appContext))
         } else {
             installer.unknownSourcesSettings(appContext)
-        }
-    }
-
-    /** Audio folders on the device with track counts, for the scan-scope picker. */
-    fun loadAudioFolders(onLoaded: (List<DeviceAudioLibrary.AudioFolder>) -> Unit) {
-        scope.launch {
-            val folders = withContext(Dispatchers.IO) {
-                runCatching { DeviceAudioLibrary.listFolders(appContext) }.getOrElse { emptyList() }
-            }
-            onLoaded(folders)
         }
     }
 
