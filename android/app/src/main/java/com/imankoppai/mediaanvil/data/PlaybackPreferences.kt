@@ -87,6 +87,48 @@ class PlaybackPreferences(context: Context) {
             preferences.edit().putStringSet("scan_folders", value).apply()
         }
 
+    /** Remember playback position and the last queue across app restarts. */
+    var resumePlayback: Boolean
+        get() = preferences.getBoolean("resume_playback", true)
+        set(value) {
+            preferences.edit().putBoolean("resume_playback", value).apply()
+        }
+
+    /** JSON object mapping track uri -> saved playback position in ms. */
+    var playbackPositions: String
+        get() = preferences.getString("playback_positions", "{}") ?: "{}"
+        set(value) {
+            preferences.edit().putString("playback_positions", value).apply()
+        }
+
+    fun playbackPositionFor(uri: String): Long = runCatching {
+        JSONObject(playbackPositions).optLong(uri, -1L)
+    }.getOrDefault(-1L)
+
+    fun setPlaybackPosition(uri: String, positionMs: Long) {
+        runCatching {
+            val root = JSONObject(playbackPositions)
+            if (positionMs > 0L) root.put(uri, positionMs) else root.remove(uri)
+            // commit(): a force-stop can kill a pending apply() and lose the
+            // last position, so this one must land on disk synchronously.
+            preferences.edit().putString("playback_positions", root.toString()).commit()
+        }
+    }
+
+    /** JSON array of the last queue media ids (track uris). */
+    var lastQueueUris: String
+        get() = preferences.getString("last_queue_uris", "[]") ?: "[]"
+        set(value) {
+            preferences.edit().putString("last_queue_uris", value).commit()
+        }
+
+    /** Index into lastQueueUris that was current when playback last stopped. */
+    var lastQueueIndex: Int
+        get() = preferences.getInt("last_queue_index", -1)
+        set(value) {
+            preferences.edit().putInt("last_queue_index", value).commit()
+        }
+
     /** Epoch-ms of the last automatic update check, throttling it to once a day. */
     var updateLastCheckAt: Long
         get() = preferences.getLong("update_last_check_at", 0L)
