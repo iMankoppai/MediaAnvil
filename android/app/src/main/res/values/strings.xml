@@ -152,6 +152,7 @@
     <string name="tag_saved">Tags saved</string>
     <string name="tag_read_failed">Could not read the current tags</string>
     <string name="tag_save_failed">Could not save tags</string>
+    <string name="tag_recovery_kept"> A copy of the original file was kept in app-private storage (tag-edit-recovery); nothing is lost.</string>
     <string name="tag_unsupported_format">This format does not support tag writing here. Raw AAC is read-only.</string>
     <string name="settings_about_section">About</string>
     <string name="settings_data_section">Backup and restore</string>

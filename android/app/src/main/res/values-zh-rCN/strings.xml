@@ -152,6 +152,7 @@
     <string name="tag_saved">标签已保存</string>
     <string name="tag_read_failed">读取当前标签失败</string>
     <string name="tag_save_failed">保存标签失败</string>
+    <string name="tag_recovery_kept">原文件副本已保留在应用私有目录（tag-edit-recovery），不会丢失。</string>
     <string name="tag_unsupported_format">当前格式不支持在此写入标签。原始 AAC 只能读取。</string>
     <string name="settings_about_section">关于</string>
     <string name="settings_data_section">备份与恢复</string>

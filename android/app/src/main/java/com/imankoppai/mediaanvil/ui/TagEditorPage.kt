@@ -91,6 +91,7 @@ internal fun TagEditorPage(
         message = null
         controller?.pause()
         scope.launch {
+            var recoveryKept = false
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val original = DocumentOps.copyToCache(context, track.uri, track.fileName)
@@ -98,8 +99,25 @@ internal fun TagEditorPage(
                     try {
                         original.copyTo(edited, overwrite = true)
                         TagIO.write(edited, title, artist)
-                        DocumentOps.overwriteInPlace(context, track.uri, edited, original)
+                        try {
+                            DocumentOps.overwriteInPlace(context, track.uri, edited, original)
+                        } catch (failure: Throwable) {
+                            // Both the write and the automatic restore may have
+                            // failed; keep the cached original as a recovery copy
+                            // before the cache is cleaned up.
+                            recoveryKept = true
+                            throw failure
+                        }
                     } finally {
+                        if (recoveryKept) {
+                            runCatching {
+                                val recoveryDir = File(context.filesDir, "tag-edit-recovery").apply { mkdirs() }
+                                original.copyTo(
+                                    File(recoveryDir, "${System.currentTimeMillis()}-${track.fileName}"),
+                                    overwrite = true,
+                                )
+                            }
+                        }
                         DocumentOps.deleteCache(original)
                         DocumentOps.deleteCache(edited)
                     }
@@ -114,7 +132,8 @@ internal fun TagEditorPage(
                 },
                 onFailure = { failure ->
                     message = context.getString(R.string.tag_save_failed) +
-                        (failure.message?.let { ": $it" } ?: "")
+                        (failure.message?.let { ": $it" } ?: "") +
+                        if (recoveryKept) context.getString(R.string.tag_recovery_kept) else ""
                 },
             )
         }
