@@ -33,11 +33,15 @@ class PlaybackService : MediaSessionService() {
 
     private val loopTicker = object : Runnable {
         override fun run() {
-            val player = mediaSession?.player
-            if (player != null && loopEndMs > loopStartMs && player.isPlaying &&
-                player.currentPosition >= loopEndMs
-            ) {
-                player.seekTo(loopStartMs)
+            mediaSession?.player?.let { player ->
+                val active = loopEndMs > loopStartMs
+                val playing = player.isPlaying && player.currentPosition >= loopEndMs
+                // A B point at (or past) the end lets the track finish instead
+                // of crossing the marker while playing; rewind that case too.
+                val finished = player.playbackState == Player.STATE_ENDED
+                if (active && (playing || finished)) {
+                    player.seekTo(loopStartMs)
+                }
             }
             handler.postDelayed(this, LOOP_POLL_MS)
         }

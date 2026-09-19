@@ -43,6 +43,15 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
 
     private var sleepJob: kotlinx.coroutines.Job? = null
 
+    /** Mirrors [PlaybackPreferences.autoLoadLyrics] so open screens react immediately. */
+    var autoLoadLyrics by mutableStateOf(preferences.autoLoadLyrics)
+        private set
+
+    fun updateAutoLoadLyrics(value: Boolean) {
+        autoLoadLyrics = value
+        preferences.autoLoadLyrics = value
+    }
+
     /** Fire [onFire] when the deadline passes; the caller owns the player policy. */
     fun startSleepTimer(minutes: Int, onFire: () -> Unit) {
         sleepJob?.cancel()

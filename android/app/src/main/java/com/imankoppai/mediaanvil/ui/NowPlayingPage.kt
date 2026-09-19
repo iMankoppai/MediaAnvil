@@ -246,7 +246,7 @@ internal fun NowPlayingPage(
                             track = track,
                             positionMs = positionMs,
                             onSeek = { controller?.seekTo(it) },
-                            autoLoadExternal = library.preferences.autoLoadLyrics,
+                            autoLoadExternal = library.autoLoadLyrics,
                         )
                     }
                 }

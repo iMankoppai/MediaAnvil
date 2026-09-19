@@ -62,7 +62,6 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
     // SharedPreferences is not Compose-observable; mirror settings locally so the
     // chips and switches refresh immediately instead of after re-entering the page.
     var language by remember { mutableStateOf(library.preferences.language) }
-    var autoLoadLyrics by remember { mutableStateOf(library.preferences.autoLoadLyrics) }
     var doublePressAction by remember { mutableStateOf(library.preferences.doublePressAction) }
     var checkingUpdate by remember { mutableStateOf(false) }
     var releaseInfo by remember { mutableStateOf<AppRelease?>(null) }
@@ -232,11 +231,8 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
                     )
                 }
                 Switch(
-                    checked = autoLoadLyrics,
-                    onCheckedChange = {
-                        autoLoadLyrics = it
-                        library.preferences.autoLoadLyrics = it
-                    },
+                    checked = library.autoLoadLyrics,
+                    onCheckedChange = { library.updateAutoLoadLyrics(it) },
                 )
             }
             HorizontalDivider(Modifier.padding(vertical = 10.dp))

@@ -62,7 +62,9 @@ fun MediaAnvilApp() {
     val scope = rememberCoroutineScope()
     val library = remember { LibraryState(context, scope) }
     var controller by remember { mutableStateOf<MediaController?>(null) }
-    var tab by remember { mutableStateOf(MainTab.Media) }
+    // Survives the activity recreation a system locale change triggers, so
+    // switching language stays on the current tab instead of resetting to Media.
+    var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(MainTab.Media) }
     var editingTrack by remember { mutableStateOf<com.imankoppai.mediaanvil.model.AudioTrack?>(null) }
 
     BackHandler(enabled = editingTrack != null || tab != MainTab.Media) {
