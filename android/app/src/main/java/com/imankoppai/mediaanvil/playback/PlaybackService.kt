@@ -52,9 +52,12 @@ class PlaybackService : MediaSessionService() {
         override fun onPlaybackStateChanged(playbackState: Int) {
             val player = mediaSession?.player ?: return
             // Sequential playback returns to the top of the list after the
-            // last track instead of stopping at the end.
+            // last track instead of stopping at the end. An active A/B loop
+            // wins: its own ticker rewinds the finished track.
+            val loopActive = loopEndMs > loopStartMs
             if (playbackState == Player.STATE_ENDED &&
                 !stopAfterTrackEnd &&
+                !loopActive &&
                 player.repeatMode == Player.REPEAT_MODE_OFF &&
                 player.mediaItemCount > 1 &&
                 player.currentMediaItemIndex == player.mediaItemCount - 1

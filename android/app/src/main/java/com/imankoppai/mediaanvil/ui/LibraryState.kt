@@ -305,15 +305,17 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
         updateRelease = null
     }
 
-    /** Silent startup check for a newer GitHub release, throttled to once a day. */
+    /** Silent startup check for a newer GitHub release, throttled to once a day.
+        The timestamp is only recorded on success so a failed check (offline)
+        is retried on the next launch instead of being suppressed for a day. */
     fun maybeCheckForUpdate() {
         val now = System.currentTimeMillis()
         if (now - preferences.updateLastCheckAt < UPDATE_CHECK_INTERVAL_MS) return
-        preferences.updateLastCheckAt = now
         scope.launch {
             val release = withContext(Dispatchers.IO) {
                 runCatching { com.imankoppai.mediaanvil.update.AppUpdateChecker.fetchLatest() }.getOrNull()
             } ?: return@launch
+            preferences.updateLastCheckAt = System.currentTimeMillis()
             val current = runCatching {
                 appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
             }.getOrNull() ?: return@launch
