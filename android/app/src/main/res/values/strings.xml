@@ -102,8 +102,14 @@
     <string name="settings_playback_section">Playback</string>
     <string name="auto_load_lyrics">Auto-load sidecar lyrics</string>
     <string name="auto_load_lyrics_hint">Read LRC/SRT/VTT files next to the audio during playback</string>
+    <string name="resume_playback">Resume where you left off</string>
+    <string name="resume_playback_hint">Reopen the app on the last track and position, with the last queue</string>
     <string name="show_lyrics_timestamps">Show lyric timestamps</string>
     <string name="show_lyrics_timestamps_hint">Print the start time of each line above its text</string>
+    <string name="selection_count">%1$d selected</string>
+    <string name="selection_add_group">Add to group</string>
+    <string name="selection_remove">Remove from list</string>
+    <string name="selection_no_groups">No groups yet — create one in the Groups tab</string>
     <string name="seek_back_setting">Rewind interval</string>
     <string name="seek_forward_setting">Fast-forward interval</string>
     <string name="seconds_value">%1$d s</string>

@@ -62,6 +62,15 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
         preferences.autoLoadLyrics = value
     }
 
+    /** Mirrors [PlaybackPreferences.resumePlayback] so the settings switch reacts immediately. */
+    var resumePlayback by mutableStateOf(preferences.resumePlayback)
+        private set
+
+    fun updateResumePlayback(value: Boolean) {
+        resumePlayback = value
+        preferences.resumePlayback = value
+    }
+
     /** Mirrors [PlaybackPreferences.showLyricsTimestamps] so open screens react immediately. */
     var showLyricsTimestamps by mutableStateOf(preferences.showLyricsTimestamps)
         private set

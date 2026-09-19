@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -105,6 +106,9 @@ internal fun LibraryPage(
         }
     }
     var selectedTab by remember { mutableStateOf(0) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedUris by remember { mutableStateOf(setOf<String>()) }
+    var groupDialogOpen by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var menuOpen by remember { mutableStateOf(false) }
@@ -284,6 +288,76 @@ internal fun LibraryPage(
                                 label = { Text(stringResource(R.string.view_artists)) },
                             )
                         }
+                        if (selectionMode) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                            ) {
+                                Text(
+                                    stringResource(R.string.selection_count, selectedUris.size),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                androidx.compose.material3.TextButton(onClick = { groupDialogOpen = true }) {
+                                    Text(stringResource(R.string.selection_add_group))
+                                }
+                                androidx.compose.material3.TextButton(onClick = {
+                                    selectedUris.forEach { uri ->
+                                        library.hideTrack(android.net.Uri.parse(uri))
+                                    }
+                                    selectionMode = false
+                                    selectedUris = emptySet()
+                                }) {
+                                    Text(stringResource(R.string.selection_remove))
+                                }
+                                androidx.compose.material3.TextButton(onClick = {
+                                    selectionMode = false
+                                    selectedUris = emptySet()
+                                }) {
+                                    Text(stringResource(R.string.cancel))
+                                }
+                            }
+                        }
+                        if (groupDialogOpen) {
+                            AlertDialog(
+                                onDismissRequest = { groupDialogOpen = false },
+                                title = { Text(stringResource(R.string.selection_add_group)) },
+                                text = {
+                                    Column {
+                                        if (library.trackGroups.isEmpty()) {
+                                            Text(stringResource(R.string.selection_no_groups))
+                                        }
+                                        library.trackGroups.forEach { group ->
+                                            Text(
+                                                group.name,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        library.setGroupTracks(
+                                                            group.id,
+                                                            group.trackUris + selectedUris,
+                                                        )
+                                                        groupDialogOpen = false
+                                                        selectionMode = false
+                                                        selectedUris = emptySet()
+                                                    }
+                                                    .padding(vertical = 12.dp),
+                                            )
+                                        }
+                                    }
+                                },
+                                confirmButton = {},
+                                dismissButton = {
+                                    androidx.compose.material3.TextButton(onClick = { groupDialogOpen = false }) {
+                                        Text(stringResource(R.string.cancel))
+                                    }
+                                },
+                            )
+                        }
                         when (musicView) {
                             MusicView.Songs -> if (filtered.isEmpty()) {
                                 SectionPlaceholder(stringResource(R.string.no_tracks))
@@ -293,7 +367,30 @@ internal fun LibraryPage(
                                         TrackRow(
                                             track = track,
                                             current = track.uri == library.selectedTrack?.uri,
-                                            onClick = { playFromLibrary(library, controller, filtered.indexOf(track), filtered) },
+                                            selectable = selectionMode,
+                                            selected = track.uri.toString() in selectedUris,
+                                            onToggleSelect = {
+                                                selectedUris = if (track.uri.toString() in selectedUris) {
+                                                    selectedUris - track.uri.toString()
+                                                } else {
+                                                    selectedUris + track.uri.toString()
+                                                }
+                                            },
+                                            onLongClick = if (selectionMode) null else ({
+                                                selectionMode = true
+                                                selectedUris = setOf(track.uri.toString())
+                                            }),
+                                            onClick = {
+                                                if (selectionMode) {
+                                                    selectedUris = if (track.uri.toString() in selectedUris) {
+                                                        selectedUris - track.uri.toString()
+                                                    } else {
+                                                        selectedUris + track.uri.toString()
+                                                    }
+                                                } else {
+                                                    playFromLibrary(library, controller, filtered.indexOf(track), filtered)
+                                                }
+                                            },
                                             onEdit = { onEditTrack(track) },
                                             onRemoveFromPlayer = { removeTrackFromPlayer(library, controller, track) },
                                         )
@@ -786,6 +883,7 @@ private fun GroupBrowser(
 }
 
 @Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 private fun TrackRow(
     track: AudioTrack,
     current: Boolean,
@@ -793,18 +891,35 @@ private fun TrackRow(
     onEdit: (() -> Unit)? = null,
     onRemoveFromGroup: (() -> Unit)? = null,
     onRemoveFromPlayer: (() -> Unit)? = null,
+    selectable: Boolean = false,
+    selected: Boolean = false,
+    onToggleSelect: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
 ) {
     var actionsOpen by remember(track.uri) { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(if (current) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-            .clickable(onClick = onClick)
+            .background(
+                when {
+                    selected -> MaterialTheme.colorScheme.primaryContainer
+                    current -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                    else -> Color.Transparent
+                },
+            )
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick,
+            )
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TrackCover(track, size = 52.dp)
+        if (selectable) {
+            Checkbox(checked = selected, onCheckedChange = { onToggleSelect?.invoke() })
+        } else {
+            TrackCover(track, size = 52.dp)
+        }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -827,7 +942,7 @@ private fun TrackRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (onEdit != null || onRemoveFromGroup != null || onRemoveFromPlayer != null) {
+        if (!selectable && (onEdit != null || onRemoveFromGroup != null || onRemoveFromPlayer != null)) {
             Box {
                 IconButton(onClick = { actionsOpen = true }) {
                     Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.track_actions))
@@ -1046,7 +1161,13 @@ internal fun playFromLibrary(
             )
             .build()
     }
-    player.setMediaItems(mediaItems, index, androidx.media3.common.C.TIME_UNSET)
+    // Resume from the tapped track's saved position when the feature is on.
+    val startPos = if (library.resumePlayback) {
+        library.preferences.playbackPositionFor(queue[index].uri.toString()).takeIf { it > 0L }
+    } else {
+        null
+    }
+    player.setMediaItems(mediaItems, index, startPos ?: androidx.media3.common.C.TIME_UNSET)
     player.shuffleModeEnabled = shuffle
     player.prepare()
     player.play()

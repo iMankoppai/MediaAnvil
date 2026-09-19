@@ -102,8 +102,14 @@
     <string name="settings_playback_section">播放</string>
     <string name="auto_load_lyrics">自动加载外挂歌词</string>
     <string name="auto_load_lyrics_hint">播放时自动读取同目录 LRC/SRT/VTT 字幕</string>
+    <string name="resume_playback">继续上次播放</string>
+    <string name="resume_playback_hint">重开应用时回到上次的曲目和进度（含播放队列）</string>
     <string name="show_lyrics_timestamps">显示歌词时间戳</string>
     <string name="show_lyrics_timestamps_hint">在每句歌词上方显示开始时间</string>
+    <string name="selection_count">已选 %1$d 项</string>
+    <string name="selection_add_group">加入分组</string>
+    <string name="selection_remove">从列表移除</string>
+    <string name="selection_no_groups">还没有分组，可在「分组」页创建</string>
     <string name="seek_back_setting">快退时长</string>
     <string name="seek_forward_setting">快进时长</string>
     <string name="seconds_value">%1$d 秒</string>

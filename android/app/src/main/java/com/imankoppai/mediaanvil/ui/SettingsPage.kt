@@ -255,6 +255,21 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
                 )
             }
             HorizontalDivider(Modifier.padding(vertical = 10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.resume_playback), style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        stringResource(R.string.resume_playback_hint),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = library.resumePlayback,
+                    onCheckedChange = { library.updateResumePlayback(it) },
+                )
+            }
+            HorizontalDivider(Modifier.padding(vertical = 10.dp))
             SeekIntervalSetting(
                 title = stringResource(R.string.seek_back_setting),
                 selectedSeconds = seekBackSeconds,
