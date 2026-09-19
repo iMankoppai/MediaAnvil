@@ -136,6 +136,7 @@ fun MediaAnvilApp() {
 
     LaunchedEffect(Unit) {
         library.startup()
+        library.maybeCheckForUpdate()
         val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Environment.isExternalStorageManager()
         } else {
