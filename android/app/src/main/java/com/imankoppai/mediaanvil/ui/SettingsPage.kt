@@ -106,22 +106,25 @@ internal fun SettingsPage(library: LibraryState, controller: MediaController?) {
     fun onSleepTimerFired() {
         val finishTrack = library.preferences.sleepFinishTrack
         val closeApp = library.preferences.sleepCloseApp
+        fun sendServiceAction(action: String) {
+            runCatching {
+                controller?.sendCustomCommand(
+                    androidx.media3.session.SessionCommand(action, android.os.Bundle.EMPTY),
+                    android.os.Bundle.EMPTY,
+                )
+            }
+        }
         val stopNow = {
             controller?.pause()
+            sendServiceAction(com.imankoppai.mediaanvil.playback.PlaybackService.COMMAND_STOP_AFTER_OFF)
             if (closeApp) closeApp()
         }
         if (finishTrack && controller?.isPlaying == true) {
             val player = checkNotNull(controller)
-            // An active A/B loop would keep the track from ever ending.
-            runCatching {
-                player.sendCustomCommand(
-                    androidx.media3.session.SessionCommand(
-                        com.imankoppai.mediaanvil.playback.PlaybackService.COMMAND_LOOP_CLEAR,
-                        android.os.Bundle.EMPTY,
-                    ),
-                    android.os.Bundle.EMPTY,
-                )
-            }
+            // An active A/B loop would keep the track from ever ending, and the
+            // service must not wrap the list around when this track finishes.
+            sendServiceAction(com.imankoppai.mediaanvil.playback.PlaybackService.COMMAND_LOOP_CLEAR)
+            sendServiceAction(com.imankoppai.mediaanvil.playback.PlaybackService.COMMAND_STOP_AFTER_ON)
             player.addListener(object : androidx.media3.common.Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == androidx.media3.common.Player.STATE_ENDED) {

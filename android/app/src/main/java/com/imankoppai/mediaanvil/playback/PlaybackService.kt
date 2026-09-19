@@ -28,6 +28,7 @@ class PlaybackService : MediaSessionService() {
     private val handler = Handler(Looper.getMainLooper())
     private var loopStartMs = -1L
     private var loopEndMs = -1L
+    private var stopAfterTrackEnd = false
     private var lastButtonClickAt = 0L
     private var pendingSinglePress: Runnable? = null
 
@@ -47,6 +48,23 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private val wrapAroundListener = object : Player.Listener {
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            val player = mediaSession?.player ?: return
+            // Sequential playback returns to the top of the list after the
+            // last track instead of stopping at the end.
+            if (playbackState == Player.STATE_ENDED &&
+                !stopAfterTrackEnd &&
+                player.repeatMode == Player.REPEAT_MODE_OFF &&
+                player.mediaItemCount > 1 &&
+                player.currentMediaItemIndex == player.mediaItemCount - 1
+            ) {
+                player.seekTo(0, 0)
+                player.play()
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         preferences = PlaybackPreferences(this)
@@ -62,6 +80,7 @@ class PlaybackService : MediaSessionService() {
                 clearLoop()
             }
         })
+        player.addListener(wrapAroundListener)
         mediaSession = MediaSession.Builder(this, player)
             .setCallback(object : MediaSession.Callback {
                 override fun onConnect(
@@ -72,6 +91,8 @@ class PlaybackService : MediaSessionService() {
                         .add(SessionCommand(COMMAND_LOOP_A, Bundle.EMPTY))
                         .add(SessionCommand(COMMAND_LOOP_B, Bundle.EMPTY))
                         .add(SessionCommand(COMMAND_LOOP_CLEAR, Bundle.EMPTY))
+                        .add(SessionCommand(COMMAND_STOP_AFTER_ON, Bundle.EMPTY))
+                        .add(SessionCommand(COMMAND_STOP_AFTER_OFF, Bundle.EMPTY))
                         .build()
                     return MediaSession.ConnectionResult.accept(
                         sessionCommands,
@@ -115,6 +136,8 @@ class PlaybackService : MediaSessionService() {
                             if (loopStartMs < 0) loopStartMs = 0
                         }
                         COMMAND_LOOP_CLEAR -> clearLoop()
+                        COMMAND_STOP_AFTER_ON -> stopAfterTrackEnd = true
+                        COMMAND_STOP_AFTER_OFF -> stopAfterTrackEnd = false
                     }
                     if (loopEndMs >= 0 && loopStartMs in 0 until loopEndMs) {
                         handler.removeCallbacks(loopTicker)
@@ -173,6 +196,8 @@ class PlaybackService : MediaSessionService() {
         const val COMMAND_LOOP_A = "com.imankoppai.mediaanvil.LOOP_A"
         const val COMMAND_LOOP_B = "com.imankoppai.mediaanvil.LOOP_B"
         const val COMMAND_LOOP_CLEAR = "com.imankoppai.mediaanvil.LOOP_CLEAR"
+        const val COMMAND_STOP_AFTER_ON = "com.imankoppai.mediaanvil.STOP_AFTER_ON"
+        const val COMMAND_STOP_AFTER_OFF = "com.imankoppai.mediaanvil.STOP_AFTER_OFF"
         private const val DOUBLE_PRESS_WINDOW_MS = 350L
         private const val LOOP_POLL_MS = 250L
     }
