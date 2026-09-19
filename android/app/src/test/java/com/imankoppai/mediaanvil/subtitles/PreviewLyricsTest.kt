@@ -37,4 +37,17 @@ class PreviewLyricsTest {
         assertEquals(2_000L, cues[0].startMs)
         assertEquals(5_000L, cues[0].endMs)
     }
+
+    @Test
+    fun lrcTimelineSkipsBlankGapMarkersAndExtendsPreviousLine() {
+        val cues = PreviewLyrics.parseLrcTimeline(
+            "[00:02.00]第一句\n[00:08.00]\n[00:20.00]第二句",
+        )
+
+        assertEquals(2, cues.size)
+        assertEquals("第一句", cues[0].text)
+        // The blank marker at 8s must not cut the highlight short.
+        assertEquals(20_000L, cues[0].endMs)
+        assertEquals("第二句", cues[1].text)
+    }
 }

@@ -59,6 +59,13 @@ class PlaybackPreferences(context: Context) {
             preferences.edit().putBoolean("sleep_finish_track", value).apply()
         }
 
+    /** Show each lyric line's timestamp above the text. */
+    var showLyricsTimestamps: Boolean
+        get() = preferences.getBoolean("show_lyrics_timestamps", false)
+        set(value) {
+            preferences.edit().putBoolean("show_lyrics_timestamps", value).apply()
+        }
+
     /** Sleep timer closes the app when it fires. */
     var sleepCloseApp: Boolean
         get() = preferences.getBoolean("sleep_close_app", false)

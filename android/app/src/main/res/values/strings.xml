@@ -57,7 +57,7 @@
     <string name="shuffle_play">Shuffle</string>
     <string name="unknown_artist">Unknown artist</string>
     <string name="unknown_album">Unknown album</string>
-    <string name="play_queue">Play queue</string>
+    <string name="play_queue">Play order</string>
     <string name="queue_count">%1$d tracks</string>
     <string name="play_next">Play next</string>
     <string name="remove_from_queue">Remove from queue</string>
@@ -99,6 +99,8 @@
     <string name="settings_playback_section">Playback</string>
     <string name="auto_load_lyrics">Auto-load sidecar lyrics</string>
     <string name="auto_load_lyrics_hint">Read LRC/SRT/VTT files next to the audio during playback</string>
+    <string name="show_lyrics_timestamps">Show lyric timestamps</string>
+    <string name="show_lyrics_timestamps_hint">Print the start time of each line above its text</string>
     <string name="seek_back_setting">Rewind interval</string>
     <string name="seek_forward_setting">Fast-forward interval</string>
     <string name="seconds_value">%1$d s</string>

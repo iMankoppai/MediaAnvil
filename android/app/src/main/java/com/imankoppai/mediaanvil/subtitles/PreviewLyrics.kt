@@ -56,6 +56,10 @@ object PreviewLyrics {
             .map { (startMs, sameTime) ->
                 Entry(startMs, sameTime.map { it.text }.filter(String::isNotEmpty).distinct().joinToString("\n"))
             }
+            // Blank timestamp lines mark instrumental gaps; dropping them keeps
+            // the previous line highlighted through the gap instead of moving
+            // the highlight onto an invisible empty row.
+            .filter { it.text.isNotEmpty() }
         return merged.mapIndexed { index, entry ->
             SubtitleCue(
                 startMs = entry.startMs,

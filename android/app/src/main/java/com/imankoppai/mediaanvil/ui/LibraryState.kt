@@ -53,6 +53,15 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
         preferences.autoLoadLyrics = value
     }
 
+    /** Mirrors [PlaybackPreferences.showLyricsTimestamps] so open screens react immediately. */
+    var showLyricsTimestamps by mutableStateOf(preferences.showLyricsTimestamps)
+        private set
+
+    fun updateShowLyricsTimestamps(value: Boolean) {
+        showLyricsTimestamps = value
+        preferences.showLyricsTimestamps = value
+    }
+
     /** Fire [onFire] when the deadline passes; the caller owns the player policy. */
     fun startSleepTimer(minutes: Int, onFire: () -> Unit) {
         sleepJob?.cancel()

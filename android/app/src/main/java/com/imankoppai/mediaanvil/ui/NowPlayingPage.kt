@@ -247,6 +247,7 @@ internal fun NowPlayingPage(
                             positionMs = positionMs,
                             onSeek = { controller?.seekTo(it) },
                             autoLoadExternal = library.autoLoadLyrics,
+                            showTimestamps = library.showLyricsTimestamps,
                         )
                     }
                 }
@@ -504,6 +505,15 @@ private fun NowPlayingCover(
     }
 }
 
+/** [0:13.07] style stamp shown above each lyric line when timestamps are enabled. */
+internal fun lyricsTimestampLabel(ms: Long): String {
+    val clamped = ms.coerceAtLeast(0L)
+    val minutes = clamped / 60_000
+    val seconds = (clamped % 60_000) / 1_000
+    val centis = (clamped % 1_000) / 10
+    return "[%d:%02d.%02d]".format(minutes, seconds, centis)
+}
+
 @Composable
 private fun LyricsView(
     library: LibraryState,
@@ -511,6 +521,7 @@ private fun LyricsView(
     positionMs: Long,
     onSeek: (Long) -> Unit,
     autoLoadExternal: Boolean,
+    showTimestamps: Boolean,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -618,10 +629,11 @@ private fun LyricsView(
         searchFinished = false
         if (loaded.isEmpty() && track.subtitleUri == null && autoLoadExternal) searchOnline()
     }
+    // The active line is the last one that has started; its end time is
+    // ignored so the line stays blue through instrumental gaps and until the
+    // next line begins.
     val currentIndex = cues.indexOfLast { cue ->
-        val start = (cue.startMs + lyricsOffsetMs).coerceAtLeast(0L)
-        val end = if (cue.endMs == PreviewLyrics.NO_END) cue.endMs else (cue.endMs + lyricsOffsetMs).coerceAtLeast(0L)
-        positionMs >= start && (end == PreviewLyrics.NO_END || positionMs < end)
+        positionMs >= (cue.startMs + lyricsOffsetMs).coerceAtLeast(0L)
     }
     val listState = rememberLazyListState()
     LaunchedEffect(currentIndex) {
@@ -944,17 +956,30 @@ private fun LyricsView(
             LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f)) {
                 itemsIndexed(cues) { index, cue ->
                     val active = index == currentIndex
-                    Text(
-                        cue.text.ifEmpty { " " },
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
+                    val effectiveStart = (cue.startMs + lyricsOffsetMs).coerceAtLeast(0L)
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onSeek((cue.startMs + lyricsOffsetMs).coerceAtLeast(0L)) }
+                            .clickable { onSeek(effectiveStart) }
                             .padding(vertical = 6.dp, horizontal = 4.dp),
-                    )
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        if (showTimestamps) {
+                            Text(
+                                lyricsTimestampLabel(effectiveStart),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(2.dp))
+                        }
+                        Text(
+                            cue.text.ifEmpty { " " },
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
             }
         }
