@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -62,6 +63,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -180,67 +182,67 @@ internal fun NowPlayingPage(
             }
             return@Scaffold
         }
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            library.playbackError?.let {
-                Text(
-                    it,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
+            val chooseCover = {
+                pendingCoverTrack = track.uri
+                coverPicker.launch(arrayOf("image/*"))
+            }
+            val playbackModes: @Composable () -> Unit = {
+                PlaybackModeRow(
+                    controller = controller,
+                    positionMs = positionMs,
+                    speed = speed,
+                    loopA = loopA,
+                    loopB = loopB,
+                    onLoopA = { loopA = it },
+                    onLoopB = { loopB = it },
+                    onSpeedChange = { option ->
+                        speed = option
+                        library.preferences.playbackSpeed = option
+                        controller?.playbackParameters = androidx.media3.common.PlaybackParameters(option)
+                    },
+                    onShuffleChange = { library.preferences.shuffleEnabled = it },
+                    onRepeatChange = { library.preferences.repeatMode = it },
+                    onOpenQueue = { queueOpen = true },
                 )
             }
-            Spacer(Modifier.height(8.dp))
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                val pageHeight = maxWidth / 1.1f + 194.dp
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxWidth().height(pageHeight),
-                ) { page ->
-                    if (page == 0) {
-                        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Spacer(Modifier.height(64.dp))
-                            Box(Modifier.fillMaxWidth().aspectRatio(1.1f), contentAlignment = Alignment.Center) {
-                                NowPlayingCover(
-                                    track = track,
-                                    customCoverUri = customCoverUri,
-                                    onChooseCover = {
-                                        pendingCoverTrack = track.uri
-                                        coverPicker.launch(arrayOf("image/*"))
-                                    },
-                                )
-                            }
-                            Spacer(Modifier.height(74.dp))
-                            Column(
-                                modifier = Modifier.fillMaxWidth().height(56.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                Text(
-                                    track.title,
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .basicMarquee(iterations = Int.MAX_VALUE),
-                                    textAlign = TextAlign.Center,
-                                )
-                                Text(
-                                    track.artist ?: stringResource(R.string.unknown_artist),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.secondary,
-                                    maxLines = 1,
-                                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-                                    textAlign = TextAlign.Center,
-                                )
+            if (maxWidth >= PlayerTwoPaneMinWidth) {
+                Row(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+                    Column(
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        PlaybackErrorLine(library.playbackError)
+                        Spacer(Modifier.height(8.dp))
+                        // Artwork is capped so the controls stay close beneath it; the
+                        // leftover height stays at the bottom of the pane.
+                        BoxWithConstraints(Modifier.fillMaxWidth()) {
+                            val side = minOf(maxWidth, (maxHeight - 300.dp).coerceAtLeast(160.dp))
+                                .coerceAtMost(440.dp)
+                            Box(Modifier.size(side).align(Alignment.Center)) {
+                                NowPlayingCover(track, customCoverUri, chooseCover)
                             }
                         }
-                    } else {
+                        Spacer(Modifier.height(16.dp))
+                        TrackTitleBlock(track, Modifier.fillMaxWidth().height(56.dp))
+                        Spacer(Modifier.height(4.dp))
+                        PlayerSeekBar(
+                            positionMs = positionMs,
+                            durationMs = durationMs,
+                            loopA = loopA,
+                            loopB = loopB,
+                            onSeek = { controller?.seekTo(it) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        TimeLabels(positionMs, durationMs, Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(18.dp))
+                        playbackModes()
+                        Spacer(Modifier.height(21.dp))
+                        TransportRow(library, controller, isPlaying)
+                    }
+                    VerticalDivider(Modifier.padding(horizontal = 20.dp))
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
                         LyricsView(
                             library = library,
                             track = track,
@@ -251,181 +253,62 @@ internal fun NowPlayingPage(
                         )
                     }
                 }
-            }
-            Spacer(Modifier.height(0.dp))
-            Slider(
-                value = positionMs.coerceIn(0L, durationMs.coerceAtLeast(1L)).toFloat(),
-                onValueChange = { controller?.seekTo(it.toLong()) },
-                valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
-                thumb = {
-                    Box(
-                        Modifier
-                            .size(16.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                    )
-                },
-                track = { state ->
-                    val fraction = if (state.valueRange.endInclusive > state.valueRange.start) {
-                        ((state.value - state.valueRange.start) / (state.valueRange.endInclusive - state.valueRange.start))
-                            .coerceIn(0f, 1f)
-                    } else {
-                        0f
-                    }
-                    BoxWithConstraints(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(8.dp),
+            } else {
+                CenteredPageContent(maxWidth = PlayerSinglePaneMaxWidth) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
                     ) {
-                        val trackWidth = maxWidth
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(4.dp)
-                                .align(Alignment.CenterStart)
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                        )
-                        Box(
-                            Modifier
-                                .fillMaxWidth(fraction)
-                                .height(4.dp)
-                                .align(Alignment.CenterStart)
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(MaterialTheme.colorScheme.primary),
-                        )
-                        val loopSpan = durationMs.coerceAtLeast(1L).toFloat()
-                        val tickFractions = buildList {
-                            if (loopA >= 0L) add((loopA / loopSpan).coerceIn(0f, 1f))
-                            if (loopB > loopA) add((loopB / loopSpan).coerceIn(0f, 1f))
-                        }
-                        if (tickFractions.size == 2) {
-                            Box(
-                                Modifier
-                                    .offset(x = trackWidth * tickFractions[0])
-                                    .width(trackWidth * (tickFractions[1] - tickFractions[0]))
-                                    .height(4.dp)
-                                    .align(Alignment.CenterStart)
-                                    .clip(RoundedCornerShape(2.dp))
-                                    .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.45f)),
-                            )
-                        }
-                        tickFractions.forEach { tickFraction ->
-                            Box(
-                                Modifier
-                                    .offset(x = trackWidth * tickFraction - 1.dp)
-                                    .width(2.dp)
-                                    .height(8.dp)
-                                    .align(Alignment.CenterStart)
-                                    .clip(RoundedCornerShape(1.dp))
-                                    .background(MaterialTheme.colorScheme.tertiary),
-                            )
-                        }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(formatTime(positionMs), style = MaterialTheme.typography.labelSmall)
-                Text(formatTime(durationMs), style = MaterialTheme.typography.labelSmall)
-            }
-            Spacer(Modifier.height(0.dp))
-            PlaybackModeRow(
-                controller = controller,
-                positionMs = positionMs,
-                speed = speed,
-                loopA = loopA,
-                loopB = loopB,
-                onLoopA = { loopA = it },
-                onLoopB = { loopB = it },
-                onSpeedChange = { option ->
-                    speed = option
-                    library.preferences.playbackSpeed = option
-                    controller?.playbackParameters = androidx.media3.common.PlaybackParameters(option)
-                },
-                onShuffleChange = { library.preferences.shuffleEnabled = it },
-                onRepeatChange = { library.preferences.repeatMode = it },
-                onOpenQueue = { queueOpen = true },
-            )
-            Spacer(Modifier.height(0.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    IconButton(
-                        onClick = { controller?.seekToPreviousMediaItem() },
-                        modifier = Modifier.size(56.dp),
-                    ) {
-                        Icon(
-                            Icons.Filled.SkipPrevious,
-                            contentDescription = stringResource(R.string.previous),
-                            modifier = Modifier.size(36.dp),
-                        )
-                    }
-                }
-                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    SeekIntervalButton(
-                        seconds = library.preferences.seekBackSeconds,
-                        backward = true,
-                        modifier = Modifier.offset(x = (-10).dp),
-                        onClick = {
-                            controller?.let { player ->
-                                player.seekTo(seekBackTarget(player.currentPosition, library.preferences.seekBackSeconds))
+                        PlaybackErrorLine(library.playbackError)
+                        Spacer(Modifier.height(8.dp))
+                        BoxWithConstraints(Modifier.fillMaxWidth()) {
+                            // Artwork grows into the height the controls do not need, so the
+                            // player fills the screen with an even margin instead of sitting
+                            // in a band at the top.
+                            val side = minOf(maxWidth, (maxHeight - 280.dp).coerceAtLeast(200.dp))
+                            val pageHeight = side + 108.dp
+                            HorizontalPager(
+                                state = pagerState,
+                                modifier = Modifier.fillMaxWidth().height(pageHeight),
+                            ) { page ->
+                                if (page == 0) {
+                                    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Spacer(Modifier.height(32.dp))
+                                        Box(Modifier.size(side), contentAlignment = Alignment.Center) {
+                                            NowPlayingCover(track, customCoverUri, chooseCover)
+                                        }
+                                        Spacer(Modifier.height(28.dp))
+                                        TrackTitleBlock(track, Modifier.fillMaxWidth().height(56.dp))
+                                    }
+                                } else {
+                                    LyricsView(
+                                        library = library,
+                                        track = track,
+                                        positionMs = positionMs,
+                                        onSeek = { controller?.seekTo(it) },
+                                        autoLoadExternal = library.autoLoadLyrics,
+                                        showTimestamps = library.showLyricsTimestamps,
+                                    )
+                                }
                             }
-                        },
-                    )
-                }
-                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    FilledIconButton(
-                        onClick = {
-                            val player = controller
-                            if (player?.isPlaying == true) player.pause() else player?.play()
-                        },
-                        modifier = Modifier.size(52.dp),
-                        shape = CircleShape,
-                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    ) {
-                        Icon(
-                            if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = stringResource(if (isPlaying) R.string.pause else R.string.play),
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(30.dp),
+                        }
+                        Spacer(Modifier.height(0.dp))
+                        PlayerSeekBar(
+                            positionMs = positionMs,
+                            durationMs = durationMs,
+                            loopA = loopA,
+                            loopB = loopB,
+                            onSeek = { controller?.seekTo(it) },
+                            modifier = Modifier.fillMaxWidth(),
                         )
-                    }
-                }
-                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    SeekIntervalButton(
-                        seconds = library.preferences.seekForwardSeconds,
-                        backward = false,
-                        modifier = Modifier.offset(x = 10.dp),
-                        onClick = {
-                            controller?.let { player ->
-                                player.seekTo(
-                                    seekForwardTarget(
-                                        player.currentPosition,
-                                        player.duration,
-                                        library.preferences.seekForwardSeconds,
-                                    ),
-                                )
-                            }
-                        },
-                    )
-                }
-                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    IconButton(
-                        onClick = { controller?.seekToNextMediaItem() },
-                        modifier = Modifier.size(56.dp),
-                    ) {
-                        Icon(
-                            Icons.Filled.SkipNext,
-                            contentDescription = stringResource(R.string.next),
-                            modifier = Modifier.size(36.dp),
-                        )
+                        TimeLabels(positionMs, durationMs, Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(18.dp))
+                        playbackModes()
+                        Spacer(Modifier.height(21.dp))
+                        TransportRow(library, controller, isPlaying)
                     }
                 }
             }
@@ -434,6 +317,223 @@ internal fun NowPlayingPage(
 
     if (queueOpen) {
         QueueSheet(library, controller, onDismiss = { queueOpen = false })
+    }
+}
+
+@Composable
+private fun PlaybackErrorLine(text: String?) {
+    text ?: return
+    Text(
+        text,
+        color = MaterialTheme.colorScheme.error,
+        style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+    )
+}
+
+@Composable
+private fun TrackTitleBlock(track: AudioTrack, modifier: Modifier = Modifier) {
+    Column(
+        modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            track.title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            modifier = Modifier
+                .fillMaxWidth()
+                .basicMarquee(iterations = Int.MAX_VALUE),
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            track.artist ?: stringResource(R.string.unknown_artist),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.secondary,
+            maxLines = 1,
+            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/** Seek bar with the A/B loop ticks and region highlight. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlayerSeekBar(
+    positionMs: Long,
+    durationMs: Long,
+    loopA: Long,
+    loopB: Long,
+    onSeek: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Slider(
+        value = positionMs.coerceIn(0L, durationMs.coerceAtLeast(1L)).toFloat(),
+        onValueChange = { onSeek(it.toLong()) },
+        valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
+        thumb = {
+            Box(
+                Modifier
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary),
+            )
+        },
+        track = { state ->
+            val fraction = if (state.valueRange.endInclusive > state.valueRange.start) {
+                ((state.value - state.valueRange.start) / (state.valueRange.endInclusive - state.valueRange.start))
+                    .coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+            BoxWithConstraints(
+                Modifier
+                    .fillMaxWidth()
+                    .height(8.dp),
+            ) {
+                val trackWidth = maxWidth
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .align(Alignment.CenterStart)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                )
+                Box(
+                    Modifier
+                        .fillMaxWidth(fraction)
+                        .height(4.dp)
+                        .align(Alignment.CenterStart)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+                val loopSpan = durationMs.coerceAtLeast(1L).toFloat()
+                val tickFractions = buildList {
+                    if (loopA >= 0L) add((loopA / loopSpan).coerceIn(0f, 1f))
+                    if (loopB > loopA) add((loopB / loopSpan).coerceIn(0f, 1f))
+                }
+                if (tickFractions.size == 2) {
+                    Box(
+                        Modifier
+                            .offset(x = trackWidth * tickFractions[0])
+                            .width(trackWidth * (tickFractions[1] - tickFractions[0]))
+                            .height(4.dp)
+                            .align(Alignment.CenterStart)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.45f)),
+                    )
+                }
+                tickFractions.forEach { tickFraction ->
+                    Box(
+                        Modifier
+                            .offset(x = trackWidth * tickFraction - 1.dp)
+                            .width(2.dp)
+                            .height(8.dp)
+                            .align(Alignment.CenterStart)
+                            .clip(RoundedCornerShape(1.dp))
+                            .background(MaterialTheme.colorScheme.tertiary),
+                    )
+                }
+            }
+        },
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun TimeLabels(positionMs: Long, durationMs: Long, modifier: Modifier = Modifier) {
+    Row(
+        modifier,
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(formatTime(positionMs), style = MaterialTheme.typography.labelSmall)
+        Text(formatTime(durationMs), style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+@Composable
+private fun TransportRow(library: LibraryState, controller: MediaController?, isPlaying: Boolean) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            IconButton(
+                onClick = { controller?.seekToPreviousMediaItem() },
+                modifier = Modifier.size(56.dp),
+            ) {
+                Icon(
+                    Icons.Filled.SkipPrevious,
+                    contentDescription = stringResource(R.string.previous),
+                    modifier = Modifier.size(36.dp),
+                )
+            }
+        }
+        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            SeekIntervalButton(
+                seconds = library.preferences.seekBackSeconds,
+                backward = true,
+                modifier = Modifier.offset(x = (-10).dp),
+                onClick = {
+                    controller?.let { player ->
+                        player.seekTo(seekBackTarget(player.currentPosition, library.preferences.seekBackSeconds))
+                    }
+                },
+            )
+        }
+        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            FilledIconButton(
+                onClick = {
+                    val player = controller
+                    if (player?.isPlaying == true) player.pause() else player?.play()
+                },
+                modifier = Modifier.size(68.dp),
+                shape = CircleShape,
+                colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary),
+            ) {
+                Icon(
+                    if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = stringResource(if (isPlaying) R.string.pause else R.string.play),
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(40.dp),
+                )
+            }
+        }
+        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            SeekIntervalButton(
+                seconds = library.preferences.seekForwardSeconds,
+                backward = false,
+                modifier = Modifier.offset(x = 10.dp),
+                onClick = {
+                    controller?.let { player ->
+                        player.seekTo(
+                            seekForwardTarget(
+                                player.currentPosition,
+                                player.duration,
+                                library.preferences.seekForwardSeconds,
+                            ),
+                        )
+                    }
+                },
+            )
+        }
+        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            IconButton(
+                onClick = { controller?.seekToNextMediaItem() },
+                modifier = Modifier.size(56.dp),
+            ) {
+                Icon(
+                    Icons.Filled.SkipNext,
+                    contentDescription = stringResource(R.string.next),
+                    modifier = Modifier.size(36.dp),
+                )
+            }
+        }
     }
 }
 

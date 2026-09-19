@@ -11,16 +11,20 @@ import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.PlayCircle
@@ -30,6 +34,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -41,6 +46,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -148,79 +154,18 @@ fun MediaAnvilApp() {
         if (!granted) requestStorageAccess()
     }
 
-    Scaffold(
-        containerColor = androidx.compose.material3.MaterialTheme.colorScheme.background,
-        bottomBar = {
-            if (editingTrack == null) NavigationBar(
-                containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surface,
-                modifier = Modifier.height(104.dp),
-            ) {
-                Row(Modifier.fillMaxWidth()) {
-                    MainTab.entries.forEach { entry ->
-                        val selected = tab == entry
-                        val icon = when (entry) {
-                            MainTab.Media -> androidx.compose.material.icons.Icons.Filled.LibraryMusic
-                            MainTab.Player -> androidx.compose.material.icons.Icons.Filled.PlayCircle
-                            MainTab.Settings -> androidx.compose.material.icons.Icons.Filled.Settings
-                        }
-                        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                            Surface(
-                                shape = CircleShape,
-                                color = if (selected) {
-                                    androidx.compose.material3.MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-                                } else {
-                                    androidx.compose.ui.graphics.Color.Transparent
-                                },
-                                modifier = Modifier
-                                    .size(68.dp)
-                                    .clickable { tab = entry },
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
-                                ) {
-                                    Icon(
-                                        icon,
-                                        contentDescription = null,
-                                        tint = if (selected) {
-                                            androidx.compose.material3.MaterialTheme.colorScheme.onPrimaryContainer
-                                        } else {
-                                            androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
-                                        modifier = Modifier.size(28.dp),
-                                    )
-                                    Text(
-                                        stringResource(entry.titleRes),
-                                        style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
-                                        color = if (selected) {
-                                            androidx.compose.material3.MaterialTheme.colorScheme.onPrimaryContainer
-                                        } else {
-                                            androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-    ) { padding ->
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .consumeWindowInsets(padding),
-        ) {
-            if (editingTrack != null) {
-                TagEditorPage(
-                    library = library,
-                    controller = controller,
-                    track = editingTrack!!,
-                    onBack = { editingTrack = null },
-                )
-            } else when (tab) {
-                MainTab.Media -> LibraryPage(
+    // Shared by both navigation layouts so switching orientation keeps the same pages.
+    val pageContent: @Composable () -> Unit = {
+        if (editingTrack != null) {
+            TagEditorPage(
+                library = library,
+                controller = controller,
+                track = editingTrack!!,
+                onBack = { editingTrack = null },
+            )
+        } else when (tab) {
+            MainTab.Media -> CenteredPageContent {
+                LibraryPage(
                     library = library,
                     controller = controller,
                     onRequestStorageAccess = ::requestStorageAccess,
@@ -228,12 +173,164 @@ fun MediaAnvilApp() {
                     onOpenSettings = { tab = MainTab.Settings },
                     onEditTrack = { editingTrack = it },
                 )
-                MainTab.Player -> NowPlayingPage(
-                    library = library,
-                    controller = controller,
-                    onOpenLibrary = { tab = MainTab.Media },
-                )
-                MainTab.Settings -> SettingsPage(library = library, controller = controller)
+            }
+            // The player manages its own width: it has a two-pane layout for wide screens.
+            MainTab.Player -> NowPlayingPage(
+                library = library,
+                controller = controller,
+                onOpenLibrary = { tab = MainTab.Media },
+            )
+            MainTab.Settings -> CenteredPageContent {
+                SettingsPage(library = library, controller = controller)
+            }
+        }
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Landscape keeps the side rail; portrait stays on the phone-style bottom bar.
+        if (maxWidth >= RailLayoutMinWidth && maxWidth > maxHeight && editingTrack == null) {
+            Scaffold(
+                containerColor = androidx.compose.material3.MaterialTheme.colorScheme.background,
+            ) { padding ->
+                Row(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .consumeWindowInsets(padding),
+                ) {
+                    RailNavigation(tab = tab, onSelect = { tab = it })
+                    VerticalDivider()
+                    Box(Modifier.weight(1f).fillMaxHeight()) { pageContent() }
+                }
+            }
+        } else {
+            Scaffold(
+                containerColor = androidx.compose.material3.MaterialTheme.colorScheme.background,
+                bottomBar = {
+                    if (editingTrack == null) NavigationBar(
+                        containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.height(104.dp),
+                    ) {
+                        Row(Modifier.fillMaxWidth()) {
+                            MainTab.entries.forEach { entry ->
+                                val selected = tab == entry
+                                val icon = tabIcon(entry)
+                                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = if (selected) {
+                                            androidx.compose.material3.MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                                        } else {
+                                            androidx.compose.ui.graphics.Color.Transparent
+                                        },
+                                        modifier = Modifier
+                                            .size(68.dp)
+                                            .clickable { tab = entry },
+                                    ) {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+                                        ) {
+                                            Icon(
+                                                icon,
+                                                contentDescription = null,
+                                                tint = if (selected) {
+                                                    androidx.compose.material3.MaterialTheme.colorScheme.onPrimaryContainer
+                                                } else {
+                                                    androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+                                                },
+                                                modifier = Modifier.size(28.dp),
+                                            )
+                                            Text(
+                                                stringResource(entry.titleRes),
+                                                style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+                                                color = if (selected) {
+                                                    androidx.compose.material3.MaterialTheme.colorScheme.onPrimaryContainer
+                                                } else {
+                                                    androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+            ) { padding ->
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .consumeWindowInsets(padding),
+                ) {
+                    pageContent()
+                }
+            }
+        }
+    }
+}
+
+private fun tabIcon(tab: MainTab): ImageVector = when (tab) {
+    MainTab.Media -> Icons.Filled.LibraryMusic
+    MainTab.Player -> Icons.Filled.PlayCircle
+    MainTab.Settings -> Icons.Filled.Settings
+}
+
+/** Side rail for wide screens: the three destinations split the rail height evenly. */
+@Composable
+private fun RailNavigation(tab: MainTab, onSelect: (MainTab) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxHeight()
+            .width(132.dp)
+            .background(androidx.compose.material3.MaterialTheme.colorScheme.surface),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        MainTab.entries.forEach { entry ->
+            val selected = tab == entry
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clickable { onSelect(entry) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Surface(
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                    color = if (selected) {
+                        androidx.compose.material3.MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                    } else {
+                        androidx.compose.ui.graphics.Color.Transparent
+                    },
+                    modifier = Modifier.size(width = 104.dp, height = 88.dp),
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+                    ) {
+                        Icon(
+                            tabIcon(entry),
+                            contentDescription = null,
+                            tint = if (selected) {
+                                androidx.compose.material3.MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.size(34.dp),
+                        )
+                        androidx.compose.foundation.layout.Spacer(Modifier.height(6.dp))
+                        Text(
+                            stringResource(entry.titleRes),
+                            style = androidx.compose.material3.MaterialTheme.typography.titleSmall,
+                            color = if (selected) {
+                                androidx.compose.material3.MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                }
             }
         }
     }
