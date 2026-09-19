@@ -126,7 +126,10 @@ internal fun TagEditorPage(
             saving = false
             result.fold(
                 onSuccess = {
-                    library.rescan(quiet = true)
+                    // A MediaStore rescan alone would read the stale cached
+                    // title/artist; push the edited values straight in and ask
+                    // the scanner to re-read the file for future scans.
+                    library.applyTagEdit(track.uri, title, artist.takeIf(String::isNotBlank))
                     message = context.getString(R.string.tag_saved)
                     onBack()
                 },

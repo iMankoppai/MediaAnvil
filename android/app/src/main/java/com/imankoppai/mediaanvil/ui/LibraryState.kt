@@ -235,6 +235,45 @@ class LibraryState(context: Context, private val scope: CoroutineScope) {
         }
     }
 
+    /** Reflect an in-place tag edit immediately; MediaStore metadata lags behind. */
+    fun applyTagEdit(uri: Uri, title: String, artist: String?) {
+        val cleanArtist = artist?.takeIf(String::isNotBlank)
+        tracks = tracks.map { track ->
+            if (track.uri == uri) track.copy(title = title, artist = cleanArtist) else track
+        }
+        LibraryCache.load(appContext)?.let { cached ->
+            val updatedTracks = cached.tracks.map { record ->
+                if (record.uri == uri) record.copy(title = title, artist = cleanArtist) else record
+            }
+            LibraryCache.save(
+                appContext,
+                DEVICE_LIBRARY_URI,
+                LibraryScan(
+                    tracks = updatedTracks.map { record ->
+                        com.imankoppai.mediaanvil.model.AudioTrack(
+                            uri = record.uri,
+                            fileName = record.fileName,
+                            title = record.title,
+                            artist = record.artist,
+                            album = record.album,
+                            durationMs = record.durationMs,
+                            subtitleUri = record.subtitleUri,
+                            subtitleExtension = record.subtitleExtension,
+                            parentPath = record.parentPath,
+                        )
+                    },
+                    files = emptyList(),
+                ),
+            )
+        }
+        val path = tracks.firstOrNull { it.uri == uri }?.let { it.parentPath + "/" + it.fileName }
+        if (path != null) {
+            runCatching {
+                android.media.MediaScannerConnection.scanFile(appContext, arrayOf(path), null, null)
+            }
+        }
+    }
+
     /** Folders scanned in "folders" mode; empty means scan everything. */
     private fun allowedScanFolders(): Set<String> =
         if (preferences.libraryScanMode == "folders") preferences.scanFolders else emptySet()
