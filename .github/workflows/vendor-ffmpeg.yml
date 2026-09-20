@@ -46,15 +46,17 @@ jobs:
           test "$expected" = "$actual"
           echo "SHA256=$actual" >> "$GITHUB_ENV"
 
+      # 这个 job 刻意不检出源码，所以必须给 gh 显式指定仓库：
+      # 工作目录里没有 .git 时，gh 会直接报 "not a git repository"。
       - name: Create the vendor release if missing, then upload
         run: |
           set -euo pipefail
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" \
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
               --title "FFmpeg $VERSION (vendored)" \
               --notes "Verified FFmpeg $VERSION essentials build from gyan.dev, vendored here so the pinned download in tools/download_ffmpeg.ps1 never breaks when gyan.dev drops an old version."
           fi
-          gh release upload "$TAG" "$ASSET" --clobber
+          gh release upload "$TAG" "$ASSET" --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Summarise what to pin
         run: |
