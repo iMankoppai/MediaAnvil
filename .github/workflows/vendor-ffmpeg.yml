@@ -1,0 +1,73 @@
+name: Vendor FFmpeg
+
+# 把 gyan.dev 的 FFmpeg 压缩包下载、校验后固化到本仓库的 Release。
+#
+# 为什么需要它：gyan.dev 在新版发布时会下架旧版包，导致构建脚本里钉住的版本失效
+# （9.0.1 就是这样消失的，CI 会因此变红）。固化到本仓库的 Release 之后，下载源
+# 永不失效，而 SHA-256 校验依然保留。
+#
+# 用法：Actions → Vendor FFmpeg → Run workflow，填入要固化的版本号（例如 9.0.2）。
+# 跑完后 Job Summary 会直接给出需要钉进 tools/download_ffmpeg.ps1 的那几行。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "FFmpeg 版本号，对应 gyan.dev 的 essentials 构建，例如 9.0.2"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  vendor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+      TAG: ffmpeg-vendor-${{ inputs.version }}
+      ASSET: ffmpeg-${{ inputs.version }}-essentials_build.zip
+      BASE: https://www.gyan.dev/ffmpeg/builds/packages
+
+    steps:
+      - name: Download the archive and its published checksum
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$ASSET" "$BASE/$ASSET"
+          curl -fsSL -o "$ASSET.sha256" "$BASE/$ASSET.sha256"
+
+      - name: Verify the checksum before trusting the file
+        run: |
+          set -euo pipefail
+          expected="$(tr -d '[:space:]' < "$ASSET.sha256")"
+          actual="$(sha256sum "$ASSET" | awk '{print $1}')"
+          printf 'expected %s\nactual   %s\n' "$expected" "$actual"
+          test "$expected" = "$actual"
+          echo "SHA256=$actual" >> "$GITHUB_ENV"
+
+      - name: Create the vendor release if missing, then upload
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --title "FFmpeg $VERSION (vendored)" \
+              --notes "Verified FFmpeg $VERSION essentials build from gyan.dev, vendored here so the pinned download in tools/download_ffmpeg.ps1 never breaks when gyan.dev drops an old version."
+          fi
+          gh release upload "$TAG" "$ASSET" --clobber
+
+      - name: Summarise what to pin
+        run: |
+          {
+            echo "## FFmpeg $VERSION 已固化"
+            echo ""
+            echo "把 \`tools/download_ffmpeg.ps1\` 里那三行改成："
+            echo ""
+            echo '```powershell'
+            echo "\$version = \"$VERSION\""
+            echo "\$expectedSha256 = \"$SHA256\""
+            echo "\$downloadUrl = \"https://github.com/${GITHUB_REPOSITORY}/releases/download/$TAG/$ASSET\""
+            echo '```'
+            echo ""
+            echo "同时更新 \`THIRD_PARTY_NOTICES.md\` 中的版本号与对应源码 commit。"
+          } >> "$GITHUB_STEP_SUMMARY"
