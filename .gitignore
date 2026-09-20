@@ -38,3 +38,5 @@ aqtinstall.log
 android/signing.properties
 *.jks
 *.keystore
+
+.workbuddy-ai/
