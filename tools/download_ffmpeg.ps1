@@ -2,7 +2,12 @@ $ErrorActionPreference = "Stop"
 
 $version = "9.0.2"
 $expectedSha256 = "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba"
-$downloadUrl = "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-$version-essentials_build.zip"
+# 下载源固化在本仓库的 Release 里，而不是直接指向 gyan.dev。
+# gyan.dev 会在新版发布时下架旧版包（9.0.1 就是这样失效并把 CI 弄红的），
+# 本仓库的 Release 资产不会消失，所以钉住的版本不会再失效，SHA-256 校验也照旧保留。
+# 升级 FFmpeg：运行 .github/workflows/vendor-ffmpeg.yml 工作流，它会下载、校验并
+# 固化新版本，然后在 Job Summary 里给出这里该改成的三行内容。
+$downloadUrl = "https://github.com/iMankoppai/MediaAnvil/releases/download/ffmpeg-vendor-$version/ffmpeg-$version-essentials_build.zip"
 $vendorDirectory = Join-Path (Split-Path $PSScriptRoot -Parent) "vendor\ffmpeg"
 $ffmpegDestination = Join-Path $vendorDirectory "ffmpeg.exe"
 $ffplayDestination = Join-Path $vendorDirectory "ffplay.exe"
