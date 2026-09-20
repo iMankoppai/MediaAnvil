@@ -1,0 +1,6 @@
+WEBVTT
+
+long-cue
+00:10:00.005 --> 00:10:12.000 position:20% align:start
+这是一条很长的字幕，用来确认转换程序不会因为文字很多就截断内容；其中包含中文、English words、数字 2026、逗号，句号。以及各种常见字符。
+This is the second original line of the same long cue, and it must remain complete and independent after conversion without being joined to the previous line.

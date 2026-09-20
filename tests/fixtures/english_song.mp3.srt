@@ -1,0 +1,12 @@
+1
+00:00:00,500 --> 00:00:02,000
+Hello, world!
+
+2
+00:00:03,125 --> 00:00:06,900
+Don't merge this line.
+Keep this line separate.
+
+3
+00:02:10,999 --> 00:02:14,000
+Question marks? Exclamation marks! Apostrophes aren't lost.
