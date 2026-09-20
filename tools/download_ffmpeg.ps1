@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
-$version = "9.0.1"
-$expectedSha256 = "fec81ae03971d9dd4be3ebe02e263bd2ec1d789483f931bdba5f5715e65da2e9"
+$version = "9.0.2"
+$expectedSha256 = "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba"
 $downloadUrl = "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-$version-essentials_build.zip"
 $vendorDirectory = Join-Path (Split-Path $PSScriptRoot -Parent) "vendor\ffmpeg"
 $ffmpegDestination = Join-Path $vendorDirectory "ffmpeg.exe"
