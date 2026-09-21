@@ -22,13 +22,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "default_preserve_metadata": True,
     "default_image_quality": 90,
     "default_webp_quality": 90,
-    "default_keep_image_size": True,
     "subtitle_final_duration": 5.0,
     "auto_load_same_name_lyrics": True,
     "prefer_embedded_mp3_lyrics": False,
     "default_volume": 80,
-    "remember_last_page": False,
-    "last_page": "preview",
     "include_subfolders": False,
     "language": "zh_CN",
 }

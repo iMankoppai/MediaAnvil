@@ -11,6 +11,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 import re
 
+from core.windows_paths import sanitize_windows_stem
+
 
 class SubtitleError(ValueError):
     """Raised when a subtitle/lyric file cannot be decoded or converted."""
@@ -261,7 +263,7 @@ def unique_output_path(directory: str | Path, source: str | Path, output_format:
     output_format = _normalize_format(output_format)
     directory_path = Path(directory)
     source_path = Path(source)
-    stem = source_path.stem
+    stem = sanitize_windows_stem(source_path.stem) or "output"
     possible_audio = Path(stem)
     if output_format == "lrc" and possible_audio.suffix.lower() in _AUDIO_EXTENSIONS:
         stem = possible_audio.stem

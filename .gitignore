@@ -4,6 +4,9 @@ __pycache__/
 build/
 dist/
 .test-tools/
+.test-runtime/
+.test-runtime-elevated/
+.pip-temp/
 .tools/
 release/
 vendor/ffmpeg/ffmpeg.exe

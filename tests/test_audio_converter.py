@@ -28,6 +28,7 @@ from sub2lrc.audio_converter import (
     find_ffmpeg,
     unique_mp3_output,
 )
+from core.tasks import TaskCancelled
 
 
 def required_real_ffmpeg() -> Path:
@@ -48,8 +49,14 @@ class FakeProcess:
         if return_code == 0:
             Path(command[-1]).write_bytes(b"ID3 fake mp3")
 
-    def wait(self) -> int:
+    def wait(self, timeout: float | None = None) -> int:
         return self.return_code
+
+    def terminate(self) -> None:
+        self.return_code = -15
+
+    def kill(self) -> None:
+        self.return_code = -9
 
     def __enter__(self) -> "FakeProcess":
         return self
@@ -125,6 +132,51 @@ class AudioConverterTests(unittest.TestCase):
                 with self.assertRaisesRegex(AudioConversionError, "Invalid data found"):
                     convert_wav(source, root, 192, ffmpeg_path=ffmpeg)
             self.assertFalse((root / "broken.mp3").exists())
+
+    def test_timeout_stops_ffmpeg_and_removes_partial_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "slow.wav"
+            source.write_bytes(b"wav")
+            ffmpeg = root / "ffmpeg.exe"
+            ffmpeg.write_bytes(b"fake")
+
+            def popen(command: list[str], **_kwargs: object) -> FakeProcess:
+                Path(command[-1]).write_bytes(b"partial")
+                return FakeProcess(command)
+
+            with patch("sub2lrc.audio_converter._duration_seconds", return_value=None), patch(
+                "sub2lrc.audio_converter.subprocess.Popen", side_effect=popen
+            ):
+                with self.assertRaisesRegex(AudioConversionError, "转换超时"):
+                    convert_audio(
+                        source, root, AudioConversionSettings("mp3"),
+                        ffmpeg_path=ffmpeg, timeout_seconds=0,
+                    )
+            self.assertFalse((root / "slow.mp3").exists())
+
+    def test_cancellation_stops_ffmpeg_and_removes_partial_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "cancel.wav"
+            source.write_bytes(b"wav")
+            ffmpeg = root / "ffmpeg.exe"
+            ffmpeg.write_bytes(b"fake")
+
+            def popen(command: list[str], **_kwargs: object) -> FakeProcess:
+                Path(command[-1]).write_bytes(b"partial")
+                return FakeProcess(command)
+
+            with patch("sub2lrc.audio_converter._duration_seconds", return_value=None), patch(
+                "sub2lrc.audio_converter.subprocess.Popen", side_effect=popen
+            ):
+                with self.assertRaises(TaskCancelled):
+                    convert_audio(
+                        source, root, AudioConversionSettings("mp3"),
+                        ffmpeg_path=ffmpeg,
+                        cancel_check=lambda: (_ for _ in ()).throw(TaskCancelled()),
+                    )
+            self.assertFalse((root / "cancel.mp3").exists())
 
     def test_validates_wav_bitrate_and_output_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -217,13 +217,32 @@ class Page(QWidget):
     def receive(self, paths): return 0
 
 
+class TaskReporter:
+    """Callable progress reporter exposed to background jobs."""
+    def __init__(self, signal, token):
+        self._signal = signal; self._token = token
+    @property
+    def cancelled(self): return self._token.cancelled
+    def __call__(self, percent, text=''):
+        self.raise_if_cancelled(); self._signal.emit(float(percent), str(text))
+    def raise_if_cancelled(self): self._token.raise_if_cancelled()
+    def register_process(self, process): self._token.register_process(process)
+    def unregister_process(self, process): self._token.unregister_process(process)
+
+
 class Worker(QThread):
     result = Signal(object)
     error = Signal(str)
+    cancelled = Signal()
     progress = Signal(float, str)
-    def __init__(self, work, parent=None): super().__init__(parent); self.work = work
+    def __init__(self, work, parent=None):
+        from core.tasks import CancellationToken
+        super().__init__(parent); self.work = work; self.token = CancellationToken()
+    def request_cancel(self): self.token.cancel()
     def run(self):
-        try: self.result.emit(self.work(self.progress.emit))
+        from core.tasks import TaskCancelled
+        try: self.result.emit(self.work(TaskReporter(self.progress, self.token)))
+        except TaskCancelled: self.cancelled.emit()
         except Exception as exc: self.error.emit(str(exc))
 
 

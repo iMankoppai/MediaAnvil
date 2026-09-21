@@ -59,6 +59,19 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(values["default_save_mode"], "save_as")
             self.assertNotIn("old_field", values)
 
+    def test_removed_no_op_settings_are_not_persisted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings.json"
+            path.write_text(json.dumps({
+                "default_keep_image_size": False,
+                "remember_last_page": True,
+                "last_page": "image",
+            }), encoding="utf-8")
+            values = load_settings(path)
+            self.assertNotIn("default_keep_image_size", values)
+            self.assertNotIn("remember_last_page", values)
+            self.assertNotIn("last_page", values)
+
     def test_set_get_and_reset_settings(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "settings.json"

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
 import re
-from typing import Iterable
+from typing import Callable, Iterable
 
 
 AUDIO_EXTENSIONS = frozenset({".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus"})
@@ -141,26 +141,45 @@ def match_audio_file(audio: str | Path, directory: str | Path | None = None) -> 
     return _match_from_files(audio_path, files)
 
 
-def scan_audio_folder(folder: str | Path, *, include_subfolders: bool = False) -> tuple[MediaMatch, ...]:
+def scan_audio_folder(
+    folder: str | Path,
+    *,
+    include_subfolders: bool = False,
+    cancel_check: Callable[[], None] | None = None,
+) -> tuple[MediaMatch, ...]:
     """Scan a folder and match supported audio files, optionally recursively."""
     directory = Path(folder)
     if include_subfolders:
         try:
-            files = tuple(sorted((item for item in directory.rglob("*") if item.is_file()), key=lambda item: str(item).casefold()))
+            files_by_directory: dict[Path, list[Path]] = {}
+            for item in directory.rglob("*"):
+                if cancel_check:
+                    cancel_check()
+                if item.is_file():
+                    files_by_directory.setdefault(item.parent, []).append(item)
+            for items in files_by_directory.values():
+                items.sort(key=lambda item: item.name.casefold())
         except OSError:
-            files = ()
+            files_by_directory = {}
+        audios = sorted(
+            (path for items in files_by_directory.values() for path in items if path.suffix.casefold() in AUDIO_EXTENSIONS),
+            key=lambda item: str(item).casefold(),
+        )
+        matches = []
+        for audio in audios:
+            if cancel_check:
+                cancel_check()
+            matches.append(_match_from_files(audio, files_by_directory[audio.parent]))
+        return tuple(matches)
     else:
         files = _directory_files(directory)
     audios = tuple(path for path in files if path.suffix.casefold() in AUDIO_EXTENSIONS)
-    if include_subfolders:
-        # Keep matching local to each audio file's own directory.  A recursive
-        # scan should discover nested albums without mixing same-named files
-        # from sibling folders.
-        return tuple(
-            _match_from_files(audio, (candidate for candidate in files if candidate.parent == audio.parent))
-            for audio in audios
-        )
-    return tuple(_match_from_files(audio, files) for audio in audios)
+    matches = []
+    for audio in audios:
+        if cancel_check:
+            cancel_check()
+        matches.append(_match_from_files(audio, files))
+    return tuple(matches)
 
 
 # Clear aliases for callers that prefer “find” terminology.

@@ -79,9 +79,6 @@ class SettingsPage(Page):
         image = self.section('image', '图片转换', '设置图片格式转换的默认参数', 1, 0)
         self.number(image, 'default_image_quality', '默认 JPG 质量', 1, 100, '%')
         self.number(image, 'default_webp_quality', '默认 WebP 质量', 1, 100, '%')
-        self.switch(image, 'default_keep_image_size', '保持原始尺寸')
-        self.image_note = QLabel('不缩放图片，输出与原图相同的尺寸'); self.image_note.setObjectName('muted'); self.image_note.setAlignment(Qt.AlignmentFlag.AlignRight)
-        image.outer.addWidget(self.image_note)
 
         lyrics = self.section('list', '歌词与预览', '设置歌词处理和音频预览的默认参数', 1, 1)
         duration = QDoubleSpinBox(); duration.setRange(.1, 3600); duration.setDecimals(1); duration.setMinimumWidth(90); duration.setMaximumWidth(145)
@@ -137,7 +134,6 @@ class SettingsPage(Page):
         self.section_grid.setVerticalSpacing(10 if roomy else 3)
         self.page_badge.setVisible(roomy)
         self.page_detail.setVisible(roomy)
-        self.image_note.setVisible(roomy)
         self.general_section.fields.setRowVisible(self.language, True)
         for section in self.sections:
             section.detail.setVisible(roomy)

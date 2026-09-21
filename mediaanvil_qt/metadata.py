@@ -285,7 +285,7 @@ class MetadataPage(Page):
         if folder:self.scan(folder)
     def scan(self,folder):
         recursive=self.app.settings['include_subfolders']
-        self.app.run_task(lambda report:scan_audio_folder(folder,include_subfolders=recursive),self.scanned)
+        self.app.run_task(lambda report:scan_audio_folder(folder,include_subfolders=recursive,cancel_check=report.raise_if_cancelled),self.scanned)
     def scanned(self,matches):
         self.match_rows=list(matches);fill_table(self.matches,[(str(m.audio),'','') for m in matches])
         for i,m in enumerate(matches):

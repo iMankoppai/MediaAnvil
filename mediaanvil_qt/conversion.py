@@ -160,7 +160,10 @@ class ConversionPage(Page):
         def work(report):
             records=[]
             for i,source in enumerate(paths):
-                outputs,lines=convert_files(kind,[source],directory,settings,lambda p,t:report((i+p/100)/len(paths)*100,t))
+                report.raise_if_cancelled()
+                outputs,lines=convert_files(kind,[source],directory,settings,
+                    lambda p,t:report((i+p/100)/len(paths)*100,t),
+                    report.raise_if_cancelled,report.register_process)
                 target=outputs[0] if outputs else None
                 record=dict(source=source,path=target,message='\n'.join(lines),text='',size=target.stat().st_size if target else 0,dimensions='',finished=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                 if target and kind=='subtitle':record['text']=target.read_text(encoding='utf-8-sig')

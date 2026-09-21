@@ -39,8 +39,8 @@ class QtRewriteTests(unittest.TestCase):
             self.qt.processEvents();time.sleep(.005)
         self.assertIsNone(self.window._worker,'worker did not complete');self.qt.processEvents()
     def test_pages_preserve_native_window_and_data(self):
-        self.assertEqual(qt_version,'1.0.1')
-        self.assertIn('v1.0.1',[label.text() for label in self.window.findChildren(QLabel)])
+        self.assertEqual(qt_version,'1.0.2')
+        self.assertIn('v1.0.2',[label.text() for label in self.window.findChildren(QLabel)])
         self.assertEqual(len(self.window.pages),8)
         actual_size=(self.window.width(),self.window.height());expected_size=default_window_size()
         for actual,expected in zip(actual_size,expected_size):self.assertAlmostEqual(actual,expected,delta=1)
@@ -185,6 +185,17 @@ class QtRewriteTests(unittest.TestCase):
     def test_worker_failure_recovers_interface(self):
         self.window.run_task(lambda report:1/0,lambda value:None);self.wait()
         self.assertIn('division by zero',self.messages[-1]);self.assertTrue(self.window.centralWidget().isEnabled())
+    def test_worker_can_be_cancelled_and_recovers_interface(self):
+        completed=[]
+        def work(report):
+            while True:
+                report.raise_if_cancelled();time.sleep(.005)
+        self.window.run_task(work,completed.append);self.qt.processEvents()
+        self.assertTrue(self.window.cancel_button.isVisible())
+        self.window.cancel_button.click();self.wait()
+        self.assertFalse(completed);self.assertFalse(self.window.cancel_button.isVisible())
+        self.assertTrue(self.window.centralWidget().isEnabled())
+        self.assertEqual(self.window.statusBar().currentMessage(),'任务已取消')
     def test_close_during_work_is_blocked(self):
         self.window.run_task(lambda report:time.sleep(.1),lambda value:None)
         self.assertFalse(self.window.close());self.wait();self.assertTrue(self.window.isVisible())

@@ -21,10 +21,13 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements-qt.txt
+          cache-dependency-path: requirements-dev.txt
 
-      - name: Install runtime dependencies
-        run: python -m pip install -r requirements-qt.txt
+      - name: Install locked development dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Lint with Ruff
+        run: python -m ruff check .
 
       - name: Prepare verified FFmpeg binaries
         shell: powershell

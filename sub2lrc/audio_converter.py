@@ -9,7 +9,13 @@ import re
 import shutil
 import subprocess
 import sys
+from queue import Empty, Queue
+from threading import Thread
+import time
 from typing import Callable, Iterable
+
+from core.tasks import TaskCancelled
+from core.windows_paths import sanitize_windows_stem
 
 
 SUPPORTED_BITRATES = (128, 192, 256, 320)
@@ -19,6 +25,7 @@ OGG_QUALITY_LEVELS = (3, 5, 7, 9)
 SUPPORTED_SAMPLE_RATES = (44_100, 48_000, 96_000)
 SUPPORTED_CHANNELS = (1, 2)
 ProgressCallback = Callable[[Path, int, int, float, float], None]
+DEFAULT_FFMPEG_TIMEOUT_SECONDS = 60 * 60
 
 
 class AudioConversionError(ValueError):
@@ -143,10 +150,11 @@ def unique_audio_output(output_dir: str | Path, source: str | Path, output_forma
         raise AudioConversionError("不支持所选的输出格式。") from exc
     directory = Path(output_dir)
     source_path = Path(source)
-    candidate = directory / f"{source_path.stem}{extension}"
+    stem = sanitize_windows_stem(source_path.stem) or "output"
+    candidate = directory / f"{stem}{extension}"
     index = 1
     while candidate.exists():
-        candidate = directory / f"{source_path.stem}_{index}{extension}"
+        candidate = directory / f"{stem}_{index}{extension}"
         index += 1
     return candidate
 
@@ -195,6 +203,36 @@ def _progress_seconds(line: str) -> float | None:
     return None
 
 
+def _stop_process(process: subprocess.Popen[str]) -> None:
+    """Stop FFmpeg promptly, escalating to kill if it ignores terminate."""
+    try:
+        process.terminate()
+    except (OSError, ProcessLookupError):
+        return
+    try:
+        process.wait(timeout=2)
+    except (subprocess.TimeoutExpired, TypeError):
+        try:
+            process.kill()
+        except (OSError, ProcessLookupError, AttributeError):
+            pass
+
+
+def _read_lines(stream, output: Queue[str | None]) -> None:
+    try:
+        for line in stream:
+            output.put(line)
+    finally:
+        output.put(None)
+
+
+def _read_text(stream, output: list[str]) -> None:
+    try:
+        output.append(stream.read())
+    except (OSError, ValueError):
+        pass
+
+
 def build_ffmpeg_command(
     ffmpeg: str | Path,
     source: str | Path,
@@ -234,6 +272,10 @@ def convert_audio(
     settings: AudioConversionSettings,
     progress: Callable[[float], None] | None = None,
     ffmpeg_path: str | Path | None = None,
+    *,
+    cancel_check: Callable[[], None] | None = None,
+    process_callback: Callable[[subprocess.Popen[str] | None], None] | None = None,
+    timeout_seconds: float = DEFAULT_FFMPEG_TIMEOUT_SECONDS,
 ) -> Path:
     """Convert one supported audio file using the selected output settings."""
     source_path = Path(source)
@@ -252,8 +294,9 @@ def convert_audio(
     command = build_ffmpeg_command(ffmpeg, source_path, destination, settings)
     if progress:
         progress(0.0)
+    process = None
     try:
-        with subprocess.Popen(
+        process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -261,18 +304,62 @@ def convert_audio(
             encoding="utf-8",
             errors="replace",
             creationflags=_creation_flags(),
-        ) as process:
-            if process.stdout is None or process.stderr is None:
-                raise OSError("无法读取 FFmpeg 进程输出。")
-            for line in process.stdout:
+        )
+        if process_callback:
+            process_callback(process)
+        if process.stdout is None or process.stderr is None:
+            raise OSError("无法读取 FFmpeg 进程输出。")
+        lines: Queue[str | None] = Queue()
+        errors: list[str] = []
+        output_reader = Thread(target=_read_lines, args=(process.stdout, lines), daemon=True)
+        error_reader = Thread(target=_read_text, args=(process.stderr, errors), daemon=True)
+        output_reader.start()
+        error_reader.start()
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            if cancel_check:
+                cancel_check()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(command, timeout_seconds)
+            try:
+                line = lines.get(timeout=min(0.1, remaining))
+            except Empty:
+                continue
+            if line is None:
+                break
+            if line:
                 elapsed = _progress_seconds(line)
                 if elapsed is not None and duration and progress:
                     progress(min(99.0, max(0.0, elapsed / duration * 100)))
-            error_text = process.stderr.read().strip()
-            return_code = process.wait()
+        return_code = process.wait()
+        error_reader.join(timeout=1)
+        error_text = "".join(errors).strip()
+    except TaskCancelled:
+        if process is not None:
+            _stop_process(process)
+        destination.unlink(missing_ok=True)
+        raise
+    except subprocess.TimeoutExpired as exc:
+        if process is not None:
+            _stop_process(process)
+        destination.unlink(missing_ok=True)
+        raise AudioConversionError(f"转换超时（超过 {timeout_seconds:g} 秒），已停止 FFmpeg 并删除未完成文件。") from exc
     except OSError as exc:
+        if process is not None:
+            _stop_process(process)
         destination.unlink(missing_ok=True)
         raise AudioConversionError(f"无法启动 FFmpeg：{exc}") from exc
+    finally:
+        if process_callback:
+            process_callback(None)
+        if process is not None:
+            for stream in (process.stdout, process.stderr):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except (OSError, ValueError):
+                        pass
     if return_code != 0:
         destination.unlink(missing_ok=True)
         reason = error_text or f"FFmpeg 返回错误代码 {return_code}。"
@@ -291,6 +378,10 @@ def convert_audio_batch(
     settings: AudioConversionSettings,
     progress: ProgressCallback | None = None,
     ffmpeg_path: str | Path | None = None,
+    *,
+    cancel_check: Callable[[], None] | None = None,
+    process_callback: Callable[[subprocess.Popen[str] | None], None] | None = None,
+    timeout_seconds: float = DEFAULT_FFMPEG_TIMEOUT_SECONDS,
 ) -> BatchConversionResult:
     """Convert a batch and continue after each individual failure."""
     source_paths = tuple(Path(source) for source in sources)
@@ -302,12 +393,19 @@ def convert_audio_batch(
     failures: list[ConversionFailure] = []
     total = len(source_paths)
     for index, source in enumerate(source_paths, start=1):
+        if cancel_check:
+            cancel_check()
         def report(file_percent: float, *, current: Path = source, number: int = index) -> None:
             overall = ((number - 1) + file_percent / 100) / total * 100
             if progress:
                 progress(current, number, total, file_percent, overall)
         try:
-            outputs.append(convert_audio(source, output_dir, settings, report, ffmpeg))
+            outputs.append(convert_audio(
+                source, output_dir, settings, report, ffmpeg,
+                cancel_check=cancel_check,
+                process_callback=process_callback,
+                timeout_seconds=timeout_seconds,
+            ))
         except AudioConversionError as exc:
             failures.append(ConversionFailure(source, str(exc)))
             report(100.0)
@@ -320,11 +418,12 @@ def convert_wav(
     bitrate: int = 192,
     progress: Callable[[float], None] | None = None,
     ffmpeg_path: str | Path | None = None,
+    **kwargs,
 ) -> Path:
     """Backward-compatible WAV to MP3 wrapper."""
     if Path(source).suffix.lower() != ".wav":
         raise AudioConversionError("请选择扩展名为 .wav 的音频文件。")
-    return convert_audio(source, output_dir, AudioConversionSettings("mp3", bitrate), progress, ffmpeg_path)
+    return convert_audio(source, output_dir, AudioConversionSettings("mp3", bitrate), progress, ffmpeg_path, **kwargs)
 
 
 def convert_wav_batch(
@@ -333,6 +432,7 @@ def convert_wav_batch(
     bitrate: int = 192,
     progress: ProgressCallback | None = None,
     ffmpeg_path: str | Path | None = None,
+    **kwargs,
 ) -> BatchConversionResult:
     """Backward-compatible WAV batch wrapper."""
-    return convert_audio_batch(sources, output_dir, AudioConversionSettings("mp3", bitrate), progress, ffmpeg_path)
+    return convert_audio_batch(sources, output_dir, AudioConversionSettings("mp3", bitrate), progress, ffmpeg_path, **kwargs)

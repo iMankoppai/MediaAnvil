@@ -96,7 +96,7 @@ class RenamePage(Page):
     def preview(self):
         paths=self.files.checked_paths();template=self.template.currentText();fallback=self.fallback.isChecked()
         if not paths:return self.app.inform(self.app.t('请先添加音频。'))
-        self.app.run_task(lambda report:build_rename_plan(paths,template,fallback_missing=fallback),self.previewed)
+        self.app.run_task(lambda report:build_rename_plan(paths,template,fallback_missing=fallback,cancel_check=report.raise_if_cancelled),self.previewed)
     def previewed(self,plan):
         self.table.blockSignals(True)
         fill_table(self.table,[('',n+1,i.original_name,i.new_name,self.app.t(i.status)) for n,i in enumerate(plan.items)])
@@ -112,7 +112,7 @@ class RenamePage(Page):
         selected=self.selected_items()
         if not selected:return
         plan=replace(self.plan,items=selected)
-        self.app.run_task(lambda report:execute_rename_plan(plan),self.executed)
+        self.app.run_task(lambda report:execute_rename_plan(plan,cancel_check=report.raise_if_cancelled),self.executed)
     def executed(self,result):
         if result.records:self.records=result.records
         self.undo_button.setEnabled(bool(self.records))
@@ -121,7 +121,7 @@ class RenamePage(Page):
         self.app.show_text('重命名结果','\n'.join([f'完成：{r.old_path.name} → {r.new_path.name}' for r in result.records]+[f'跳过：{i.original_name} — {i.message or i.status}' for i in result.skipped]+[f'失败：{i.source.name} — {i.message}' for i in result.failures]))
     def undo(self):
         records=self.records
-        if records:self.app.run_task(lambda report:undo_rename(records),self.undone)
+        if records:self.app.run_task(lambda report:undo_rename(records,report.raise_if_cancelled),self.undone)
     def undone(self,result):
         restored=set(result.records);self.records=tuple(r for r in self.records if r not in restored);self.undo_button.setEnabled(bool(self.records))
         mapping={r.new_path:r.old_path for r in result.records};paths=[mapping.get(p,p) for p in self.files.paths()]

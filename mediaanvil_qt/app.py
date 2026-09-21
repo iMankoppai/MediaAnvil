@@ -86,6 +86,7 @@ class MainWindow(QMainWindow):
             self.stack.addWidget(container)
         self.navigation.currentRowChanged.connect(self.show_page)
         self.navigation.setCurrentRow(self.keys.index('preview'))
+        self.cancel_button=button('取消任务',self.cancel_task);self.cancel_button.hide();self.statusBar().addPermanentWidget(self.cancel_button)
         self.progress=QProgressBar();self.progress.setFixedWidth(230);self.progress.hide();self.statusBar().addPermanentWidget(self.progress)
         self.statusBar().showMessage(warning or '就绪 · 可直接拖入文件或文件夹')
         self.setAcceptDrops(True);self.setStyleSheet(STYLE);self.apply_defaults();self.center_on_screen();self.set_language(self.settings['language'])
@@ -121,23 +122,28 @@ class MainWindow(QMainWindow):
     def run_task(self,work,done):
         if self._worker:return self.inform(self.t('当前任务仍在处理，请等待完成。'))
         self._done=done;self._task_outcome=None;self._worker=Worker(work,self)
-        self.centralWidget().setEnabled(False);self.progress.setRange(0,100);self.progress.setValue(0);self.progress.show();self.statusBar().showMessage(self.t('正在处理…'))
-        self._worker.result.connect(self._result);self._worker.error.connect(self._error);self._worker.progress.connect(self._progress);self._worker.finished.connect(self._finished);self._worker.start()
+        self.centralWidget().setEnabled(False);self.progress.setRange(0,100);self.progress.setValue(0);self.progress.show();self.cancel_button.setEnabled(True);self.cancel_button.show();self.statusBar().showMessage(self.t('正在处理…'))
+        self._worker.result.connect(self._result);self._worker.error.connect(self._error);self._worker.cancelled.connect(self._cancelled);self._worker.progress.connect(self._progress);self._worker.finished.connect(self._finished);self._worker.start()
+    def cancel_task(self):
+        if not self._worker:return
+        self.cancel_button.setEnabled(False);self.statusBar().showMessage(self.t('正在取消…'));self._worker.request_cancel()
     @Slot(object)
     def _result(self,value):self._task_outcome=(True,value)
     @Slot(str)
     def _error(self,value):self._task_outcome=(False,value)
+    @Slot()
+    def _cancelled(self):self._task_outcome=(None,None)
     @Slot(float,str)
     def _progress(self,percent,text):self.progress.setValue(round(percent));self.statusBar().showMessage(self.t(text))
     @Slot()
     def _finished(self):
         worker=self._worker;done=self._done;outcome=self._task_outcome
-        self._worker=None;self._done=None;worker.deleteLater();self.centralWidget().setEnabled(True);self.progress.hide();self.statusBar().showMessage(self.t('就绪'))
+        self._worker=None;self._done=None;worker.deleteLater();self.centralWidget().setEnabled(True);self.progress.hide();self.cancel_button.hide();self.statusBar().showMessage(self.t('任务已取消') if outcome and outcome[0] is None else self.t('就绪'))
         if outcome:
-            if outcome[0]:
+            if outcome[0] is True:
                 try:done(outcome[1])
                 except Exception as exc:self.inform(self.t('结果显示失败：')+str(exc))
-            else:self.inform(self.t('处理失败：')+outcome[1])
+            elif outcome[0] is False:self.inform(self.t('处理失败：')+outcome[1])
     def inform(self,text):QMessageBox.information(self,'MediaAnvil Qt',self.t(str(text)))
     def show_text(self,title,text):
         dialog=QDialog(self);dialog.setWindowTitle(self.t(title));dialog.resize(850,550);layout=QVBoxLayout(dialog)
@@ -156,7 +162,7 @@ class MainWindow(QMainWindow):
             count=page.receive(found)
             if not count:self.inform(self.t('没有找到当前页面支持的文件。'))
             elif self._worker is None:self.statusBar().showMessage(self.t(f'已导入 {count} 个文件'))
-        self.run_task(lambda report:collect_paths(paths,extensions,recursive),done)
+        self.run_task(lambda report:collect_paths(paths,extensions,recursive,report.raise_if_cancelled),done)
     def dragEnterEvent(self,event):
         if self._worker is None and event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):event.acceptProposedAction()
         else:event.ignore()

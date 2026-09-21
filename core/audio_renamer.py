@@ -8,12 +8,12 @@ import re
 import string
 from typing import Callable, Iterable
 
+from core.windows_paths import sanitize_windows_stem, validate_windows_filename
 from sub2lrc.audio_metadata import AudioMetadataError, read_metadata
 
 
 SUPPORTED_RENAME_EXTENSIONS = frozenset({".mp3", ".flac", ".m4a", ".ogg", ".opus"})
 ALLOWED_TEMPLATE_FIELDS = frozenset({"artist", "title", "album", "track", "year"})
-INVALID_FILENAME_CHARS = frozenset('<>:/\\|?*"')
 _COPY_SUFFIX = re.compile(r"\s+")
 _TRACK_NUMBER = re.compile(r"^\s*(\d+)")
 _YEAR_NUMBER = re.compile(r"(\d{4})")
@@ -190,9 +190,7 @@ def validate_template(template: str) -> tuple[str, ...]:
 
 def sanitize_filename(value: str) -> str:
     """Make a Windows-safe filename stem without changing its extension."""
-    cleaned = "".join(" " if character in INVALID_FILENAME_CHARS or ord(character) < 32 else character for character in value)
-    cleaned = _COPY_SUFFIX.sub(" ", cleaned).strip().rstrip(".").rstrip()
-    return cleaned
+    return _COPY_SUFFIX.sub(" ", sanitize_windows_stem(value)).strip().rstrip(".").rstrip()
 
 
 def _field_values(fields: RenameFields) -> dict[str, str]:
@@ -233,7 +231,12 @@ def render_filename_template(
     stem = stem[:allowed_stem_length].rstrip(" .")
     if not stem:
         raise AudioRenameError("生成的文件名为空。")
-    return f"{stem}{extension}"
+    filename = f"{stem}{extension}"
+    try:
+        validate_windows_filename(filename)
+    except ValueError as exc:
+        raise AudioRenameError(str(exc)) from exc
+    return filename
 
 
 def _path_key(path: Path) -> str:
@@ -270,12 +273,14 @@ def build_rename_plan(
     template: str = "{artist} - {title}",
     *,
     fallback_missing: bool = False,
+    cancel_check: Callable[[], None] | None = None,
 ) -> RenamePlan:
     """Read tags and build a preview-only plan without renaming anything."""
     validate_template(template)
     unique_files: list[Path] = []
     seen: set[str] = set()
     for raw_file in files:
+        if cancel_check: cancel_check()
         path = Path(raw_file)
         key = _path_key(path)
         if key not in seen:
@@ -284,6 +289,7 @@ def build_rename_plan(
 
     provisional: list[RenamePlanItem] = []
     for path in unique_files:
+        if cancel_check: cancel_check()
         try:
             fields = read_rename_fields(path)
             new_name = render_filename_template(template, fields, fallback_missing=fallback_missing)
@@ -325,12 +331,14 @@ def build_rename_plan(
 def execute_rename_plan(
     plan: RenamePlan,
     on_item: Callable[[RenamePlanItem, str], None] | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> RenameExecutionResult:
     """Execute only approved plan items; one filesystem error never aborts the batch."""
     records: list[RenameRecord] = []
     skipped: list[RenamePlanItem] = []
     failures: list[RenameFailure] = []
     for item in plan.items:
+        if cancel_check: cancel_check()
         if not item.can_rename:
             skipped.append(item)
             if on_item:
@@ -355,11 +363,12 @@ def execute_rename_plan(
     return RenameExecutionResult(tuple(records), tuple(skipped), tuple(failures))
 
 
-def undo_rename(records: Iterable[RenameRecord]) -> UndoResult:
+def undo_rename(records: Iterable[RenameRecord], cancel_check: Callable[[], None] | None = None) -> UndoResult:
     """Undo the latest batch only when both paths are still safe to use."""
     restored: list[RenameRecord] = []
     failures: list[RenameFailure] = []
     for record in reversed(tuple(records)):
+        if cancel_check: cancel_check()
         try:
             if not record.new_path.is_file():
                 raise OSError("新文件名不存在")

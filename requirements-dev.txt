@@ -1,0 +1,2 @@
+-r requirements-qt.txt
+ruff==0.16.8

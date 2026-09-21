@@ -1,0 +1,8 @@
+[tool.ruff]
+target-version = "py312"
+exclude = [".build-venv-windows", "build", "dist", "vendor"]
+
+[tool.ruff.lint]
+# Start with correctness checks so linting can protect this compact legacy UI
+# without forcing an unrelated whole-project style rewrite in a patch release.
+select = ["E9", "F63", "F7", "F82"]

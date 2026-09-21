@@ -62,6 +62,8 @@ class AudioRenamerTests(unittest.TestCase):
 
     def test_illegal_characters_are_sanitized_and_long_names_are_limited(self) -> None:
         self.assertEqual(sanitize_filename(' A/B:C*? "歌". '), "A B C 歌")
+        self.assertEqual(sanitize_filename("CON"), "CON_")
+        self.assertEqual(sanitize_filename("nul"), "nul_")
         audio = self.touch("long.mp3")
         fields = read_rename_fields
         fake = self.metadata(artist="歌手", title="x" * 400)

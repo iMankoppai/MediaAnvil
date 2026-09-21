@@ -8,6 +8,8 @@ from typing import Callable, Iterable
 
 from PIL import Image, UnidentifiedImageError
 
+from core.windows_paths import sanitize_windows_stem
+
 
 class ImageConversionError(ValueError):
     """Raised when an image or conversion setting is invalid."""
@@ -110,10 +112,11 @@ def unique_image_output(output_dir: str | Path, source: str | Path, output_forma
         raise ImageConversionError("不支持所选的图片输出格式。") from exc
     directory = Path(output_dir)
     source_path = Path(source)
-    candidate = directory / f"{source_path.stem}{extension}"
+    stem = sanitize_windows_stem(source_path.stem) or "output"
+    candidate = directory / f"{stem}{extension}"
     index = 1
     while candidate.exists() or candidate.resolve() == source_path.resolve():
-        candidate = directory / f"{source_path.stem}_{index}{extension}"
+        candidate = directory / f"{stem}_{index}{extension}"
         index += 1
     return candidate
 

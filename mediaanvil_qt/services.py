@@ -8,6 +8,7 @@ from sub2lrc.image_converter import convert_image_batch
 from sub2lrc.converter import convert_content, convert_file, read_subtitle, unique_output_path
 from sub2lrc.embedder import read_lrc
 from sub2lrc.audio_metadata import AudioMetadataChanges, write_metadata
+from core.tasks import TaskCancelled
 
 
 EMBEDDABLE_LYRIC_EXTENSIONS=frozenset({'.lrc','.srt','.vtt'})
@@ -25,12 +26,14 @@ def prepare_lyrics_for_embedding(source,temporary_directory):
     target.write_text(converted,encoding='utf-8-sig');return target
 
 
-def collect_paths(paths, extensions, recursive=False):
+def collect_paths(paths, extensions, recursive=False, cancel_check=None):
     result = []; seen = set()
     for raw in paths:
+        if cancel_check: cancel_check()
         path = Path(raw)
         candidates = path.rglob('*') if path.is_dir() and recursive else path.iterdir() if path.is_dir() else (path,)
         for p in candidates:
+            if cancel_check: cancel_check()
             key = str(p.resolve()).casefold()
             if p.is_file() and p.suffix.lower() in extensions and key not in seen:
                 seen.add(key); result.append(p)
@@ -46,16 +49,18 @@ def tagged_destination(source, directory=''):
     return target
 
 
-def convert_files(kind, paths, directory, settings, progress):
+def convert_files(kind, paths, directory, settings, progress, cancel_check=None, process_callback=None):
     lines = []; outputs = []
     for i, source in enumerate(paths):
+        if cancel_check: cancel_check()
         destination = Path(directory) if directory else source.parent
         def report(percent, text=''):
             progress((i + percent / 100) / len(paths) * 100, text or source.name)
         try:
             if kind == 'audio':
                 result = convert_audio_batch([source], destination, settings,
-                    progress=lambda p, n, total, percent, overall: report(percent))
+                    progress=lambda p, n, total, percent, overall: report(percent),
+                    cancel_check=cancel_check, process_callback=process_callback)
                 outputs.extend(result.outputs)
                 lines.extend('完成：' + str(p) for p in result.outputs)
                 lines.extend('失败：' + str(f.source) + ' — ' + f.message for f in result.failures)
@@ -70,6 +75,7 @@ def convert_files(kind, paths, directory, settings, progress):
                 target = unique_output_path(destination, source, fmt)
                 outputs.append(convert_file(source, target, fmt, duration))
                 lines.append('完成：' + str(target))
+        except TaskCancelled: raise
         except Exception as exc: lines.append(f'失败：{source} — {exc}')
         report(100)
     return outputs, lines
@@ -78,6 +84,7 @@ def convert_files(kind, paths, directory, settings, progress):
 def write_matches(rows, overwrite, directory, progress):
     lines = []
     for i, (audio, lyric, cover) in enumerate(rows):
+        if hasattr(progress, 'raise_if_cancelled'): progress.raise_if_cancelled()
         if not lyric and not cover:
             lines.append(f'跳过：{audio.name}（无已选关联文件）'); continue
         try:
@@ -90,6 +97,7 @@ def write_matches(rows, overwrite, directory, progress):
                         image.convert('RGBA').save(cover)
                 output = write_metadata(audio, AudioMetadataChanges(lyrics_path=lyric, cover_path=cover), target)
             lines.append(f'完成：{output}')
+        except TaskCancelled: raise
         except Exception as exc: lines.append(f'失败：{audio.name} — {exc}')
         progress((i+1)/len(rows)*100, audio.name)
     return lines

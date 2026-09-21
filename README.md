@@ -1,4 +1,4 @@
-# MediaAnvil 1.0.1
+# MediaAnvil 1.0.2
 
 [![Release](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?label=release)](https://github.com/iMankoppai/MediaAnvil/releases)
 [![License](https://img.shields.io/github/license/iMankoppai/MediaAnvil)](LICENSE)
@@ -10,7 +10,7 @@ MediaAnvil 是一款面向 Windows 的本地多媒体工具箱。它使用 Qt �
 
 **[English →](README.en.md)**
 
-![MediaAnvil 1.0.1 音频预览界面](assets/screenshots/audio-preview.png)
+![MediaAnvil 1.0.2 音频预览界面](assets/screenshots/audio-preview.png)
 
 ## 主要功能
 
