@@ -71,6 +71,11 @@
 - Fixed Windows startup failure caused by an incompatible bundled ICU DLL.
 - Strengthened the frozen-app smoke test so an error dialog can no longer be mistaken for a successful launch.
 
+### 中文说明
+
+- 修复因随附的 ICU DLL 不兼容而导致的 Windows 启动失败。
+- 强化冻结版烟雾测试：错误弹窗不再被误判为启动成功。
+
 ## 1.0.2
 
 - Added cooperative cancellation for background work, including active FFmpeg processes.
@@ -79,3 +84,36 @@
 - Added Windows reserved-name and invalid-filename protection.
 - Removed settings that had no effect.
 - Locked Python dependencies and added Ruff checks to CI.
+
+### 中文说明
+
+- 为后台任务增加协作式取消，包括正在运行的 FFmpeg 进程。
+- 增加 FFmpeg 超时控制，并可靠清理未完成的输出文件。
+- 改进递归文件夹扫描：每个目录只索引一次。
+- 增加 Windows 保留文件名与非法文件名的保护。
+- 移除没有任何实际作用的设置项。
+- 锁定 Python 依赖版本，并在 CI 中加入 Ruff 检查。
+
+## 1.0.1
+
+- Pinned the bundled FFmpeg to 9.0.2 and refreshed the third-party notice.
+- Added a workflow that vendors FFmpeg into this repository's own release, so the
+  pinned download no longer breaks when the upstream build disappears.
+- Added the ghost-scan helper script with its own test coverage and notes.
+
+### 中文说明
+
+- 将随附的 FFmpeg 固定为 9.0.2，并更新第三方组件说明。
+- 新增工作流把 FFmpeg 固化到本仓库的 Release 中，上游构建消失时固定版本的下载不再失效。
+- 加入 ghost-scan 辅助脚本，并配套测试与说明文档。
+
+## 1.0
+
+- First Windows release: audio preview with synchronized lyrics, tag and artwork
+  editing, lyrics/subtitle conversion, audio and image conversion, and
+  metadata-based batch renaming, all processed locally.
+
+### 中文说明
+
+- 首个 Windows 版本：音频预览与同步歌词、标签与封面编辑、歌词/字幕转换、音频与图片
+  格式转换，以及基于标签的批量重命名；全部在本机处理。
