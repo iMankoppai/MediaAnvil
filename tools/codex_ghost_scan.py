@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sqlite3
 import sys
@@ -79,17 +78,17 @@ def add_sidebar(home: Path, records: dict[str, Evidence], errors: list[str]) -> 
         state = json.load(handle)
     if not isinstance(state, dict):
         raise ValueError(".codex-global-state.json is not an object")
-    for field in SIDEBAR_FIELDS:
-        values = state.get(field, [])
+    for sidebar_field in SIDEBAR_FIELDS:
+        values = state.get(sidebar_field, [])
         if not isinstance(values, list):
-            errors.append(f".codex-global-state.json:{field} is not an array")
+            errors.append(f".codex-global-state.json:{sidebar_field} is not an array")
             continue
         for value in values:
             if not isinstance(value, str):
-                errors.append(f".codex-global-state.json:{field} has a non-string ID")
+                errors.append(f".codex-global-state.json:{sidebar_field} has a non-string ID")
                 continue
             item = records.setdefault(value.lower(), Evidence(value.lower()))
-            item.found(f".codex-global-state.json:{field}")
+            item.found(f".codex-global-state.json:{sidebar_field}")
 
 
 def add_index(home: Path, records: dict[str, Evidence], errors: list[str]) -> None:

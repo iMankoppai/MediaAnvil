@@ -3,6 +3,10 @@ target-version = "py312"
 exclude = [".build-venv-windows", "build", "dist", "vendor"]
 
 [tool.ruff.lint]
-# Start with correctness checks so linting can protect this compact legacy UI
-# without forcing an unrelated whole-project style rewrite in a patch release.
-select = ["E9", "F63", "F7", "F82"]
+# Correctness checks only, so linting protects this compact legacy UI without
+# forcing an unrelated whole-project style rewrite in a patch release.
+# "F" (pyflakes) is included because it catches real defects such as unused or
+# shadowed imports and unused locals. Style rules (E5xx line length, E7xx
+# multiple statements per line) stay off: the compact one-line style is
+# deliberate here and rewriting it would dwarf any behavioural change.
+select = ["E9", "F"]

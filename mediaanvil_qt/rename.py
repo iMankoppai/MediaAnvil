@@ -1,9 +1,10 @@
 from dataclasses import replace
 import csv
+from pathlib import Path
 from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QCheckBox,QLineEdit,QLabel,QFileDialog,QHeaderView,QPushButton,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QSizePolicy
-from .common import Page, FileList, button, row, combo, table, fill_table, StatusDelegate, Columns
+from .common import Page, FileList, button, row, combo, table, fill_table, StatusDelegate, Columns, dialog_initial_directory, remember_dialog_selection
 from .conversion import step_group
 from .design import icon
 from core.audio_renamer import SUPPORTED_RENAME_EXTENSIONS,build_rename_plan,execute_rename_plan,undo_rename
@@ -85,8 +86,10 @@ class RenamePage(Page):
     def export_preview(self):
         if not self.plan:return self.app.inform(self.app.t('请先生成预览。'))
         default_name='rename-preview.csv' if self.app.settings.get('language')=='en_US' else '重命名预览.csv'
-        path,_=QFileDialog.getSaveFileName(self,self.app.t('导出重命名预览'),default_name,'CSV (*.csv)')
+        default_path=str(Path(dialog_initial_directory(self,'output'))/default_name)
+        path,_=QFileDialog.getSaveFileName(self,self.app.t('导出重命名预览'),default_path,'CSV (*.csv)')
         if path:
+            remember_dialog_selection(self,'output',path)
             rows=[(i.source,i.original_name,i.new_name,i.status,i.message,i in self.selected_items()) for i in self.plan.items]
             def work(report):
                 with open(path,'w',encoding='utf-8-sig',newline='') as stream:

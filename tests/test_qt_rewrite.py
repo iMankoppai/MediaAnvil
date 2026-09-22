@@ -1,22 +1,25 @@
-import os,time,tempfile,unittest,threading,subprocess,wave,re
+import time,tempfile,unittest,threading,wave,re
 from pathlib import Path
 from unittest.mock import MagicMock,patch
 from PIL import Image
 try:
-    from PySide6.QtCore import QTimer,Qt,QThread,QPoint,QPointF,QMimeData,QUrl,QSize
+    from PySide6.QtCore import QTimer,Qt,QPoint,QPointF,QMimeData,QUrl,QSize
     from PySide6.QtWidgets import (QApplication,QPushButton,QSizePolicy,QLabel,QAbstractButton,
-        QComboBox,QLineEdit,QPlainTextEdit,QTableWidget,QListWidget,QWidget)
+        QComboBox,QDialog,QLineEdit,QPlainTextEdit,QTableWidget,QListWidget,QWidget)
     from PySide6.QtTest import QTest
     from PySide6.QtGui import QDragEnterEvent,QDropEvent,QFontInfo
 except ImportError:
     raise unittest.SkipTest('Install requirements-qt.txt to run Qt interface tests')
 from mediaanvil_qt.app import MainWindow,default_window_size
+from mediaanvil_qt.common import dialog_initial_directory
+from mediaanvil_qt.documents import DocumentViewer
+from mediaanvil_qt.i18n import localize_dialog_buttons
 from mediaanvil_qt import __version__ as qt_version
 from mediaanvil_qt.design import STYLE
-from mediaanvil_qt.services import collect_paths,convert_files,tagged_destination,write_matches
+from mediaanvil_qt.services import collect_paths,convert_files,write_matches
 from mediaanvil_qt.metadata import CropDialog
 from core.settings import save_settings
-from sub2lrc.audio_converter import AudioConversionSettings,find_ffmpeg
+from sub2lrc.audio_converter import AudioConversionSettings
 from sub2lrc.image_converter import ImageConversionSettings
 from sub2lrc.audio_metadata import read_metadata
 from sub2lrc.audio_preview import PlaybackState
@@ -30,6 +33,7 @@ class QtRewriteTests(unittest.TestCase):
         self.window=MainWindow(self.base/'settings.json');self.messages=[]
         self.window.inform=lambda message:self.messages.append(str(message))
         self.window.show_text=lambda title,text:self.messages.append(str(text))
+        self.window.present_document=lambda title,text:self.messages.append(str(text))
         self.window.show();self.qt.processEvents()
     def tearDown(self):
         self.wait();self.window.close();self.qt.processEvents();self.temp.cleanup()
@@ -39,8 +43,8 @@ class QtRewriteTests(unittest.TestCase):
             self.qt.processEvents();time.sleep(.005)
         self.assertIsNone(self.window._worker,'worker did not complete');self.qt.processEvents()
     def test_pages_preserve_native_window_and_data(self):
-        self.assertEqual(qt_version,'1.0.3')
-        self.assertIn('v1.0.3',[label.text() for label in self.window.findChildren(QLabel)])
+        self.assertEqual(qt_version,'1.1.0')
+        self.assertIn('v1.1.0',[label.text() for label in self.window.findChildren(QLabel)])
         self.assertEqual(len(self.window.pages),8)
         actual_size=(self.window.width(),self.window.height());expected_size=default_window_size()
         for actual,expected in zip(actual_size,expected_size):self.assertAlmostEqual(actual,expected,delta=1)
@@ -54,10 +58,250 @@ class QtRewriteTests(unittest.TestCase):
         for i in range(8):self.window.navigation.setCurrentRow(i);self.qt.processEvents()
         self.assertEqual(self.window.pages['editor'].title.text(),'未保存的草稿')
 
+    def test_about_documents_open_in_read_only_app_dialog_with_matching_language(self):
+        about=self.window.pages['about']
+        buttons={control.text():control for control in about.findChildren(QPushButton)}
+        QTest.mouseClick(buttons['使用说明'],Qt.MouseButton.LeftButton)
+        self.assertIn('# MediaAnvil 使用说明',self.messages[-1])
+        self.window.set_language('en_US');self.qt.processEvents()
+        buttons={control.text():control for control in about.findChildren(QPushButton)}
+        QTest.mouseClick(buttons['User Guide'],Qt.MouseButton.LeftButton)
+        self.assertIn('# MediaAnvil User Guide',self.messages[-1])
+        QTest.mouseClick(buttons['Third-party Notices'],Qt.MouseButton.LeftButton)
+        self.assertIn('FFmpeg',self.messages[-1])
+
+    def test_file_dialog_uses_and_remembers_media_directories(self):
+        first=self.base/'first-audio';first.mkdir()
+        second=self.base/'second-audio';second.mkdir();selected=second/'track.wav';selected.touch()
+        page=self.window.pages['preview'];self.window.settings['last_audio_directory']=str(first)
+        with patch.object(page,'receive') as receive,patch('mediaanvil_qt.preview.QFileDialog.getOpenFileNames',return_value=([str(selected)],'')) as choose:
+            page.choose()
+        self.assertEqual(choose.call_args.args[2],str(first))
+        receive.assert_called_once_with([selected])
+        self.assertEqual(self.window.settings['last_audio_directory'],str(second.resolve()))
+
+        pictures=self.base/'pictures';pictures.mkdir();self.window.settings['last_image_directory']=str(pictures)
+        image_page=self.window.pages['image'];add=image_page.toolbar.findChildren(QPushButton)[0]
+        with patch('mediaanvil_qt.common.QFileDialog.getOpenFileNames',return_value=([],'')) as choose:
+            QTest.mouseClick(add,Qt.MouseButton.LeftButton)
+        self.assertEqual(choose.call_args.args[2],str(pictures))
+
+    def test_file_dialog_fallback_uses_windows_user_location_not_process_directory(self):
+        music=self.base/'Music';music.mkdir();self.window.settings['last_audio_directory']=''
+        with patch('mediaanvil_qt.common.QStandardPaths.writableLocation',return_value=str(music)):
+            self.assertEqual(dialog_initial_directory(self.window,'audio'),str(music))
+
+    def test_document_viewer_renders_markdown_with_outline_and_search(self):
+        markdown='# 标题一\n\n正文 **加粗** 与 `code`。\n\n## 章节二\n\n- 项目 A\n- 项目 B\n\n```text\ncode block\n```\n'
+        viewer=DocumentViewer('使用说明',markdown,'zh_CN')
+        self.assertEqual([row[1] for row in viewer.outline_rows],['标题一','章节二'])
+        self.assertEqual([row[0] for row in viewer.outline_rows],[1,2])
+        self.assertIn('加粗',viewer.browser.toPlainText())
+        viewer.outline.setCurrentRow(1)
+        self.assertIn('章节二',viewer.browser.textCursor().block().text())
+        viewer.search.setText('项目 B');viewer.find_next()
+        self.assertTrue(viewer.browser.textCursor().hasSelection())
+        viewer.search.setText('不存在的文字');viewer.find_next()
+        self.assertIn('未找到',viewer.status.text())
+        viewer.close()
+
+    def test_document_viewer_never_opens_network_links(self):
+        viewer=DocumentViewer('使用说明','# 标题\n\n[外链](https://example.com/page)\n','zh_CN')
+        clicked=[]
+        viewer.resolver=lambda url:clicked.append(url.toString())
+        with patch('mediaanvil_qt.documents.QApplication.clipboard') as clipboard:
+            from PySide6.QtCore import QUrl
+            viewer._link_clicked(QUrl('https://example.com/page'))
+        clipboard.return_value.setText.assert_called_once_with('https://example.com/page')
+        self.assertEqual(clicked,[])
+        self.assertIn('未打开网络地址',viewer.status.text())
+        viewer.close()
+
+    def test_document_viewer_follows_bundled_relative_links_only(self):
+        resolver_calls=[]
+        def resolver(url):
+            resolver_calls.append(url.toString())
+            return ('使用说明','# 新文档\n')
+        viewer=DocumentViewer('使用说明','# 标题\n','zh_CN',resolver)
+        from PySide6.QtCore import QUrl
+        viewer._link_clicked(QUrl('USER_GUIDE.en.md'))
+        self.assertEqual(resolver_calls,['USER_GUIDE.en.md'])
+        self.assertEqual([row[1] for row in viewer.outline_rows],['新文档'])
+        viewer.close()
+
+    def test_standard_dialog_buttons_follow_interface_language(self):
+        from PySide6.QtWidgets import QDialogButtonBox
+        box=QDialogButtonBox(QDialogButtonBox.StandardButton.Close|QDialogButtonBox.StandardButton.Cancel)
+        holder=QWidget();box.setParent(holder)
+        localize_dialog_buttons(holder,'zh_CN')
+        self.assertEqual(box.button(QDialogButtonBox.StandardButton.Close).text(),'关闭')
+        self.assertEqual(box.button(QDialogButtonBox.StandardButton.Cancel).text(),'取消')
+        localize_dialog_buttons(holder,'en_US')
+        self.assertEqual(box.button(QDialogButtonBox.StandardButton.Close).text(),'Close')
+        self.assertEqual(box.button(QDialogButtonBox.StandardButton.Cancel).text(),'Cancel')
+        holder.close()
+
+    def test_document_viewer_reports_missing_and_unreadable_documents(self):
+        with patch('mediaanvil_qt.app.resource',return_value=self.base/'missing.md'):
+            self.window.show_document('使用说明','USER_GUIDE.md')
+        self.assertIn('文档无法打开',self.messages[-1])
+        broken=self.base/'broken.md';broken.write_bytes(b'\xff\xfe\x00\x00bad')
+        with patch('mediaanvil_qt.app.resource',return_value=broken):
+            self.window.show_document('使用说明','USER_GUIDE.md')
+        self.assertIn('文档无法打开',self.messages[-1])
+
+    def test_every_import_export_dialog_uses_its_remembered_directory(self):
+        settings=self.window.settings
+        directories={key:self.base/folder for key,folder in (
+            ('last_audio_directory','audio'),('last_image_directory','image'),
+            ('last_subtitle_directory','subtitle'),('last_output_directory','output'))}
+        for folder in directories.values():folder.mkdir()
+        settings.update({key:str(folder) for key,folder in directories.items()})
+        editor=self.window.pages['editor']
+        source=directories['last_audio_directory']/'track.mp3';source.touch()
+        with patch('mediaanvil_qt.metadata.QFileDialog.getOpenFileName',return_value=(str(source),'')) as choose:
+            editor.choose()
+        self.assertEqual(choose.call_args.args[2],str(directories['last_audio_directory']))
+        with patch('mediaanvil_qt.metadata.QFileDialog.getOpenFileName',return_value=('','')) as choose:
+            editor.import_lyrics()
+        self.assertEqual(choose.call_args.args[2],str(directories['last_subtitle_directory']))
+        with patch('mediaanvil_qt.metadata.QFileDialog.getOpenFileName',return_value=('','')) as choose:
+            editor.import_cover()
+        self.assertEqual(choose.call_args.args[2],str(directories['last_image_directory']))
+        with patch('mediaanvil_qt.metadata.QFileDialog.getExistingDirectory',return_value='') as choose:
+            editor.scan_folder()
+        self.assertEqual(choose.call_args.args[2],str(directories['last_audio_directory']))
+        editor.path=source
+        with patch('mediaanvil_qt.metadata.QFileDialog.getExistingDirectory',return_value='') as choose:
+            editor.export('lyrics')
+        self.assertEqual(choose.call_args.args[2],str(directories['last_output_directory']))
+        output_page=self.window.pages['audio'].output
+        with patch('mediaanvil_qt.common.QFileDialog.getExistingDirectory',return_value='') as choose:
+            output_page.choose()
+        self.assertEqual(choose.call_args.args[2],str(directories['last_output_directory']))
+
+    def test_dialog_selection_is_ignored_on_cancel_and_falls_back_when_missing(self):
+        from mediaanvil_qt.common import remember_dialog_selection
+        settings=self.window.settings
+        missing=self.base/'gone'
+        settings['last_audio_directory']=str(missing)
+        self.assertFalse(missing.exists())
+        fallback=dialog_initial_directory(self.window,'audio')
+        self.assertNotEqual(fallback,str(missing))
+        self.assertTrue(Path(fallback).is_dir(),fallback)
+        self.assertNotEqual(Path(fallback).resolve(),Path.cwd().resolve())
+        before=settings['last_audio_directory']
+        remember_dialog_selection(self.window,'audio','')
+        remember_dialog_selection(self.window,'audio',None)
+        self.assertEqual(settings['last_audio_directory'],before)
+        settings['last_audio_directory']=str(missing)
+        settings['last_output_directory']=str(missing)
+        with patch('mediaanvil_qt.common.QFileDialog.getExistingDirectory',return_value='') as choose:
+            self.window.pages['audio'].output.choose()
+        self.assertEqual(choose.call_args.args[2],dialog_initial_directory(self.window,'output'))
+        self.assertEqual(settings['last_output_directory'],str(missing))
+
+    def test_dialog_categories_do_not_interfere(self):
+        from mediaanvil_qt.common import remember_dialog_selection
+        settings=self.window.settings
+        for key in ('last_audio_directory','last_image_directory','last_subtitle_directory','last_output_directory'):
+            settings[key]=''
+        audio=self.base/'a';image=self.base/'i';subtitle=self.base/'s';output=self.base/'o'
+        for folder in (audio,image,subtitle,output):folder.mkdir()
+        remember_dialog_selection(self.window,'audio',str(audio))
+        remember_dialog_selection(self.window,'image',str(image))
+        remember_dialog_selection(self.window,'subtitle',str(subtitle))
+        remember_dialog_selection(self.window,'output',str(output))
+        self.assertEqual(settings['last_audio_directory'],str(audio.resolve()))
+        self.assertEqual(settings['last_image_directory'],str(image.resolve()))
+        self.assertEqual(settings['last_subtitle_directory'],str(subtitle.resolve()))
+        self.assertEqual(settings['last_output_directory'],str(output.resolve()))
+
+    def test_remembered_directory_survives_restart(self):
+        config=self.base/'restart.json'
+        self.window.settings['last_audio_directory']=str(self.base)
+        self.window.settings_file=config
+        self.window.close();self.qt.processEvents()
+        reopened=MainWindow(config);reopened.show();self.qt.processEvents()
+        try:
+            self.assertEqual(reopened.settings['last_audio_directory'],str(self.base))
+            self.assertEqual(dialog_initial_directory(reopened,'audio'),str(self.base))
+        finally:
+            reopened.close();self.qt.processEvents()
+
+    def test_dynamic_dialogs_have_no_chinese_left_in_english_mode(self):
+        from PySide6.QtWidgets import QMessageBox
+        self.window.set_language('en_US');self.qt.processEvents()
+        viewer=DocumentViewer('User Guide','# Title\n\n## Section\n','en_US')
+        leftovers=[]
+        for widget in [viewer,*viewer.findChildren(QWidget)]:
+            values=[]
+            if isinstance(widget,(QLabel,QAbstractButton)):values.append(widget.text())
+            if isinstance(widget,(QLineEdit,QPlainTextEdit)):values.append(widget.placeholderText())
+            if isinstance(widget,QListWidget):values.extend(widget.item(i).text() for i in range(widget.count()))
+            values.append(widget.windowTitle() if isinstance(widget,QDialog) else '')
+            leftovers.extend(value for value in values if value and re.search(r'[\u3400-\u9fff]',value))
+        self.assertEqual(leftovers,[],leftovers)
+        box=QMessageBox(self.window);box.setStandardButtons(QMessageBox.StandardButton.Ok|QMessageBox.StandardButton.Cancel)
+        self.assertEqual(box.button(QMessageBox.StandardButton.Ok).text(),'OK')
+        self.assertEqual(box.button(QMessageBox.StandardButton.Cancel).text(),'Cancel')
+        viewer.close();box.close()
+        self.window.set_language('zh_CN');self.qt.processEvents()
+        box=QMessageBox(self.window);box.setStandardButtons(QMessageBox.StandardButton.Ok|QMessageBox.StandardButton.Cancel)
+        self.assertEqual(box.button(QMessageBox.StandardButton.Ok).text(),'确定')
+        self.assertEqual(box.button(QMessageBox.StandardButton.Cancel).text(),'取消')
+        box.close()
+
+    def test_bundled_documents_are_readable_and_never_leave_the_install(self):
+        from mediaanvil_qt.common import resource
+        for name in ('USER_GUIDE.md','USER_GUIDE.en.md','THIRD_PARTY_NOTICES.md'):
+            path=resource(name)
+            self.assertTrue(path.is_file(),name)
+            self.assertTrue(path.read_text(encoding='utf-8').strip(),name)
+        self.window.settings['language']='en_US'
+        with patch.object(self.window,'present_document') as shown:
+            self.window.show_document('使用说明','USER_GUIDE.md','USER_GUIDE.en.md')
+        self.assertIn('# MediaAnvil User Guide',shown.call_args.args[1])
+        self.window.settings['language']='zh_CN'
+        with patch.object(self.window,'present_document') as shown:
+            self.window.show_document('使用说明','USER_GUIDE.md','USER_GUIDE.en.md')
+        self.assertIn('# MediaAnvil 使用说明',shown.call_args.args[1])
+        resolved=self.window.resolve_document(QUrl('USER_GUIDE.en.md'))
+        self.assertIsNotNone(resolved)
+        self.assertIn('# MediaAnvil User Guide',resolved[1])
+        self.assertIsNone(self.window.resolve_document(QUrl('https://example.com/x.md')))
+        self.assertIsNone(self.window.resolve_document(QUrl('../../secret.md')))
+        self.assertIsNone(self.window.resolve_document(QUrl('NOT_A_REAL_FILE.md')))
+
+    def test_fixed_footer_never_overlaps_scrolling_content(self):
+        for width,height in ((1440,900),(1100,700),(900,640)):
+            self.window.resize(width,height)
+            for index,key in enumerate(self.window.keys):
+                self.window.navigation.setCurrentRow(index)
+                for _ in range(3):self.qt.processEvents()
+                page=self.window.pages[key]
+                scroll=getattr(page,'scroll',None)
+                if scroll is None:continue
+                self.assertGreater(scroll.viewport().height(),0,key)
+                if not hasattr(page,'footer'):continue
+                footer_top=page.footer.mapTo(self.window,page.footer.rect().topLeft()).y()
+                scroll_bottom=scroll.mapTo(self.window,scroll.rect().bottomLeft()).y()
+                self.assertLessEqual(scroll_bottom,footer_top+1,f'{key} at {width}x{height}')
+                bottom=page.footer.mapTo(self.window,page.footer.rect().bottomRight())
+                self.assertTrue(self.window.rect().contains(bottom),f'{key} footer clipped at {width}x{height}')
+
     def test_default_window_size_adapts_to_available_space(self):
-        self.assertEqual(default_window_size(QSize(1536,824),30,1.25),(1152,690))
-        self.assertEqual(default_window_size(QSize(1280,680),30,1),(979,582))
-        self.assertEqual(default_window_size(QSize(2560,1440),30,1),(1440,870))
+        self.assertEqual(default_window_size(QSize(1536,824),30,1.25),(1152,738))
+        self.assertEqual(default_window_size(QSize(1280,680),30,1),(969,616))
+        self.assertEqual(default_window_size(QSize(2560,1440),30,1),(1440,930))
+        self.assertEqual(default_window_size(QSize(1920,1080),30,1),(1440,930))
+        # a 1536x816 logical desktop (1920x1080 at 125%) must reach the design size
+        self.assertEqual(default_window_size(QSize(1536,816),30,1.25),(1152,738))
+        self.assertEqual(default_window_size(QSize(3840,2160),30,1),(1440,930))
+        # small screens still scale down and never exceed the usable area
+        tiny=default_window_size(QSize(1024,600),30,1)
+        self.assertLessEqual(tiny[1]+30,600)
+        self.assertGreaterEqual(tiny[0],760)
 
     def test_window_starts_at_default_size_in_screen_center(self):
         actual_size=(self.window.width(),self.window.height());expected_size=default_window_size()
@@ -269,6 +513,310 @@ class QtRewriteTests(unittest.TestCase):
         match=type('Match',(),{'audio':self.base/'track.mp3','lyric_candidates':(), 'cover_candidates':()})()
         page.scanned([match]);self.assertEqual(page.matches.rowCount(),1);self.assertTrue(page.clear_matches_button.isEnabled())
         page.clear_matches();self.assertEqual(page.matches.rowCount(),0);self.assertFalse(page.clear_matches_button.isEnabled());self.assertEqual(page.match_rows,[])
+    def test_import_failure_explains_unsupported_and_missing_files(self):
+        from mediaanvil_qt.services import explain_rejected
+        page=self.window.pages['audio']
+        extensions=page.files.extensions
+        wrong=self.base/'notes.txt';wrong.write_text('x',encoding='utf-8')
+        detail=explain_rejected([wrong],extensions)
+        self.assertEqual(detail['unsupported'],{'.txt':1})
+        self.assertEqual(detail['missing'],())
+        message=self.window.import_failure_reason([wrong],extensions,False)
+        self.assertIn('.txt',message)
+        self.assertIn('不支持',message)
+        self.assertIn('*.mp3',message)
+        absent=self.base/'ghost.mp3'
+        missing=self.window.import_failure_reason([absent],extensions,False)
+        self.assertIn('不存在或无法访问',missing)
+        self.assertIn('ghost.mp3',missing)
+        self.assertIn('没有找到当前页面支持的文件',self.window.import_failure_reason([],extensions,False))
+        folder=self.base/'mixed';folder.mkdir()
+        (folder/'a.txt').write_text('x',encoding='utf-8');(folder/'b.png').write_text('x',encoding='utf-8')
+        recursive=self.window.import_failure_reason([folder],extensions,True)
+        self.assertIn('.txt',recursive);self.assertIn('.png',recursive)
+
+    def test_expanding_match_area_reveals_it_on_a_long_page(self):
+        page=self.window.pages['editor'];self.window.navigation.setCurrentRow(self.window.keys.index('editor'))
+        self.window.resize(1000,560)
+        for _ in range(3):self.qt.processEvents()
+        self.assertFalse(page.match_content.isVisible())
+        page.toggle_matches()
+        for _ in range(4):self.qt.processEvents()
+        self.assertTrue(page.match_content.isVisible())
+        self.assertEqual(page.match_toggle.text(),'收起匹配区域')
+        bar=page.scroll.verticalScrollBar()
+        if bar.maximum()>0:
+            self.assertGreater(bar.value(),0,'expanding should scroll the matching area into view')
+        page.toggle_matches()
+        self.assertFalse(page.match_content.isVisible())
+        self.assertEqual(page.match_toggle.text(),'展开匹配区域')
+
+    def test_task_log_records_counts_only_without_media_content(self):
+        from core.task_log import read_entries, record_task
+        directory=self.base/'logs'
+        record_task('convert:audio',3,2,('转换失败：不支持的编码',),directory=directory)
+        record_task('convert:image',1,1,(),directory=directory)
+        entries=read_entries(directory)
+        self.assertEqual(len(entries),2)
+        first,second=entries
+        self.assertEqual((first['task'],first['inputs'],first['succeeded'],first['failed']),(('convert:audio'),3,2,1))
+        self.assertEqual(first['reasons'],['转换失败：不支持的编码'])
+        self.assertEqual(second['failed'],0)
+        raw=(directory/'tasks.log').read_text(encoding='utf-8')
+        for secret in ('歌词正文','/music/private-song.mp3','sample-tone'):
+            self.assertNotIn(secret,raw)
+        self.assertEqual(set(first),{'time','task','inputs','succeeded','failed','reasons'})
+
+    def test_task_log_rotates_and_never_grows_without_bound(self):
+        from core.task_log import BACKUP_COUNT, LOG_FILE_NAME, record_task
+        directory=self.base/'rotating'
+        for index in range(40):
+            record_task('convert:audio',1,1,(f'原因{index}'.ljust(200,'x'),),directory=directory,maximum=512)
+        files=sorted(directory.glob(f'{LOG_FILE_NAME}*'))
+        self.assertLessEqual(len(files),BACKUP_COUNT)
+        for path in files:
+            self.assertLessEqual(path.stat().st_size,512+400,path.name)
+
+    def test_task_log_failure_never_breaks_a_task(self):
+        from core.task_log import record_task
+        blocked=self.base/'not-a-directory';blocked.write_text('x',encoding='utf-8')
+        self.assertIsNone(record_task('convert:audio',1,1,(),directory=blocked))
+
+    def test_conversion_writes_a_log_entry_without_media_content(self):
+        from core.task_log import read_entries
+        source=self.base/'log-source.wav'
+        with wave.open(str(source),'wb') as stream:
+            stream.setnchannels(1);stream.setsampwidth(2);stream.setframerate(8000);stream.writeframes(b'\0\0'*800)
+        page=self.window.pages['audio'];page.receive([source]);page.start();self.wait()
+        entries=read_entries(self.window.log_directory())
+        self.assertTrue(entries)
+        entry=entries[-1]
+        self.assertEqual(entry['task'],'convert:audio')
+        self.assertEqual(entry['inputs'],1)
+        self.assertEqual(entry['succeeded'],1)
+        raw=(self.window.log_directory()/'tasks.log').read_text(encoding='utf-8')
+        self.assertNotIn('log-source',raw)
+
+    def test_preview_reports_a_file_that_was_moved_or_deleted(self):
+        page=self.window.pages['preview']
+        source=self.base/'vanishing.wav'
+        with wave.open(str(source),'wb') as stream:
+            stream.setnchannels(1);stream.setsampwidth(2);stream.setframerate(8000);stream.writeframes(b'\0\0'*800)
+        page.receive([source]);self.wait()
+        self.assertEqual(Path(page.path),source)
+        player=page.player;player.pause=MagicMock()
+        page.timer.stop()          # drive the check deterministically, not from the timer
+        page._ticks=0;page._missing_reported=False
+        source.unlink()
+        for _ in range(26):page.check_loaded_file()
+        player.pause.assert_called_once()
+        self.assertIn('移动或删除',page.status.text())
+        for _ in range(26):page.check_loaded_file()
+        self.assertEqual(player.pause.call_count,1,'the warning must be reported once only')
+
+    def test_open_log_directory_creates_and_reveals_the_folder(self):
+        with patch.object(self.window,'open_path') as opened:
+            self.window.open_log_directory()
+        directory=self.window.log_directory()
+        self.assertTrue(directory.is_dir())
+        opened.assert_called_once_with(directory)
+        self.assertIn('已打开日志目录',self.window.statusBar().currentMessage())
+
+    def test_timeout_error_names_the_input_file_and_stage(self):
+        from sub2lrc.audio_converter import AudioConversionError, AudioConversionSettings, convert_audio
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);source=root/'slow-track.wav';source.write_bytes(b'wav')
+            ffmpeg=root/'ffmpeg.exe';ffmpeg.write_bytes(b'fake')
+            def popen(command,**_kwargs):
+                Path(command[-1]).write_bytes(b'partial')
+                from tests.test_audio_converter import FakeProcess
+                return FakeProcess(command)
+            with patch('sub2lrc.audio_converter._duration_seconds',return_value=None),patch('sub2lrc.audio_converter.subprocess.Popen',side_effect=popen):
+                with self.assertRaises(AudioConversionError) as caught:
+                    convert_audio(source,root,AudioConversionSettings('mp3'),ffmpeg_path=ffmpeg,timeout_seconds=0)
+            message=str(caught.exception)
+            self.assertIn('slow-track.wav',message)
+            self.assertIn('MP3',message)
+            self.assertIn('转换超时',message)
+
+    def test_file_filter_memory_reorders_the_dialog_list(self):
+        from mediaanvil_qt.common import dialog_filters, remember_dialog_filter
+        supported='支持的文件 (*.mp3 *.wav)'
+        every='所有文件 (*)'
+        settings=self.window.settings
+        settings['last_audio_filter']=''
+        self.assertEqual(dialog_filters(self.window,'audio',(supported,every)),f'{supported};;{every}')
+        remember_dialog_filter(self.window,'audio',every)
+        self.assertEqual(settings['last_audio_filter'],every)
+        self.assertEqual(dialog_filters(self.window,'audio',(supported,every)),f'{every};;{supported}')
+        remember_dialog_filter(self.window,'audio',supported)
+        self.assertEqual(dialog_filters(self.window,'audio',(supported,every)),f'{supported};;{every}')
+        # a single-filter dialog stays untouched, and unknown filters are ignored
+        self.assertEqual(dialog_filters(self.window,'output',(supported,)),supported)
+        settings['last_audio_filter']='已经不存在的筛选器 (*)'
+        self.assertEqual(dialog_filters(self.window,'audio',(supported,every)),f'{supported};;{every}')
+        remember_dialog_filter(self.window,'audio','')
+        self.assertEqual(settings['last_audio_filter'],'已经不存在的筛选器 (*)')
+
+    def test_open_dialogs_pass_two_filters_and_remember_the_choice(self):
+        first=self.base/'audio-a';first.mkdir();second=self.base/'audio-b';second.mkdir()
+        selected=second/'track.mp3';selected.touch()
+        self.window.settings['last_audio_directory']=str(first)
+        self.window.settings['last_audio_filter']=''
+        page=self.window.pages['preview']
+        with patch.object(page,'receive') as receive,patch('mediaanvil_qt.preview.QFileDialog.getOpenFileNames',return_value=([str(selected)],'所有文件 (*)')) as choose:
+            page.choose()
+        filters=choose.call_args.args[3]
+        self.assertIn(';;',filters,'the dialog must offer more than one filter')
+        self.assertTrue(filters.startswith('音频 ('),filters)
+        self.assertEqual(self.window.settings['last_audio_filter'],'所有文件 (*)')
+        self.assertEqual(self.window.settings['last_audio_directory'],str(second.resolve()))
+        receive.assert_called_once_with([selected])
+        with patch.object(page,'receive'),patch('mediaanvil_qt.preview.QFileDialog.getOpenFileNames',return_value=([],'')) as choose:
+            page.choose()
+        self.assertTrue(choose.call_args.args[3].startswith('所有文件 (*)'),choose.call_args.args[3])
+        editor=self.window.pages['editor']
+        with patch('mediaanvil_qt.metadata.QFileDialog.getOpenFileName',return_value=('','')) as choose:
+            editor.import_cover()
+        self.assertIn(';;',choose.call_args.args[3])
+        self.assertIn('图片 (',choose.call_args.args[3])
+
+    def test_output_directory_is_checked_before_a_conversion_starts(self):
+        from mediaanvil_qt.services import output_directory_problem
+        blank=self.base/'folder-not-created'
+        self.assertIn('不存在',output_directory_problem(str(blank)))
+        file_as_dir=self.base/'a-file.txt';file_as_dir.write_text('x',encoding='utf-8')
+        self.assertIn('不是一个文件夹',output_directory_problem(str(file_as_dir)))
+        self.assertIsNone(output_directory_problem(''))
+        self.assertIsNone(output_directory_problem(str(self.base)))
+        self.assertEqual([p.name for p in self.base.glob('.mediaanvil-write-*')],[])
+
+    def test_conversion_refuses_an_unwritable_output_directory(self):
+        page=self.window.pages['audio']
+        source=self.base/'guard.wav'
+        with wave.open(str(source),'wb') as stream:
+            stream.setnchannels(1);stream.setsampwidth(2);stream.setframerate(8000);stream.writeframes(b'\0\0'*800)
+        page.receive([source])
+        page.output.edit.setText(str(self.base/'missing-output'))
+        page.start()
+        self.assertEqual(self.messages[-1],'输出目录不存在或无法访问。')
+        self.assertIsNone(self.window._worker,'no worker may start for a bad output folder')
+        self.assertEqual(page.records,[])
+        page.output.edit.setText('')
+        page.start();self.wait()
+        self.assertEqual(len(page.last_outputs),1)
+
+    def test_long_lyric_lists_stay_responsive(self):
+        from sub2lrc.audio_preview import LyricLine
+        page=self.window.pages['preview']
+        class FakePlayer:
+            duration=1000.0;position=0.0;state=None
+            def set_volume(self,value):pass
+            def close(self):pass
+        timeline=tuple(LyricLine(i*0.2,f'line {i} lyric text',i) for i in range(5000))
+        started=time.perf_counter()
+        page.loaded((self.base/'long.mp3',FakePlayer(),('embedded',timeline),None))
+        load_seconds=time.perf_counter()-started
+        self.assertEqual(page.lyrics.count(),5002)
+        self.assertLess(load_seconds,3.0,f'loading 5000 lyric lines took {load_seconds:.2f}s')
+        started=time.perf_counter()
+        for _ in range(200):page.update_display(100.0)
+        self.assertLess(time.perf_counter()-started,2.0)
+        self.assertEqual(page.active_line,500)
+
+    def test_scrolled_content_is_never_hidden_behind_the_fixed_footer(self):
+        """The footer sits outside the scroll area, so it cannot cover content."""
+        for width,height in ((1440,900),(1100,700),(900,640),(760,480)):
+            self.window.resize(width,height)
+            for index in range(len(self.window.keys)):
+                self.window.navigation.setCurrentRow(index)
+                for _ in range(4):self.qt.processEvents()
+                key=self.window.keys[index]
+                page=self.window.pages[key]
+                scroll=getattr(page,'scroll',None)
+                if scroll is None or not hasattr(page,'footer'):continue
+                # the footer must be a sibling of the scroll area, not inside it
+                self.assertIs(page.footer.parent(),scroll.parent(),key)
+                footer_top=page.footer.mapTo(self.window,page.footer.rect().topLeft()).y()
+                scroll_bottom=scroll.mapTo(self.window,scroll.rect().bottomLeft()).y()
+                self.assertLessEqual(scroll_bottom,footer_top+1,f'{key} at {width}x{height}')
+                bar=scroll.verticalScrollBar();bar.setValue(bar.maximum())
+                for _ in range(2):self.qt.processEvents()
+                footer_top=page.footer.mapTo(self.window,page.footer.rect().topLeft()).y()
+                scroll_bottom=scroll.mapTo(self.window,scroll.rect().bottomLeft()).y()
+                self.assertLessEqual(scroll_bottom,footer_top+1,f'{key} scrolled at {width}x{height}')
+
+    def test_switching_pages_returns_to_the_top(self):
+        page=self.window.pages['editor']
+        self.window.resize(900,600)
+        self.window.navigation.setCurrentRow(self.window.keys.index('editor'))
+        for _ in range(4):self.qt.processEvents()
+        bar=page.scroll.verticalScrollBar()
+        if bar.maximum()>0:bar.setValue(bar.maximum())
+        self.window.navigation.setCurrentRow(self.window.keys.index('preview'))
+        for _ in range(3):self.qt.processEvents()
+        self.window.navigation.setCurrentRow(self.window.keys.index('editor'))
+        for _ in range(3):self.qt.processEvents()
+        self.assertEqual(page.scroll.verticalScrollBar().value(),0)
+
+    def test_error_dialogs_offer_copyable_details(self):
+        from PySide6.QtWidgets import QMessageBox
+        with patch.object(QMessageBox,'exec',return_value=0) as run:
+            box=self.window.show_message('MediaAnvil Qt','处理失败：详细原因')
+        self.assertTrue(run.called)
+        labels=[button.text() for button in box.buttons()]
+        self.assertIn('复制详情',labels)
+        self.assertIn('确定',labels)
+        # the copy button copies the full technical detail text
+        copy_button=next(button for button in box.buttons() if button.text()=='复制详情')
+        copy_button.click()
+        self.assertEqual(self.qt.clipboard().text(),'处理失败：详细原因')
+        self.window.settings['language']='en_US'
+        with patch.object(QMessageBox,'exec',return_value=0):
+            english=self.window.show_message('MediaAnvil Qt','Task failed: details')
+        self.assertIn('Copy Details',[button.text() for button in english.buttons()])
+        self.assertIn('OK',[button.text() for button in english.buttons()])
+        self.window.settings['language']='zh_CN'
+
+    def test_settings_numeric_controls_share_one_aligned_width(self):
+        groups=(('subtitle_final_duration','default_volume'),
+                ('default_image_quality','default_webp_quality'),
+                ('default_mp3_bitrate','default_aac_bitrate'))
+        for width,height in ((1440,960),(1280,800),(1100,700)):
+            self.window.resize(width,height)
+            self.window.navigation.setCurrentRow(self.window.keys.index('settings'))
+            for _ in range(6):self.qt.processEvents()
+            page=self.window.pages['settings']
+            for group in groups:
+                controls=[page.controls[key] for key in group]
+                widths={control.width() for control in controls}
+                self.assertEqual(len(widths),1,f'{group} at {width}x{height}: {sorted(widths)}')
+                rights={control.mapTo(page,QPoint(control.width(),0)).x() for control in controls}
+                self.assertEqual(len(rights),1,f'{group} at {width}x{height} right edges: {sorted(rights)}')
+            self.assertEqual(page.scroll.horizontalScrollBar().maximum(),0,f'{width}x{height}')
+        page=self.window.pages['settings']
+        duration=page.controls['subtitle_final_duration'];volume=page.controls['default_volume']
+        self.assertEqual(duration.width(),volume.width())
+        self.assertEqual(duration.width(),135)
+
+    def test_settings_controls_shrink_instead_of_scrolling_when_narrow(self):
+        groups=(('subtitle_final_duration','default_volume'),
+                ('default_image_quality','default_webp_quality'))
+        for width,height in ((900,640),(760,480)):
+            self.window.resize(width,height)
+            self.window.navigation.setCurrentRow(self.window.keys.index('settings'))
+            for _ in range(6):self.qt.processEvents()
+            page=self.window.pages['settings']
+            for group in groups:
+                controls=[page.controls[key] for key in group]
+                rights={control.mapTo(page,QPoint(control.width(),0)).x() for control in controls}
+                self.assertEqual(len(rights),1,f'{group} at {width}x{height} right edges: {sorted(rights)}')
+                self.assertLessEqual(max(control.width() for control in controls),135)
+        self.window.resize(900,640)
+        self.window.navigation.setCurrentRow(self.window.keys.index('settings'))
+        for _ in range(6):self.qt.processEvents()
+        self.assertEqual(self.window.pages['settings'].scroll.horizontalScrollBar().maximum(),0)
+
     def test_settings_persist_and_apply(self):
         page=self.window.pages['settings'];page.controls['default_mp3_bitrate'].setCurrentIndex(3);page.save()
         self.assertEqual(self.window.pages['audio'].parameter.currentData(),320)

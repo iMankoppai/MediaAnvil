@@ -1,4 +1,4 @@
-# MediaAnvil 1.0.3
+# MediaAnvil 1.1.0
 
 [![Release](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?label=release)](https://github.com/iMankoppai/MediaAnvil/releases)
 [![License](https://img.shields.io/github/license/iMankoppai/MediaAnvil)](LICENSE)
@@ -10,7 +10,7 @@ MediaAnvil 是一款面向 Windows 的本地多媒体工具箱。它使用 Qt �
 
 **[English →](README.en.md)**
 
-![MediaAnvil 1.0.3 音频预览界面](assets/screenshots/audio-preview.png)
+![MediaAnvil 1.1.0 音频预览界面](assets/screenshots/audio-preview.png)
 
 ## 主要功能
 
@@ -87,7 +87,7 @@ MediaAnvilQt.exe
 
 请保留 `_internal` 目录，不要只复制 EXE。发行版已内置 Qt、FFmpeg 和 FFplay，目标电脑不需要安装 Python。
 
-程序默认以 `1440 × 900`（16:10）窗口启动并居中；高 DPI 或较小屏幕会自动按比例适配。
+程序默认以 `1440 × 960`（3:2）窗口启动并居中；高 DPI 或较小屏幕会自动按比例适配。
 
 ## 从源码运行
 

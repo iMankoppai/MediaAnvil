@@ -22,7 +22,6 @@ from sub2lrc.audio_converter import (
     FfmpegNotFoundError,
     build_ffmpeg_command,
     convert_audio,
-    convert_audio_batch,
     convert_wav,
     convert_wav_batch,
     find_ffmpeg,

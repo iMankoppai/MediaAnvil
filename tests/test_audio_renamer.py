@@ -7,7 +7,6 @@ import unittest
 from unittest.mock import patch
 
 from core.audio_renamer import (
-    AudioRenameError,
     MissingRenameFieldError,
     RenameTemplateError,
     build_rename_plan,

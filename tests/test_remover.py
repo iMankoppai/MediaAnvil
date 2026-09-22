@@ -47,7 +47,6 @@ class RemoverTests(unittest.TestCase):
             mp3 = root / "中文 歌曲.mp3"
             original_audio = write_test_mp3(mp3)
             add_common_tags(mp3)
-            before = mp3.read_bytes()
             duration_before = MP3(mp3).info.length
 
             result = remove_embedded_lyrics(mp3)

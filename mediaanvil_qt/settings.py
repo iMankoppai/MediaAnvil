@@ -34,10 +34,37 @@ class SettingSection(QFrame):
         self.fields.addRow(text, widget); self.search_text += label
 
 
+COMPACT_FIELD_WIDTH = 135
+UNIT_LABEL_WIDTH = 28
+
+
+def compact_control_width(control):
+    """Ask for one shared width so numeric rows line up when there is room.
+
+    The upper bound is the shared column width (wide enough for "3600.0"),
+    while the lower bound stays at the widget's natural hint so a narrow
+    window compresses the column instead of introducing a scrollbar.
+    """
+    control.setMinimumWidth(90)
+    control.setMaximumWidth(COMPACT_FIELD_WIDTH)
+    control.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+
+
 def aligned_control(control, unit=''):
+    """Right-align a shared-width field so every settings row lines up.
+
+    The field is built from the control plus a fixed unit column and is pinned
+    to one common width, so both the boxes and their right edges match on every
+    row. ``setMaximumWidth`` alone would let each row shrink to its own content
+    and drift, so the width is fixed and only the row label is allowed to give.
+    """
     host = QWidget(); layout = QHBoxLayout(host); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(8)
-    layout.addStretch(1); layout.addWidget(control)
-    if unit: layout.addWidget(QLabel(unit))
+    layout.addWidget(control, 1)
+    if unit:
+        label = QLabel(unit); label.setFixedWidth(UNIT_LABEL_WIDTH); layout.addWidget(label)
+    host.setMinimumWidth(0)
+    host.setMaximumWidth(COMPACT_FIELD_WIDTH + (UNIT_LABEL_WIDTH + 8 if unit else 0))
+    host.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
     return host
 
 
@@ -70,7 +97,7 @@ class SettingsPage(Page):
         audio = self.section('music', '音频转换', '设置音频格式转换的默认参数', 0, 1)
         for key, label, values in [('default_mp3_bitrate', '默认 MP3 码率', [128, 192, 256, 320]),
                                    ('default_aac_bitrate', '默认 AAC / M4A 码率', [96, 128, 192, 256])]:
-            control = combo(values); control.setMinimumWidth(90); control.setMaximumWidth(145); self.controls[key] = control
+            control = combo(values); compact_control_width(control); self.controls[key] = control
             audio.add(label, aligned_control(control, 'kbps'))
         self.switch(audio, 'default_keep_sample_rate', '默认保持原采样率')
         self.switch(audio, 'default_keep_channels', '默认保持原声道')
@@ -81,7 +108,7 @@ class SettingsPage(Page):
         self.number(image, 'default_webp_quality', '默认 WebP 质量', 1, 100, '%')
 
         lyrics = self.section('list', '歌词与预览', '设置歌词处理和音频预览的默认参数', 1, 1)
-        duration = QDoubleSpinBox(); duration.setRange(.1, 3600); duration.setDecimals(1); duration.setMinimumWidth(90); duration.setMaximumWidth(145)
+        duration = QDoubleSpinBox(); duration.setRange(.1, 3600); duration.setDecimals(1); compact_control_width(duration)
         self.controls['subtitle_final_duration'] = duration
         lyrics.add('LRC 最后一句持续时间', aligned_control(duration, '秒'))
         self.number(lyrics, 'default_volume', '默认音量', 0, 100, '%')
@@ -94,6 +121,7 @@ class SettingsPage(Page):
         self.footer = QWidget(); footer = QHBoxLayout(self.footer); footer.setContentsMargins(0, 0, 0, 0); footer.setSpacing(10)
         self.footer_note = QLabel('ⓘ  修改设置后将自动应用到后续任务'); self.footer_note.setObjectName('muted')
         footer.addWidget(self.footer_note); footer.addStretch()
+        footer.addWidget(button('打开日志目录', app.open_log_directory, symbol='folder'))
         footer.addWidget(button('恢复默认设置', self.defaults, symbol='undo'))
         footer.addWidget(button('保存设置', self.save, True, 'save'))
         self.layout.addWidget(self.footer)
@@ -112,7 +140,7 @@ class SettingsPage(Page):
         section.add(label, aligned_control(control)); section.search_text += hint
 
     def number(self, section, key, label, low, high, unit=''):
-        control = QSpinBox(); control.setRange(low, high); control.setMinimumWidth(90); control.setMaximumWidth(145)
+        control = QSpinBox(); control.setRange(low, high); compact_control_width(control)
         self.controls[key] = control; section.add(label, aligned_control(control, unit))
 
     def refresh_height(self):

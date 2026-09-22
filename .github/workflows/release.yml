@@ -68,9 +68,13 @@ jobs:
         shell: pwsh
         run: |
           $files = Get-ChildItem -LiteralPath release -File | ForEach-Object FullName
+          $notes = "release/notes.md"
+          python tools/release_notes.py $env:RELEASE_TAG $notes
+          if ($LASTEXITCODE -ne 0) { throw "CHANGELOG.md has no entry for $env:RELEASE_TAG" }
           $releases = gh release list --limit 100 --json tagName | ConvertFrom-Json
           if ($releases.tagName -contains $env:RELEASE_TAG) {
             gh release upload $env:RELEASE_TAG @files --clobber
+            gh release edit $env:RELEASE_TAG --notes-file $notes
           } else {
-            gh release create $env:RELEASE_TAG @files --verify-tag --generate-notes --title "MediaAnvil Windows $env:RELEASE_TAG"
+            gh release create $env:RELEASE_TAG @files --verify-tag --notes-file $notes --title "MediaAnvil Windows $env:RELEASE_TAG"
           }

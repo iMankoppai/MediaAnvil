@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import re
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QAbstractButton, QAbstractSpinBox, QComboBox, QDialog, QLabel, QLineEdit,
-    QListWidget, QMainWindow, QPlainTextEdit, QTableWidget, QWidget)
+from PySide6.QtCore import QLibraryInfo, QTranslator
+from PySide6.QtWidgets import (QAbstractButton, QAbstractSpinBox, QApplication, QComboBox, QDialog,
+    QDialogButtonBox, QLabel, QLineEdit, QListWidget, QMainWindow, QPlainTextEdit, QTableWidget, QWidget)
 
 
 EN = {
@@ -123,8 +123,19 @@ EN = {
     '取消任务': 'Cancel Task', '正在取消…': 'Cancelling…', '任务已取消': 'Task cancelled',
     '设置已保存并应用': 'Settings saved and applied', '当前任务仍在处理，请等待完成。': 'A task is still running. Please wait for it to finish.',
     '没有找到当前页面支持的文件。': 'No supported files were found for this page.',
+    '文件不存在或无法访问：': 'The file does not exist or cannot be accessed: ',
+    '不支持的格式：': 'Unsupported format(s): ', '当前支持：': 'Supported here: ',
+    '打开日志目录': 'Open Log Folder', '已打开日志目录': 'Log folder opened',
+    '无法创建日志目录：': 'Unable to create the log folder: ',
+    '文件已被移动或删除，请重新选择音频': 'The file was moved or deleted; choose the audio again',
+    '所有文件 (*)': 'All Files (*)', '复制详情': 'Copy Details',
     '后台任务尚未完成，请完成后再关闭窗口。': 'A background task is still running. Close the window after it finishes.',
     '结果显示失败：': 'Unable to display result: ', '处理失败：': 'Task failed: ',
+    '文档无法打开：': 'Unable to open document: ',
+    '目录': 'Contents', '在文档中查找…': 'Find in document…',
+    '上一个': 'Previous', '下一个': 'Next', '未找到匹配内容': 'No matching text found',
+    '已复制链接，未打开网络地址': 'Link copied; no network address was opened',
+    '已复制链接，未自动打开：': 'Link copied; not opened automatically: ',
     '音频与歌词已载入': 'Audio and lyrics loaded', '音频已载入 · 暂无同步歌词': 'Audio loaded · No synced lyrics',
     '已完成': 'Completed', '失败': 'Failed', '待预览': 'Pending Preview', '可重命名': 'Ready to Rename',
     '无需修改': 'No Change Needed', '缺少标签': 'Missing Tags', '无法读取': 'Unreadable', '文件名冲突': 'Filename Conflict',
@@ -155,11 +166,64 @@ EN = {
 }
 
 _current_language = 'zh_CN'
+_translator = None
+
+# Qt ships its own catalogue for standard dialog buttons. Loading it keeps
+# "Close"/"Cancel"/"OK" consistent with the selected language instead of
+# falling back to Qt's built-in English source strings.
+_QT_CATALOGUES = {'zh_CN': 'zh_CN', 'en_US': 'en'}
+_STANDARD_BUTTON_TEXT = {
+    'zh_CN': {
+        QDialogButtonBox.StandardButton.Ok: '确定', QDialogButtonBox.StandardButton.Cancel: '取消',
+        QDialogButtonBox.StandardButton.Close: '关闭', QDialogButtonBox.StandardButton.Save: '保存',
+        QDialogButtonBox.StandardButton.Open: '打开', QDialogButtonBox.StandardButton.Yes: '是',
+        QDialogButtonBox.StandardButton.No: '否', QDialogButtonBox.StandardButton.Apply: '应用',
+        QDialogButtonBox.StandardButton.Reset: '重置', QDialogButtonBox.StandardButton.Discard: '放弃',
+        QDialogButtonBox.StandardButton.Help: '帮助',
+    },
+    'en_US': {
+        QDialogButtonBox.StandardButton.Ok: 'OK', QDialogButtonBox.StandardButton.Cancel: 'Cancel',
+        QDialogButtonBox.StandardButton.Close: 'Close', QDialogButtonBox.StandardButton.Save: 'Save',
+        QDialogButtonBox.StandardButton.Open: 'Open', QDialogButtonBox.StandardButton.Yes: 'Yes',
+        QDialogButtonBox.StandardButton.No: 'No', QDialogButtonBox.StandardButton.Apply: 'Apply',
+        QDialogButtonBox.StandardButton.Reset: 'Reset', QDialogButtonBox.StandardButton.Discard: 'Discard',
+        QDialogButtonBox.StandardButton.Help: 'Help',
+    },
+}
 
 
 def set_current_language(language):
     global _current_language
     _current_language = language if language in ('zh_CN', 'en_US') else 'zh_CN'
+
+
+def install_standard_translations(app, language):
+    """Load Qt's bundled catalogue so standard buttons follow the interface language."""
+    global _translator
+    if app is None:
+        return False
+    if _translator is not None:
+        app.removeTranslator(_translator)
+        _translator = None
+    catalogue = _QT_CATALOGUES.get(language)
+    if not catalogue:
+        return False
+    translator = QTranslator()
+    if not translator.load(f'qtbase_{catalogue}', QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)):
+        return False
+    app.installTranslator(translator)
+    _translator = translator
+    return True
+
+
+def localize_dialog_buttons(root, language):
+    """Pin standard button text so it always matches the selected language."""
+    labels = _STANDARD_BUTTON_TEXT.get(language) or _STANDARD_BUTTON_TEXT['en_US']
+    for box in root.findChildren(QDialogButtonBox):
+        for standard, text in labels.items():
+            control = box.button(standard)
+            if control is not None:
+                control.setText(text)
 
 
 def tr(text, language=None):
@@ -211,6 +275,7 @@ def _source(obj, key, value):
 def apply_language(root: QWidget, language: str):
     """Apply language live while retaining original Chinese source strings."""
     set_current_language(language)
+    install_standard_translations(QApplication.instance(), language)
     widgets = [root, *root.findChildren(QWidget)]
     for widget in widgets:
         if isinstance(widget, (QMainWindow, QDialog)):
@@ -251,3 +316,4 @@ def apply_language(root: QWidget, language: str):
             if hasattr(widget, name):
                 source = _source(widget, name, getattr(widget, name)); setattr(widget, name, tr(source, language))
         widget.update()
+    localize_dialog_buttons(root, language)

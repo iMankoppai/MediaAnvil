@@ -1,8 +1,8 @@
 from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QSize
-from PySide6.QtGui import QShortcut, QKeySequence, QColor
-from PySide6.QtWidgets import QLabel, QSlider, QListWidget, QListWidgetItem, QFileDialog, QAbstractItemView, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QStyledItemDelegate, QStyleOptionViewItem, QStyle
-from .common import Page, row, button, ClickSlider, group, Columns, set_picture
+from PySide6.QtGui import QShortcut, QKeySequence
+from PySide6.QtWidgets import QLabel, QListWidget, QListWidgetItem, QFileDialog, QAbstractItemView, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QStyledItemDelegate, QStyleOptionViewItem, QStyle
+from .common import Page, row, button, ClickSlider, group, Columns, set_picture, dialog_initial_directory, remember_dialog_selection, dialog_filters, remember_dialog_filter
 from .design import icon
 from sub2lrc.audio_preview import AudioPreviewPlayer, PlaybackState, load_audio_lyrics, current_lyric_index
 from sub2lrc.audio_converter import SUPPORTED_INPUT_EXTENSIONS
@@ -77,8 +77,11 @@ class PreviewPage(Page):
         # automatically when another page is selected.
         self.shortcut=QShortcut(QKeySequence('Space'),self);self.shortcut.setContext(Qt.ShortcutContext.WindowShortcut);self.shortcut.activated.connect(self.toggle)
     def choose(self):
-        paths,_=QFileDialog.getOpenFileNames(self,self.app.t('选择音频'),'',self.app.t('音频 (*.mp3 *.wav *.flac *.m4a *.aac *.ogg *.opus)'))
-        if paths:self.receive([Path(p) for p in paths])
+        supported=self.app.t('音频 (*.mp3 *.wav *.flac *.m4a *.aac *.ogg *.opus)')
+        filters=dialog_filters(self,'audio',(supported,self.app.t('所有文件 (*)')))
+        paths,chosen=QFileDialog.getOpenFileNames(self,self.app.t('选择音频'),dialog_initial_directory(self,'audio'),filters)
+        if paths:
+            remember_dialog_selection(self,'audio',paths[0]);remember_dialog_filter(self,'audio',chosen);self.receive([Path(p) for p in paths])
     def receive(self,paths):
         found=[p for p in paths if p.suffix.lower() in SUPPORTED_INPUT_EXTENSIONS]
         if found:self.load(found[0])
@@ -99,6 +102,7 @@ class PreviewPage(Page):
         path,player,(source,timeline),meta=data
         if self.player:self.player.close()
         self.path=path;self.player=player;self.timeline=timeline;self.active_line=None
+        self._missing_reported=False;self._ticks=0
         self.title.setText((meta.title or path.stem) if meta else path.stem)
         self.info.setText(f'{meta.artist}  ·  {meta.info.format_label}  ·  {self.timestamp(player.duration)}' if meta else self.timestamp(player.duration))
         self.file_path.setText(str(path));self.file_path.setToolTip(str(path))
@@ -152,6 +156,20 @@ class PreviewPage(Page):
             self.play.setIcon(icon('pause' if self.player.state==PlaybackState.PLAYING else 'play','white',27))
         if self.player and not self.position.isSliderDown():
             position=self.player.position;self.position.setValue(int(position*1000));self.update_display(position)
+        self.check_loaded_file()
+    def check_loaded_file(self):
+        """Warn once when the file behind the current player disappears."""
+        self._ticks=getattr(self,'_ticks',0)+1
+        if not self.path or self._ticks%25:return
+        if Path(self.path).is_file():
+            self._missing_reported=False;return
+        if getattr(self,'_missing_reported',False):return
+        self._missing_reported=True
+        if self.player:
+            try:self.player.pause()
+            except Exception:pass
+        self.play.setIcon(icon('play','white',27))
+        self.status.setText(self.app.t('文件已被移动或删除，请重新选择音频'))
     def lyric_clicked(self,item):
         index=self.lyrics.row(item)-1
         if self.player and 0<=index<len(self.timeline):

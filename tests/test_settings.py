@@ -42,6 +42,46 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(loaded["default_output_directory"], "C:/音乐/转换后")
             self.assertEqual(loaded["default_volume"], 35)
 
+    def test_recent_dialog_directories_are_persisted_as_known_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings.json"
+            values = default_settings()
+            values.update({
+                "last_audio_directory": "C:/媒体/音乐",
+                "last_image_directory": "C:/媒体/图片",
+                "last_subtitle_directory": "C:/媒体/字幕",
+                "last_output_directory": "C:/媒体/输出",
+            })
+            save_settings(values, path)
+            loaded = load_settings(path)
+            for key in (
+                "last_audio_directory",
+                "last_image_directory",
+                "last_subtitle_directory",
+                "last_output_directory",
+            ):
+                self.assertEqual(loaded[key], values[key])
+
+    def test_recent_dialog_filters_are_persisted_and_default_to_empty(self) -> None:
+        self.assertEqual(default_settings()["last_audio_filter"], "")
+        self.assertEqual(default_settings()["last_image_filter"], "")
+        self.assertEqual(default_settings()["last_subtitle_filter"], "")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings.json"
+            values = default_settings()
+            values.update({
+                "last_audio_filter": "所有文件 (*)",
+                "last_image_filter": "图片 (*.png)",
+                "last_subtitle_filter": "歌词 / 字幕 (*.lrc *.srt *.vtt)",
+            })
+            save_settings(values, path)
+            loaded = load_settings(path)
+            for key in ("last_audio_filter", "last_image_filter", "last_subtitle_filter"):
+                self.assertEqual(loaded[key], values[key])
+            # a non-string value must fall back to the empty default
+            path.write_text(json.dumps({"last_audio_filter": 7}), encoding="utf-8")
+            self.assertEqual(load_settings(path)["last_audio_filter"], "")
+
     def test_corrupt_json_falls_back_without_raising(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "settings.json"

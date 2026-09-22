@@ -47,6 +47,10 @@ try {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README-Qt.md') -Destination (Join-Path $PSScriptRoot 'dist\MediaAnvilQt\README-Qt.md') -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README-Qt.en.md') -Destination (Join-Path $PSScriptRoot 'dist\MediaAnvilQt\README-Qt.en.md') -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'LICENSE') -Destination (Join-Path $PSScriptRoot 'dist\MediaAnvilQt\LICENSE') -Force
+    # The user guide points at THIRD_PARTY_NOTICES.md and licenses/ inside the
+    # release folder, so both must be visible next to the executable.
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'THIRD_PARTY_NOTICES.md') -Destination (Join-Path $PSScriptRoot 'dist\MediaAnvilQt\THIRD_PARTY_NOTICES.md') -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'licenses\qt') -Destination (Join-Path $PSScriptRoot 'dist\MediaAnvilQt\licenses\qt') -Recurse -Force
     & $qtPython (Join-Path $PSScriptRoot 'tools\verify_qt_build.py')
     if ($LASTEXITCODE -ne 0) { throw 'Qt 成品自检失败，不能交付。' }
 } finally {

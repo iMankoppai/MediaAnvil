@@ -26,6 +26,31 @@ def prepare_lyrics_for_embedding(source,temporary_directory):
     target.write_text(converted,encoding='utf-8-sig');return target
 
 
+def output_directory_problem(directory):
+    """Return a reason string when a conversion cannot write to ``directory``.
+
+    An empty value means "save beside each source file", which is always fine.
+    """
+    if not directory:
+        return None
+    target = Path(directory)
+    if not target.exists():
+        return '输出目录不存在或无法访问。'
+    if not target.is_dir():
+        return '输出目录不是一个文件夹。'
+    probe = target / f'.mediaanvil-write-{uuid4().hex}.tmp'
+    try:
+        probe.write_bytes(b'')
+    except OSError:
+        return '输出目录不可写，请检查权限或换一个目录。'
+    finally:
+        try:
+            probe.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return None
+
+
 def collect_paths(paths, extensions, recursive=False, cancel_check=None):
     result = []; seen = set()
     for raw in paths:
@@ -38,6 +63,26 @@ def collect_paths(paths, extensions, recursive=False, cancel_check=None):
             if p.is_file() and p.suffix.lower() in extensions and key not in seen:
                 seen.add(key); result.append(p)
     return tuple(result)
+
+
+def explain_rejected(paths, extensions, recursive=False):
+    """Describe why nothing was imported, so the user sees the real reason."""
+    items = [Path(raw) for raw in paths]
+    missing = []; unsupported = {}
+    for path in items:
+        if path.is_file():
+            if path.suffix.lower() not in extensions:
+                key = path.suffix.lower() or path.name
+                unsupported[key] = unsupported.get(key, 0) + 1
+        elif path.is_dir():
+            pattern = '**/*' if recursive else '*'
+            for candidate in path.glob(pattern):
+                if candidate.is_file() and candidate.suffix.lower() not in extensions:
+                    key = candidate.suffix.lower() or candidate.name
+                    unsupported[key] = unsupported.get(key, 0) + 1
+        else:
+            missing.append(path.name)
+    return {'empty': not items, 'missing': tuple(missing), 'unsupported': unsupported}
 
 
 def tagged_destination(source, directory=''):

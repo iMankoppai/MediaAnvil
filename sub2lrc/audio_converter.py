@@ -344,7 +344,10 @@ def convert_audio(
         if process is not None:
             _stop_process(process)
         destination.unlink(missing_ok=True)
-        raise AudioConversionError(f"转换超时（超过 {timeout_seconds:g} 秒），已停止 FFmpeg 并删除未完成文件。") from exc
+        raise AudioConversionError(
+            f"转换超时（超过 {timeout_seconds:g} 秒），文件：{source_path.name}，"
+            f"阶段：编码为 {settings.output_format.upper()}。已停止 FFmpeg 并删除未完成文件。"
+        ) from exc
     except OSError as exc:
         if process is not None:
             _stop_process(process)

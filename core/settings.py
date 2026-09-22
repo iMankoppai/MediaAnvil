@@ -28,6 +28,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "default_volume": 80,
     "include_subfolders": False,
     "language": "zh_CN",
+    "last_audio_directory": "",
+    "last_image_directory": "",
+    "last_subtitle_directory": "",
+    "last_output_directory": "",
+    "last_audio_filter": "",
+    "last_image_filter": "",
+    "last_subtitle_filter": "",
 }
 
 _CHOICES: dict[str, tuple[Any, ...]] = {

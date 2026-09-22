@@ -34,11 +34,24 @@ def audit_sources(toc_path, allowed_roots):
         raise RuntimeError('Unexpected dependency source(s):\n' + '\n'.join(rejected))
 
 
+def verify_release_documents(directory):
+    """The user guide promises these files inside the release folder."""
+    required = ('USER_GUIDE.md', 'USER_GUIDE.en.md', 'README-Qt.md', 'README-Qt.en.md',
+                'LICENSE', 'THIRD_PARTY_NOTICES.md')
+    missing = [name for name in required if not (directory / name).is_file()]
+    if missing:
+        raise RuntimeError('Release folder is missing required document(s): ' + ', '.join(missing))
+    licenses = directory / 'licenses/qt'
+    if not licenses.is_dir() or not any(licenses.glob('*.txt')):
+        raise RuntimeError('Release folder is missing licenses/qt license texts')
+
+
 def verify():
     audit_sources(ROOT / 'build/MediaAnvilQt/Analysis-00.toc',
                   [Path(sys.base_prefix), Path(sys.prefix),
                    Path(os.environ['SystemRoot']), ROOT / 'vendor'])
     directory = ROOT / 'dist/MediaAnvilQt'
+    verify_release_documents(directory)
     bundled_icu = tuple(directory.rglob('icu*.dll'))
     if bundled_icu:
         names = '\n'.join(str(path.relative_to(directory)) for path in bundled_icu)

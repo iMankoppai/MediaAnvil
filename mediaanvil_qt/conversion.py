@@ -6,8 +6,8 @@ from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QLabel, QSpinBox, QDoubleSpinBox, QCheckBox, QPlainTextEdit, QFileDialog, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QHeaderView, QSizePolicy, QPushButton, QFrame
 from .design import icon
-from .common import Page, FileList, OutputPath, button, row, combo, group, Columns, table, fill_table, thumbnail, StatusDelegate
-from .services import convert_files
+from .common import Page, FileList, OutputPath, button, row, combo, Columns, table, fill_table, thumbnail, StatusDelegate, dialog_initial_directory, remember_dialog_selection
+from .services import convert_files, output_directory_problem
 from sub2lrc.audio_converter import FORMAT_SPECS, SUPPORTED_INPUT_EXTENSIONS, AudioConversionSettings
 from sub2lrc.image_converter import IMAGE_FORMAT_SPECS, SUPPORTED_IMAGE_EXTENSIONS, ImageConversionSettings
 
@@ -57,7 +57,7 @@ class ConversionPage(Page):
         toolbar_buttons=self.toolbar.findChildren(QPushButton)
         folder_button=toolbar_buttons.pop(1);self.toolbar.layout().removeWidget(folder_button);folder_button.setParent(None);folder_button.deleteLater()
         self.file_count=self.toolbar.count_label;self.toolbar.layout().removeWidget(self.file_count)
-        trailing=self.toolbar.layout().takeAt(self.toolbar.layout().count()-1)
+        self.toolbar.layout().takeAt(self.toolbar.layout().count()-1)
         for control,text,tip,symbol in zip(toolbar_buttons,('添加…','移除','清空'),('添加文件','移除已勾选的文件','清空文件列表'),('file','trash','trash')):
             control.setText(text);control.setToolTip(tip)
             control.setIcon(icon(symbol,'#df5265' if text=='清空' else '#397bf3',18));control.setIconSize(QSize(18,18))
@@ -157,6 +157,8 @@ class ConversionPage(Page):
         elif self.kind=='image':settings=ImageConversionSettings(fmt,self.quality.value() if IMAGE_FORMAT_SPECS[fmt].supports_quality else None)
         else:settings=(fmt,self.duration.value())
         directory=self.output.text();kind=self.kind;self.started=time.monotonic()
+        problem=output_directory_problem(directory)
+        if problem:return self.app.inform(self.app.t(problem))
         def work(report):
             records=[]
             for i,source in enumerate(paths):
@@ -190,8 +192,16 @@ class ConversionPage(Page):
         self.summary.setObjectName('success' if len(self.last_outputs)==len(records) else 'notice')
         self.summary.setStyleSheet('');self.summary.style().unpolish(self.summary);self.summary.style().polish(self.summary)
         self.summary.setText(self.app.t(f'转换完成：成功 {len(self.last_outputs)} 个，失败 {len(records)-len(self.last_outputs)} 个 · 耗时 {time.monotonic()-self.started:.1f} 秒'))
+        self.log_conversion(records)
         if self.kind!='subtitle':self.results.setPlainText(self.app.t('\n'.join(r['message'] for r in records)))
         if records:self.result_picker.setCurrentIndex(0);self.show_result(0);self.result_table.selectRow(0)
+    def log_conversion(self,records):
+        """Record counts and failure reasons only; never media content."""
+        from core.task_log import record_task
+        succeeded=sum(1 for r in records if r['path'])
+        reasons=tuple(r['message'] for r in records if not r['path'] and r['message'])
+        record_task(f'convert:{self.kind}',len(records),succeeded,reasons,
+                    directory=self.app.log_directory())
         if self.auto_open.isChecked():
             for directory in dict.fromkeys(p.parent for p in self.last_outputs):self.app.open_path(directory)
     def show_result(self,index):
@@ -215,8 +225,11 @@ class ConversionPage(Page):
     def save_result(self):
         record=self.current_record()
         if not record or not record['path']:return self.app.inform(self.app.t('请先选择一个转换成功的结果。'))
-        source=record['path'];destination,_=QFileDialog.getSaveFileName(self,self.app.t('结果另存为'),str(source),f'{source.suffix.upper()} (*{source.suffix})')
+        source=record['path']
+        default_path=str(Path(dialog_initial_directory(self,'output'))/source.name)
+        destination,_=QFileDialog.getSaveFileName(self,self.app.t('结果另存为'),default_path,f'{source.suffix.upper()} (*{source.suffix})')
         if destination:
+            remember_dialog_selection(self,'output',destination)
             target=Path(destination)
             if target.resolve()==source.resolve():return
             self.app.run_task(lambda report:shutil.copy2(source,target),lambda path:self.app.statusBar().showMessage(self.app.t('已另存为：'+str(path))))

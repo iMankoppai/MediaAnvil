@@ -1,4 +1,4 @@
-# MediaAnvil 1.0.3
+# MediaAnvil 1.1.0
 
 [![Release](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?label=release)](https://github.com/iMankoppai/MediaAnvil/releases)
 [![License](https://img.shields.io/github/license/iMankoppai/MediaAnvil)](LICENSE)
@@ -10,7 +10,7 @@ For end-user instructions, see the [User Guide](USER_GUIDE.en.md). For source se
 
 **[简体中文 →](README.md)**
 
-![MediaAnvil 1.0.3 audio preview](assets/screenshots/audio-preview-en.png)
+![MediaAnvil 1.1.0 audio preview](assets/screenshots/audio-preview-en.png)
 
 ## Features
 
@@ -87,7 +87,7 @@ MediaAnvilQt.exe
 
 Keep the `_internal` directory beside the executable; do not copy the EXE by itself. Qt, FFmpeg, and FFplay are included, so Python is not required on the target computer.
 
-The application starts centered at `1440 × 900` (16:10) by default and automatically scales down for smaller or high-DPI displays.
+The application starts centered at `1440 × 960` (3:2) by default and automatically scales down for smaller or high-DPI displays.
 
 ## Run from source
 
