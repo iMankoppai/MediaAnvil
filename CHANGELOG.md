@@ -81,12 +81,22 @@
 ## 1.0.3
 
 - Fixed Windows startup failure caused by an incompatible bundled ICU DLL.
+  The 1.0.1 vendoring of ICU was reverted: the frozen application now loads ICU
+  from Windows instead of shipping a copy beside Qt6Core.dll.
 - Strengthened the frozen-app smoke test so an error dialog can no longer be mistaken for a successful launch.
+  This is why the failure reached a release: startup reported the problem through
+  a dialog, the smoke test still exited successfully, and a green run was read as
+  a working build. The test now treats any error dialog as a failure, and the
+  build rejects a bundled ICU outright, so the same regression cannot ship again.
 
 ### 中文说明
 
-- 修复因随附的 ICU DLL 不兼容而导致的 Windows 启动失败。
-- 强化冻结版烟雾测试：错误弹窗不再被误判为启动成功。
+- 修复因随附的 ICU DLL 不兼容而导致的 Windows 启动失败。1.0.1 引入的 ICU 随包方案已
+  回退：冻结版改为使用 Windows 自带的 ICU，不再在 Qt6Core.dll 旁边附带一份副本。
+- 强化冻结版烟雾测试：错误弹窗不再被误判为启动成功。这正是该问题流入正式版本的原因
+  ——启动失败是通过弹窗报告的，而烟雾测试仍然正常退出，于是一次「全绿」被当成了可用
+  的构建。现在测试把任何错误弹窗都视为失败，构建也会直接拒绝随包的 ICU，同类回归
+  无法再次发布出去。
 
 ## 1.0.2
 
