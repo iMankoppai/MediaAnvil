@@ -33,7 +33,12 @@ def notes_for(tag: str, changelog: Path | None = None) -> str | None:
     body = section_for(tag, changelog)
     if body is None:
         return None
-    return f"## MediaAnvil Windows {tag.strip().lstrip('vV')}\n\n{body}\n"
+    version = tag.strip()
+    if re.fullmatch(r"[vV]?\d+(\.\d+)*", version):
+        heading = f"## MediaAnvil Windows {version.lstrip('vV')}"
+    else:
+        heading = f"## {version}"
+    return f"{heading}\n\n{body}\n"
 
 
 def main(argv: list[str]) -> int:

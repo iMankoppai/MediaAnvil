@@ -1,5 +1,17 @@
 # Changelog
 
+## ffmpeg-vendor-9.0.2
+
+- Vendored FFmpeg 9.0.2. Verified essentials build from gyan.dev, published as an
+  asset of this repository so the pinned download in `tools/download_ffmpeg.ps1`
+  never breaks when gyan.dev drops an old version.
+
+### 中文说明
+
+- 固化 FFmpeg 9.0.2。来自 gyan.dev 的官方 essentials 构建，经校验后作为本仓库的
+  Release 资源发布，使 `tools/download_ffmpeg.ps1` 中固定版本的下载在 gyan.dev
+  下线旧版本时不会失效。
+
 ## 1.1.0
 
 - Added an in-app read-only Markdown reader for the bundled guides, replacing the
@@ -109,11 +121,46 @@
 
 ## 1.0
 
-- First Windows release: audio preview with synchronized lyrics, tag and artwork
-  editing, lyrics/subtitle conversion, audio and image conversion, and
-  metadata-based batch renaming, all processed locally.
+- First Windows release. MediaAnvil is a local, offline toolbox: media files are
+  processed on this computer and source files are preserved by default.
+- Audio preview: play MP3, WAV, FLAC, M4A, AAC, OGG and Opus with play/pause
+  (Space), 30-second skip, volume and a seekable progress bar.
+- Synchronized lyrics: read a matching LRC, SRT or VTT beside the audio,
+  including double-suffix names such as `song.wav.vtt` and embedded MP3 lyrics,
+  with an option to prefer the embedded copy. Clicking a line seeks to it.
+- Tag editor: change title, artist and album, and import or remove lyrics and
+  artwork. SRT/VTT are converted to LRC in memory before being written, and
+  saving defaults to "save as" so the source file stays untouched.
+- Artwork handling: preview, import, export and remove cover images, with a free
+  rectangular crop when importing.
+- Smart matching: scan a music folder for same-name lyrics and artwork, including
+  double-suffix names, and batch-write the chosen matches.
+- Lyrics and subtitle conversion between LRC, SRT and VTT, preserving multi-line
+  content and avoiding existing files.
+- Audio conversion between MP3, WAV, FLAC, M4A/AAC and OGG, with bitrate,
+  quality, sample rate, channel and metadata-preservation options.
+- Image conversion between JPG, PNG, WebP and BMP, with quality settings and
+  transparent-background handling.
+- Batch rename from audio tags, with a conflict preview before executing and an
+  undo for the most recent batch.
+- Simplified Chinese and English interfaces, switchable at runtime.
 
 ### 中文说明
 
-- 首个 Windows 版本：音频预览与同步歌词、标签与封面编辑、歌词/字幕转换、音频与图片
-  格式转换，以及基于标签的批量重命名；全部在本机处理。
+- 首个 Windows 版本。MediaAnvil 是一款本地、离线的多媒体工具箱：媒体文件全部在本机
+  处理，默认保留原文件。
+- 音频预览：播放 MP3、WAV、FLAC、M4A、AAC、OGG、Opus，支持空格播放/暂停、
+  前后 30 秒跳转、音量调节与可拖动进度条。
+- 同步歌词：读取音频旁同名的 LRC、SRT 或 VTT，也支持 `歌曲.wav.vtt` 这类双后缀
+  命名以及 MP3 内嵌歌词，并可设置优先使用内嵌歌词。点击任意歌词行可跳转到对应时间。
+- 标签编辑：修改歌名、歌手与专辑，导入或移除歌词和封面。SRT/VTT 会在内存中转换为
+  LRC 后再写入；默认使用「另存为」，源文件保持不变。
+- 封面处理：预览、导入、导出、移除封面图片，导入时提供自由矩形裁剪。
+- 智能匹配：扫描音乐文件夹寻找同名的歌词与封面（含双后缀命名），可批量写入所选关联
+  文件。
+- 歌词与字幕转换：LRC、SRT、VTT 三种格式互转，保留多行内容并自动避开已有文件。
+- 音频格式转换：MP3、WAV、FLAC、M4A/AAC、OGG 互转，支持码率、质量、采样率、
+  声道与元数据保留设置。
+- 图片格式转换：JPG、PNG、WebP、BMP 互转，支持质量设置与透明背景处理。
+- 批量重命名：根据音频标签生成文件名，执行前预览冲突，支持撤销最近一次批量重命名。
+- 提供简体中文与英文界面，可在运行时切换。
