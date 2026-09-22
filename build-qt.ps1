@@ -7,11 +7,6 @@ if ($ffmpegFiles | Where-Object { -not (Test-Path -LiteralPath (Join-Path $ffmpe
     Write-Host '正在下载并校验 FFmpeg/FFplay…' -ForegroundColor Cyan
     & (Join-Path $PSScriptRoot 'tools\download_ffmpeg.ps1')
 }
-$icuDirectory = Join-Path $PSScriptRoot 'vendor\icu'
-if (@('icuuc.dll', 'icudt78.dll', 'icuin78.dll') | Where-Object { -not (Test-Path -LiteralPath (Join-Path $icuDirectory $_)) }) {
-    Write-Host '正在下载并校验 ICU 运行时…' -ForegroundColor Cyan
-    & (Join-Path $PSScriptRoot 'tools\download_icu.ps1')
-}
 & $qtPython -c 'import PySide6.QtWidgets, PyInstaller, PIL, mutagen'
 if ($LASTEXITCODE -ne 0) { throw '请先在该虚拟环境安装 requirements-build.txt。' }
 $qtBuildArgs = @(
@@ -27,14 +22,8 @@ $qtBuildArgs = @(
     '--add-data', "$(Join-Path $PSScriptRoot 'LICENSE');.",
     '--add-data', "$(Join-Path $PSScriptRoot 'THIRD_PARTY_NOTICES.md');.",
     '--add-data', "$(Join-Path $PSScriptRoot 'licenses\qt');licenses\qt",
-    '--add-data', "$(Join-Path $PSScriptRoot 'licenses\ICU-LICENSE.txt');licenses",
     '--add-binary', "$(Join-Path $PSScriptRoot 'vendor\ffmpeg\ffmpeg.exe');.",
     '--add-binary', "$(Join-Path $PSScriptRoot 'vendor\ffmpeg\ffplay.exe');.",
-    # Qt6Core.dll is collected into _internal\PySide6. Keep ICU beside it so
-    # Windows resolves the dependency on ordinary double-click startup.
-    '--add-binary', "$(Join-Path $icuDirectory 'icuuc.dll');PySide6",
-    '--add-binary', "$(Join-Path $icuDirectory 'icudt78.dll');PySide6",
-    '--add-binary', "$(Join-Path $icuDirectory 'icuin78.dll');PySide6",
     (Join-Path $PSScriptRoot 'main_qt.py')
 )
 $qtBase = & $qtPython -c 'import sys; print(sys.base_prefix)'

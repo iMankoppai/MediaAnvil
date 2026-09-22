@@ -7,6 +7,17 @@ from tools.verify_qt_build import audit_sources
 
 
 class QtBuildDependencyTests(unittest.TestCase):
+    def test_build_uses_windows_icu_and_requires_a_completed_smoke_report(self):
+        root = Path(__file__).resolve().parents[1]
+        build_script = (root / 'build-qt.ps1').read_text(encoding='utf8')
+        verifier = (root / 'tools/verify_qt_build.py').read_text(encoding='utf8')
+        self.assertNotIn('download_icu', build_script)
+        self.assertNotIn("vendor\\icu", build_script)
+        self.assertNotIn("'icuuc.dll');PySide6", build_script)
+        self.assertIn("directory.rglob('icu*.dll')", verifier)
+        self.assertIn("'--smoke-test'", verifier)
+        self.assertIn("report.json", verifier)
+
     def test_user_guide_is_included_in_the_release(self):
         root=Path(__file__).resolve().parents[1]
         guide=root/'USER_GUIDE.md';script=(root/'build-qt.ps1').read_text(encoding='utf8')

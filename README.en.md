@@ -1,4 +1,4 @@
-# MediaAnvil 1.0.2
+# MediaAnvil 1.0.3
 
 [![Release](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?label=release)](https://github.com/iMankoppai/MediaAnvil/releases)
 [![License](https://img.shields.io/github/license/iMankoppai/MediaAnvil)](LICENSE)
@@ -10,7 +10,7 @@ For end-user instructions, see the [User Guide](USER_GUIDE.en.md). For source se
 
 **[简体中文 →](README.md)**
 
-![MediaAnvil 1.0.2 audio preview](assets/screenshots/audio-preview-en.png)
+![MediaAnvil 1.0.3 audio preview](assets/screenshots/audio-preview-en.png)
 
 ## Features
 

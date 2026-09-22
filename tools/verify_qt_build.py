@@ -8,7 +8,6 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-import time
 import wave
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,18 +39,36 @@ def verify():
                   [Path(sys.base_prefix), Path(sys.prefix),
                    Path(os.environ['SystemRoot']), ROOT / 'vendor'])
     directory = ROOT / 'dist/MediaAnvilQt'
+    bundled_icu = tuple(directory.rglob('icu*.dll'))
+    if bundled_icu:
+        names = '\n'.join(str(path.relative_to(directory)) for path in bundled_icu)
+        raise RuntimeError('ICU must be loaded from Windows, not bundled beside Qt6Core.dll:\n' + names)
     scratch = ROOT / '.test-tools/qt'
     scratch.mkdir(parents=True, exist_ok=True)
     output = Path(tempfile.mkdtemp(prefix='frozen-check-', dir=scratch))
-    application = subprocess.Popen([str(directory / 'MediaAnvilQt.exe')], cwd=ROOT)
+    environment = os.environ.copy()
+    system_root = Path(os.environ['SystemRoot'])
+    environment['PATH'] = os.pathsep.join((str(system_root / 'System32'), str(system_root)))
     try:
-        time.sleep(3)
-        if application.poll() is not None:
-            raise RuntimeError(f'Frozen Qt application exited during startup with code {application.returncode}')
-    finally:
-        if application.poll() is None:
-            application.terminate()
-            application.wait(timeout=15)
+        completed = subprocess.run(
+            [str(directory / 'MediaAnvilQt.exe'), '--smoke-test', str(output)],
+            cwd=directory,
+            env=environment,
+            timeout=60,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError('Frozen Qt smoke test timed out; an error dialog may be blocking startup') from exc
+    if completed.returncode != 0:
+        error_file = output / 'error.txt'
+        detail = error_file.read_text(encoding='utf8') if error_file.is_file() else 'no error report'
+        raise RuntimeError(f'Frozen Qt smoke test failed with code {completed.returncode}: {detail}')
+    report_file = output / 'report.json'
+    if not report_file.is_file():
+        raise RuntimeError('Frozen Qt smoke test did not create report.json')
+    report = json.loads(report_file.read_text(encoding='utf8'))
+    if not report.get('frozen') or len(report.get('audio_outputs', ())) != 1:
+        raise RuntimeError(f'Frozen Qt smoke report is incomplete: {report}')
 
     source = output / 'smoke.wav'
     with wave.open(str(source), 'wb') as stream:
@@ -60,7 +77,7 @@ def verify():
         stream.setframerate(8000)
         stream.writeframes(b'\0\0' * 4000)
     ffmpeg = directory / '_internal' / 'ffmpeg.exe'
-    target = output / 'smoke.mp3'
+    target = output / 'ffmpeg-smoke.mp3'
     subprocess.run([str(ffmpeg), '-nostdin', '-hide_banner', '-loglevel', 'error', '-i', str(source),
                     '-codec:a', 'libmp3lame', '-b:a', '128k', str(target)], check=True, timeout=30)
     if not target.is_file() or target.stat().st_size == 0:
@@ -69,7 +86,7 @@ def verify():
     subprocess.run([str(ffplay), '-version'], check=True, timeout=15,
                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                    creationflags=subprocess.CREATE_NO_WINDOW)
-    print(f'Frozen Qt startup, FFmpeg conversion and FFplay verified: {output}')
+    print(f'Frozen Qt startup, in-app conversion and FFplay verified: {output}')
 
 
 if __name__ == '__main__':

@@ -15,7 +15,6 @@ def _runtime_paths() -> list[Path]:
     pyside = Path(__import__("PySide6").__file__).resolve().parent
     system_root = Path(os.environ["SystemRoot"])
     return [
-        ROOT / "vendor" / "icu",
         pyside,
         Path(sys.executable).resolve().parent,
         python_base,
