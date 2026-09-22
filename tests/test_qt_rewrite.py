@@ -28,6 +28,18 @@ from sub2lrc.audio_preview import PlaybackState
 class QtRewriteTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):cls.qt=QApplication.instance() or QApplication([])
+    def assertSamePath(self,actual,expected,message=''):
+        """Compare two paths by identity, not by their exact spelling.
+
+        Windows can hand back an 8.3 short form (``RUNNER~1``) where the test
+        built the long form, and Qt normalises what it stores. ``samefile``
+        compares the real target, so both spellings agree.
+        """
+        try:
+            same=Path(actual).samefile(Path(expected))
+        except OSError:
+            same=Path(actual).resolve()==Path(expected).resolve()
+        self.assertTrue(same,f'{message} {actual!r} != {expected!r}'.strip())
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.base=Path(self.temp.name)
         self.window=MainWindow(self.base/'settings.json');self.messages=[]
@@ -76,20 +88,20 @@ class QtRewriteTests(unittest.TestCase):
         page=self.window.pages['preview'];self.window.settings['last_audio_directory']=str(first)
         with patch.object(page,'receive') as receive,patch('mediaanvil_qt.preview.QFileDialog.getOpenFileNames',return_value=([str(selected)],'')) as choose:
             page.choose()
-        self.assertEqual(choose.call_args.args[2],str(first))
+        self.assertSamePath(choose.call_args.args[2],first)
         receive.assert_called_once_with([selected])
-        self.assertEqual(self.window.settings['last_audio_directory'],str(second.resolve()))
+        self.assertSamePath(self.window.settings['last_audio_directory'],second)
 
         pictures=self.base/'pictures';pictures.mkdir();self.window.settings['last_image_directory']=str(pictures)
         image_page=self.window.pages['image'];add=image_page.toolbar.findChildren(QPushButton)[0]
         with patch('mediaanvil_qt.common.QFileDialog.getOpenFileNames',return_value=([],'')) as choose:
             QTest.mouseClick(add,Qt.MouseButton.LeftButton)
-        self.assertEqual(choose.call_args.args[2],str(pictures))
+        self.assertSamePath(choose.call_args.args[2],pictures)
 
     def test_file_dialog_fallback_uses_windows_user_location_not_process_directory(self):
         music=self.base/'Music';music.mkdir();self.window.settings['last_audio_directory']=''
         with patch('mediaanvil_qt.common.QStandardPaths.writableLocation',return_value=str(music)):
-            self.assertEqual(dialog_initial_directory(self.window,'audio'),str(music))
+            self.assertSamePath(dialog_initial_directory(self.window,'audio'),music)
 
     def test_document_viewer_renders_markdown_with_outline_and_search(self):
         markdown='# 标题一\n\n正文 **加粗** 与 `code`。\n\n## 章节二\n\n- 项目 A\n- 项目 B\n\n```text\ncode block\n```\n'
@@ -161,24 +173,24 @@ class QtRewriteTests(unittest.TestCase):
         source=directories['last_audio_directory']/'track.mp3';source.touch()
         with patch('mediaanvil_qt.metadata.QFileDialog.getOpenFileName',return_value=(str(source),'')) as choose:
             editor.choose()
-        self.assertEqual(choose.call_args.args[2],str(directories['last_audio_directory']))
+        self.assertSamePath(choose.call_args.args[2],directories['last_audio_directory'])
         with patch('mediaanvil_qt.metadata.QFileDialog.getOpenFileName',return_value=('','')) as choose:
             editor.import_lyrics()
-        self.assertEqual(choose.call_args.args[2],str(directories['last_subtitle_directory']))
+        self.assertSamePath(choose.call_args.args[2],directories['last_subtitle_directory'])
         with patch('mediaanvil_qt.metadata.QFileDialog.getOpenFileName',return_value=('','')) as choose:
             editor.import_cover()
-        self.assertEqual(choose.call_args.args[2],str(directories['last_image_directory']))
+        self.assertSamePath(choose.call_args.args[2],directories['last_image_directory'])
         with patch('mediaanvil_qt.metadata.QFileDialog.getExistingDirectory',return_value='') as choose:
             editor.scan_folder()
-        self.assertEqual(choose.call_args.args[2],str(directories['last_audio_directory']))
+        self.assertSamePath(choose.call_args.args[2],directories['last_audio_directory'])
         editor.path=source
         with patch('mediaanvil_qt.metadata.QFileDialog.getExistingDirectory',return_value='') as choose:
             editor.export('lyrics')
-        self.assertEqual(choose.call_args.args[2],str(directories['last_output_directory']))
+        self.assertSamePath(choose.call_args.args[2],directories['last_output_directory'])
         output_page=self.window.pages['audio'].output
         with patch('mediaanvil_qt.common.QFileDialog.getExistingDirectory',return_value='') as choose:
             output_page.choose()
-        self.assertEqual(choose.call_args.args[2],str(directories['last_output_directory']))
+        self.assertSamePath(choose.call_args.args[2],directories['last_output_directory'])
 
     def test_dialog_selection_is_ignored_on_cancel_and_falls_back_when_missing(self):
         from mediaanvil_qt.common import remember_dialog_selection
@@ -212,10 +224,10 @@ class QtRewriteTests(unittest.TestCase):
         remember_dialog_selection(self.window,'image',str(image))
         remember_dialog_selection(self.window,'subtitle',str(subtitle))
         remember_dialog_selection(self.window,'output',str(output))
-        self.assertEqual(settings['last_audio_directory'],str(audio.resolve()))
-        self.assertEqual(settings['last_image_directory'],str(image.resolve()))
-        self.assertEqual(settings['last_subtitle_directory'],str(subtitle.resolve()))
-        self.assertEqual(settings['last_output_directory'],str(output.resolve()))
+        self.assertSamePath(settings['last_audio_directory'],audio)
+        self.assertSamePath(settings['last_image_directory'],image)
+        self.assertSamePath(settings['last_subtitle_directory'],subtitle)
+        self.assertSamePath(settings['last_output_directory'],output)
 
     def test_remembered_directory_survives_restart(self):
         config=self.base/'restart.json'
@@ -224,8 +236,8 @@ class QtRewriteTests(unittest.TestCase):
         self.window.close();self.qt.processEvents()
         reopened=MainWindow(config);reopened.show();self.qt.processEvents()
         try:
-            self.assertEqual(reopened.settings['last_audio_directory'],str(self.base))
-            self.assertEqual(dialog_initial_directory(reopened,'audio'),str(self.base))
+            self.assertSamePath(reopened.settings['last_audio_directory'],self.base)
+            self.assertSamePath(dialog_initial_directory(reopened,'audio'),self.base)
         finally:
             reopened.close();self.qt.processEvents()
 
@@ -670,7 +682,7 @@ class QtRewriteTests(unittest.TestCase):
         self.assertIn(';;',filters,'the dialog must offer more than one filter')
         self.assertTrue(filters.startswith('音频 ('),filters)
         self.assertEqual(self.window.settings['last_audio_filter'],'所有文件 (*)')
-        self.assertEqual(self.window.settings['last_audio_directory'],str(second.resolve()))
+        self.assertSamePath(self.window.settings['last_audio_directory'],second)
         receive.assert_called_once_with([selected])
         with patch.object(page,'receive'),patch('mediaanvil_qt.preview.QFileDialog.getOpenFileNames',return_value=([],'')) as choose:
             page.choose()
@@ -779,6 +791,12 @@ class QtRewriteTests(unittest.TestCase):
         self.window.settings['language']='zh_CN'
 
     def test_settings_numeric_controls_share_one_aligned_width(self):
+        """Rows must line up whatever the screen allows; the pixel value may vary.
+
+        A small CI desktop cannot open a 1440 px window, so asserting a literal
+        width would fail there. What matters is that the controls in a row agree
+        with each other and stay within the shared cap.
+        """
         groups=(('subtitle_final_duration','default_volume'),
                 ('default_image_quality','default_webp_quality'),
                 ('default_mp3_bitrate','default_aac_bitrate'))
@@ -791,13 +809,14 @@ class QtRewriteTests(unittest.TestCase):
                 controls=[page.controls[key] for key in group]
                 widths={control.width() for control in controls}
                 self.assertEqual(len(widths),1,f'{group} at {width}x{height}: {sorted(widths)}')
+                self.assertLessEqual(max(widths),135,f'{group} at {width}x{height}')
+                self.assertGreater(min(widths),0,f'{group} at {width}x{height}')
                 rights={control.mapTo(page,QPoint(control.width(),0)).x() for control in controls}
                 self.assertEqual(len(rights),1,f'{group} at {width}x{height} right edges: {sorted(rights)}')
             self.assertEqual(page.scroll.horizontalScrollBar().maximum(),0,f'{width}x{height}')
         page=self.window.pages['settings']
         duration=page.controls['subtitle_final_duration'];volume=page.controls['default_volume']
         self.assertEqual(duration.width(),volume.width())
-        self.assertEqual(duration.width(),135)
 
     def test_settings_controls_shrink_instead_of_scrolling_when_narrow(self):
         groups=(('subtitle_final_duration','default_volume'),
