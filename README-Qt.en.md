@@ -1,4 +1,4 @@
-# MediaAnvil Qt 1.1.0
+# MediaAnvil Qt 1.2.0
 
 **[简体中文 →](README-Qt.md)**
 

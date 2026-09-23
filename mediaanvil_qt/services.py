@@ -126,6 +126,37 @@ def convert_files(kind, paths, directory, settings, progress, cancel_check=None,
     return outputs, lines
 
 
+BATCH_EDITABLE_FIELDS = ('title', 'artist', 'album', 'track', 'year')
+
+
+def batch_edit_tags(audio_paths, values, overwrite, directory, progress):
+    """Apply the same tag values to many files.
+
+    ``values`` maps a field name to the text to write. Only non-empty entries are
+    applied, so an untouched box never erases an existing tag, and each file is
+    written independently: one failure is reported and the batch continues.
+    """
+    fields = {name: text.strip() for name, text in values.items()
+              if name in BATCH_EDITABLE_FIELDS and text and text.strip()}
+    if not fields:
+        return ['跳过：没有填写任何要批量写入的字段。']
+    lines = []
+    total = len(audio_paths)
+    for index, audio in enumerate(audio_paths):
+        if hasattr(progress, 'raise_if_cancelled'):
+            progress.raise_if_cancelled()
+        try:
+            target = None if overwrite else tagged_destination(audio, directory)
+            output = write_metadata(audio, AudioMetadataChanges(**fields), target)
+            lines.append(f'完成：{output}')
+        except TaskCancelled:
+            raise
+        except Exception as exc:
+            lines.append(f'失败：{audio.name} — {exc}')
+        progress((index + 1) / total * 100, audio.name)
+    return lines
+
+
 def write_matches(rows, overwrite, directory, progress):
     lines = []
     for i, (audio, lyric, cover) in enumerate(rows):

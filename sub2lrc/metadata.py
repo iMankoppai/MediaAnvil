@@ -82,27 +82,36 @@ def update_mp3_metadata(
     artist: str | None = None,
     album: str | None = None,
     destination: str | Path | None = None,
+    track: str | None = None,
+    year: str | None = None,
 ) -> Path:
-    """Update selected basic fields; ``None`` means leave that field unchanged."""
+    """Update selected basic fields; ``None`` means leave that field unchanged.
+
+    The year is written to ``TDRC`` on ID3v2.4 and ``TYER`` on ID3v2.3, matching
+    the frames :func:`read_mp3_metadata` already prefers, and the other spelling
+    is removed so a file never carries two conflicting years.
+    """
     mp3_path = Path(path)
     read_mp3_metadata(mp3_path)
     requested = {
         "TIT2": title,
         "TPE1": artist,
         "TALB": album,
+        "TRCK": track,
     }
     values = {frame_id: value.strip() for frame_id, value in requested.items() if value is not None}
+    year_value = year.strip() if year is not None else None
 
-    if not values and destination is None:
+    if not values and year_value is None and destination is None:
         return mp3_path
 
     try:
         from mutagen import MutagenError
-        from mutagen.id3 import ID3, ID3NoHeaderError, TALB, TIT2, TPE1
+        from mutagen.id3 import ID3, ID3NoHeaderError, TALB, TDRC, TIT2, TPE1, TRCK, TYER
     except ImportError as exc:
         raise MetadataError("缺少 Mutagen 组件，请重新安装或重新打包 MediaAnvil。") from exc
 
-    frame_classes = {"TIT2": TIT2, "TPE1": TPE1, "TALB": TALB}
+    frame_classes = {"TIT2": TIT2, "TPE1": TPE1, "TALB": TALB, "TRCK": TRCK}
 
     def edit(target: Path) -> None:
         try:
@@ -118,12 +127,20 @@ def update_mp3_metadata(
             tags.delall(frame_id)
             if value:
                 tags.add(frame_classes[frame_id](encoding=3, text=[value]))
+        if year_value is not None:
+            year_frame = "TDRC" if save_version == 4 else "TYER"
+            other_frame = "TYER" if year_frame == "TDRC" else "TDRC"
+            tags.delall(year_frame); tags.delall(other_frame)
+            if year_value:
+                tags.add((TDRC if year_frame == "TDRC" else TYER)(encoding=3, text=[year_value]))
         tags.save(target, v2_version=save_version)
 
         saved = read_mp3_metadata(target)
-        saved_values = {"TIT2": saved.title, "TPE1": saved.artist, "TALB": saved.album}
+        saved_values = {"TIT2": saved.title, "TPE1": saved.artist, "TALB": saved.album, "TRCK": saved.track}
         if any(saved_values[frame_id] != value for frame_id, value in values.items()):
             raise MetadataError("写入后的基础标签校验失败，原文件未被修改。")
+        if year_value is not None and saved.year != year_value:
+            raise MetadataError("写入后的年份校验失败，原文件未被修改。")
 
     try:
         return apply_to_mp3_copy(mp3_path, destination, edit)

@@ -109,6 +109,72 @@ class AudioMetadataAdapterTests(unittest.TestCase):
                     self.assertTrue(without_cover.has_lyrics)
                     self.assertFalse(without_cover.has_cover)
 
+    def test_track_and_year_round_trip_for_every_writable_format(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for suffix in (".mp3", ".flac", ".m4a", ".ogg", ".opus"):
+                audio = root / f"编号{suffix}"; self._make_audio(audio)
+                before = self._pcm_hash(audio)
+                write_metadata(audio, AudioMetadataChanges(track="3/12", year="1999"))
+                state = read_metadata(audio)
+                self.assertEqual(state.track, "3/12", suffix)
+                self.assertEqual(state.year, "1999", suffix)
+                self.assertEqual(self._pcm_hash(audio), before, suffix)
+
+    def test_track_and_year_are_cleared_without_touching_other_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for suffix in (".mp3", ".flac", ".m4a", ".ogg", ".opus"):
+                audio = root / f"清空{suffix}"; self._make_audio(audio)
+                write_metadata(audio, AudioMetadataChanges(
+                    title="保留标题", artist="保留歌手", album="保留专辑", track="5", year="2001"))
+                write_metadata(audio, AudioMetadataChanges(track="", year=""))
+                state = read_metadata(audio)
+                self.assertEqual(state.track, "", suffix)
+                self.assertEqual(state.year, "", suffix)
+                self.assertEqual(state.title, "保留标题", suffix)
+                self.assertEqual(state.artist, "保留歌手", suffix)
+                self.assertEqual(state.album, "保留专辑", suffix)
+
+    def test_track_and_year_are_left_alone_when_not_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for suffix in (".mp3", ".flac", ".m4a", ".ogg", ".opus"):
+                audio = root / f"未改{suffix}"; self._make_audio(audio)
+                write_metadata(audio, AudioMetadataChanges(track="8", year="2005"))
+                write_metadata(audio, AudioMetadataChanges(title="只改标题"))
+                state = read_metadata(audio)
+                self.assertEqual(state.title, "只改标题", suffix)
+                self.assertEqual(state.track, "8", suffix)
+                self.assertEqual(state.year, "2005", suffix)
+
+    def test_mp3_year_uses_the_frame_matching_its_id3_version(self) -> None:
+        from mutagen.id3 import ID3
+        from sub2lrc.metadata import read_mp3_metadata, update_mp3_metadata
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for version in (3, 4):
+                audio = root / f"v{version}.mp3"; self._make_audio(audio)
+                ID3().save(audio, v2_version=version)
+                update_mp3_metadata(audio, year="2011")
+                tags = ID3(audio, translate=False)
+                expected, other = ("TYER", "TDRC") if version == 3 else ("TDRC", "TYER")
+                self.assertTrue(tags.getall(expected), f"v2.{version} should write {expected}")
+                self.assertFalse(tags.getall(other), f"v2.{version} must not keep {other}")
+                self.assertEqual(read_mp3_metadata(audio).year, "2011")
+
+    def test_mp4_track_accepts_a_bare_number_and_a_pair(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            audio = root / "track.m4a"; self._make_audio(audio)
+            write_metadata(audio, AudioMetadataChanges(track="7"))
+            self.assertEqual(read_metadata(audio).track, "7")
+            write_metadata(audio, AudioMetadataChanges(track="2/9"))
+            self.assertEqual(read_metadata(audio).track, "2/9")
+            # free text clears the tag instead of raising
+            write_metadata(audio, AudioMetadataChanges(track="不是数字"))
+            self.assertEqual(read_metadata(audio).track, "")
+
     def test_wav_is_read_only_with_clear_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             wav = Path(directory) / "只读.wav"; self._make_audio(wav)

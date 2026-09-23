@@ -218,6 +218,42 @@ def cues_to_vtt(cues: list[SubtitleCue], final_duration: float = 5.0) -> str:
     return "WEBVTT\n\n" + "\n\n".join(blocks) + "\n"
 
 
+def shift_cues(cues: list[SubtitleCue], seconds: float) -> list[SubtitleCue]:
+    """Move every cue by ``seconds``, clamping at zero.
+
+    A negative shift that would push a line before the start of the track is
+    clamped to 0 rather than dropped, so no lyric silently disappears. Ends are
+    shifted the same way and are never allowed to precede their own start.
+    """
+    if not seconds:
+        return list(cues)
+    shifted: list[SubtitleCue] = []
+    for cue in cues:
+        start = max(0.0, cue.start_seconds + seconds)
+        end = None if cue.end_seconds is None else max(start, cue.end_seconds + seconds)
+        shifted.append(SubtitleCue(start, cue.text, end))
+    return shifted
+
+
+def shift_lrc(content: str, seconds: float) -> str:
+    """Return LRC text with every timestamp moved by ``seconds``.
+
+    Timestamps are rewritten in place rather than reparsed and re-rendered:
+    parsing drops metadata lines such as ``[ti:]`` and ``[ar:]``, and a shift
+    must not silently discard them. Every other byte, including line order and
+    blank lines, is preserved.
+    """
+    if not seconds:
+        return content
+    def moved(match: re.Match[str]) -> str:
+        try:
+            value = _parse_timestamp(match.group("time")) + seconds
+        except ValueError:
+            return match.group(0)
+        return _lrc_timestamp(max(0.0, value))
+    return _LRC_TIMESTAMP.sub(moved, content)
+
+
 def render_cues(cues: list[SubtitleCue], output_format: str, final_duration: float = 5.0) -> str:
     output_format = _normalize_format(output_format)
     if output_format == "lrc":

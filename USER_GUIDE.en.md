@@ -2,7 +2,7 @@
 
 **[简体中文 →](USER_GUIDE.md)**
 
-Applies to: MediaAnvil Qt 1.1.0 for Windows
+Applies to: MediaAnvil Qt 1.2.0 for Windows
 
 MediaAnvil is a local media toolbox for audio playback with synchronized lyrics, audio metadata and artwork editing, lyrics and subtitle conversion, audio and image conversion, and metadata-based batch renaming. All media processing happens on your computer.
 
@@ -71,11 +71,13 @@ Preview supports MP3, WAV, FLAC, M4A, AAC, OGG, and Opus.
 
 1. Open Tag Editor.
 2. Select Choose Audio.
-3. Edit the title, artist, and album.
+3. Edit the title, artist, album, track number, or year.
 4. Choose the save mode and output folder.
 5. Select Save to Audio.
 
 Save As is the default and leaves the source file unchanged. The source is replaced only when Overwrite Source is explicitly selected.
+
+**Track number** accepts a bare number such as `3` or a `3/12` number-of-total form. **Year** takes a four-digit value. Clearing a box and saving removes that tag.
 
 Writable formats are MP3, FLAC, M4A, OGG, and Opus. WAV metadata can be read but not saved. AAC is not supported by the tag editor.
 
@@ -86,6 +88,18 @@ Writable formats are MP3, FLAC, M4A, OGG, and Opus. WAV metadata can be read but
 - Remove lyrics when saving removes embedded lyrics during the next save.
 
 Timed lyrics are embedded as LRC for compatibility. Exported synchronized lyrics are also written as LRC.
+
+### Shift the lyrics timeline
+
+When the lyrics run consistently early or late, move the whole timeline instead of editing line by line:
+
+1. Import or load the lyrics first.
+2. Enter the number of seconds in the seconds box.
+3. Choose "Later" or "Earlier" and click "Apply".
+
+The timestamps in the lyrics box update immediately, and **nothing has been written to the audio yet**; the change reaches the file only when you select Save to Audio.
+
+The shift rewrites timestamps in place, so metadata lines such as `[ti:]` and `[ar:]`, blank lines, and multiple timestamps on one line are all preserved. A negative shift stops at `00:00.00`, so it never produces negative timestamps or drops lines.
 
 ### Artwork
 
@@ -104,6 +118,18 @@ The matcher understands associated files that retain the audio extension, includ
 Clear Files only clears the scan results and candidate lists; it never deletes audio, lyrics, subtitle, or image files from disk.
 
 Matching priority is exact name, name with spaces ignored, then names with copy markers or parenthesized numbers removed. If several candidates have equal priority, MediaAnvil does not select one automatically—you must choose explicitly.
+
+### Write tags in bulk
+
+After scanning a music folder you can write the same tags to every scanned file at once:
+
+1. Expand "Smart File Matching" and select "Scan Music Folder…" to choose a folder.
+2. Fill in any of Album, Artist, or Year.
+3. Click "Batch Write Tags".
+
+**A blank box never changes the existing value**, so filling in only the album leaves every file's title and artist untouched. One failing file does not stop the rest, and the results are listed individually.
+
+Writing follows the "Save Mode" at the bottom of the page: with Save As the results go to the output folder and sources stay unchanged.
 
 ## 5. Lyrics / Subtitle Converter
 
@@ -157,7 +183,33 @@ JPG/JPEG, PNG, WebP, and BMP can be converted in any direction.
 
 MediaAnvil preserves source dimensions. PNG and WebP can retain transparency; transparent pixels are placed on a white background when converting to JPG or BMP.
 
-## 8. Batch Rename
+## 8. Join / Split Audio
+
+Join several audio files into one, or cut one file into pieces. **Output is always a new file; sources are never modified or deleted.**
+
+### Join several files
+
+1. Click "Add Files" and add the audio in the order you want.
+2. Under "Mode", choose "Join into one file".
+3. Pick the output format and folder.
+4. Click "Start Joining".
+
+Files are concatenated in **list order**, so the order you add them becomes the final order. Joining needs at least two files.
+
+### Split one file
+
+1. Add the audio to split (only the **first** file in the list is used).
+2. Under "Mode", choose "Split into several files".
+3. Choose how to split:
+   - **Equal parts**: enter a part count and the total duration is divided evenly.
+   - **Fixed length**: enter seconds per piece; the last piece may be shorter.
+4. Pick the output format and folder, then click "Start Splitting".
+
+Output files are named `name-01`, `name-02` and so on. An existing file with the same name is skipped rather than overwritten.
+
+You can stop the work with "Cancel Task" in the status bar; cancelling removes the unfinished piece.
+
+## 9. Batch Rename
 
 Batch Rename generates filenames from audio metadata. It does not re-encode audio or change metadata.
 
@@ -184,7 +236,7 @@ Use original filename for missing fields prevents incomplete metadata from immed
 
 Export Preview saves the current plan as CSV. Undo Last Rename applies only to the most recent successful batch. MediaAnvil will not overwrite another file if it has taken an original filename.
 
-## 9. Settings
+## 10. Settings
 
 Settings apply to subsequent tasks:
 
@@ -208,7 +260,7 @@ The settings file is stored at:
 
 MediaAnvil restores safe defaults if the settings file is damaged.
 
-## 10. Output and file safety
+## 11. Output and file safety
 
 - Conversion never overwrites source files.
 - Existing target names receive a safe new filename automatically.
@@ -219,7 +271,7 @@ MediaAnvil restores safe defaults if the settings file is damaged.
 
 The content area may be temporarily disabled during processing. Wait for the task to finish before closing the application to avoid interrupting a write.
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 ### Nothing happens when I double-click the EXE
 
@@ -249,6 +301,6 @@ Audio Converter does not perform same-format re-encoding. Choose a different out
 
 JPG does not support transparency. MediaAnvil fills transparent pixels with white; use PNG or WebP when transparency is required.
 
-## 12. Third-party components
+## 13. Third-party components
 
 MediaAnvil includes Qt/PySide6, ICU, FFmpeg, and FFplay. License information is provided in `THIRD_PARTY_NOTICES.md` and the `licenses` directory inside the release folder.

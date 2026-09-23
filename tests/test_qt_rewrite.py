@@ -55,9 +55,9 @@ class QtRewriteTests(unittest.TestCase):
             self.qt.processEvents();time.sleep(.005)
         self.assertIsNone(self.window._worker,'worker did not complete');self.qt.processEvents()
     def test_pages_preserve_native_window_and_data(self):
-        self.assertEqual(qt_version,'1.1.0')
-        self.assertIn('v1.1.0',[label.text() for label in self.window.findChildren(QLabel)])
-        self.assertEqual(len(self.window.pages),8)
+        self.assertEqual(qt_version,'1.2.0')
+        self.assertIn('v1.2.0',[label.text() for label in self.window.findChildren(QLabel)])
+        self.assertEqual(len(self.window.pages),9)
         actual_size=(self.window.width(),self.window.height());expected_size=default_window_size()
         for actual,expected in zip(actual_size,expected_size):self.assertAlmostEqual(actual,expected,delta=1)
         self.assertFalse(self.window.windowFlags() & Qt.WindowType.FramelessWindowHint)
@@ -67,7 +67,7 @@ class QtRewriteTests(unittest.TestCase):
         self.assertFalse(hasattr(self.window.pages['preview'],'open_folder'))
         self.assertIn('使用说明',[button.text() for button in self.window.pages['about'].findChildren(QPushButton)])
         self.window.pages['editor'].title.setText('未保存的草稿')
-        for i in range(8):self.window.navigation.setCurrentRow(i);self.qt.processEvents()
+        for i in range(len(self.window.keys)):self.window.navigation.setCurrentRow(i);self.qt.processEvents()
         self.assertEqual(self.window.pages['editor'].title.text(),'未保存的草稿')
 
     def test_about_documents_open_in_read_only_app_dialog_with_matching_language(self):
@@ -846,7 +846,7 @@ class QtRewriteTests(unittest.TestCase):
         self.assertEqual(self.window.settings['language'],'en_US')
         self.assertEqual(self.window.windowTitle(),'MediaAnvil Qt — Multimedia Toolbox')
         self.assertEqual(self.window.navigation.buttons[0].text(),'Audio Preview')
-        self.assertEqual(self.window.navigation.buttons[6].text(),'Settings')
+        self.assertEqual(self.window.navigation.buttons[7].text(),'Settings')
         self.assertEqual(page.language.currentText(),'English')
         self.assertEqual(self.window.pages['preview'].lyrics.item(0).text(),'Synced lyrics will appear here after selecting audio')
         self.assertEqual(self.window.pages['subtitle'].files.empty_hint,'Supports .lrc, .srt and .vtt subtitle files')
@@ -880,7 +880,7 @@ class QtRewriteTests(unittest.TestCase):
                 self.assertTrue(section.rect().contains(unit.mapTo(section,unit.rect().bottomRight())),unit.text())
         other=MainWindow(self.base/'settings.json');other.show();self.qt.processEvents()
         self.assertEqual(other.settings['language'],'en_US')
-        self.assertEqual(other.navigation.buttons[5].text(),'Batch Rename')
+        self.assertEqual(other.navigation.buttons[6].text(),'Batch Rename')
         other.close();self.qt.processEvents()
         language.setCurrentIndex(language.findData('zh_CN'));page.save();self.qt.processEvents()
         self.assertEqual(self.window.navigation.buttons[0].text(),'音频预览')
@@ -940,6 +940,209 @@ class QtRewriteTests(unittest.TestCase):
         rename=self.window.pages['renamer'];rename.receive([page.path]);rename.preview();self.wait();self.assertEqual(rename.plan.ready_count,1)
         old=page.path;rename.execute();self.wait();self.assertFalse(old.exists());self.assertTrue(rename.records[0].new_path.exists())
         rename.undo();self.wait();self.assertTrue(old.exists());self.assertFalse(rename.records)
+    def test_tag_editor_exposes_and_saves_track_and_year(self):
+        source=self.base/'numbered.wav'
+        with wave.open(str(source),'wb') as out:
+            out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*4000)
+        outputs,lines=convert_files('audio',[source],'',AudioConversionSettings('mp3',128),lambda *args:None)
+        self.assertEqual(len(outputs),1,lines)
+        mp3=outputs[0];original=mp3.read_bytes()
+        page=self.window.pages['editor']
+        self.assertTrue(hasattr(page,'track') and hasattr(page,'year'),
+                        'the tag editor must expose track and year inputs')
+        page.load(mp3);self.wait()
+        # both fields start empty for a file without those tags
+        self.assertEqual(page.track.text(),'')
+        self.assertEqual(page.year.text(),'')
+        page.track.setText('3/12');page.year.setText('1999');page.save();self.wait()
+        self.assertEqual(mp3.read_bytes(),original,'save-as must leave the source untouched')
+        saved=read_metadata(page.path)
+        self.assertEqual(saved.track,'3/12')
+        self.assertEqual(saved.year,'1999')
+        # reloading the saved copy repopulates both inputs
+        page.load(page.path);self.wait()
+        self.assertEqual(page.track.text(),'3/12')
+        self.assertEqual(page.year.text(),'1999')
+
+    def test_editor_can_shift_the_lyrics_timeline_before_saving(self):
+        page=self.window.pages['editor']
+        source=self.base/'shift-me.wav'
+        with wave.open(str(source),'wb') as out:
+            out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*4000)
+        outputs,lines=convert_files('audio',[source],'',AudioConversionSettings('mp3',128),lambda *args:None)
+        self.assertEqual(len(outputs),1,lines)
+        mp3=outputs[0];original=mp3.read_bytes()
+        lyric=self.base/'shift.lrc';lyric.write_text('[ti:歌名]\n[00:01.00]第一句\n[00:05.50]第二句\n',encoding='utf8')
+        page.load(mp3);self.wait();page.set_lyrics(lyric)
+        self.assertIn('[00:01.00]',page.lyrics.toPlainText())
+        # later by 2 s
+        page.lyric_shift.setValue(2.0)
+        page.shift_direction.setCurrentIndex(page.shift_direction.findData('later'))
+        page.apply_lyric_shift()
+        text=page.lyrics.toPlainText()
+        self.assertIn('[00:03.00]',text);self.assertIn('[00:07.50]',text)
+        self.assertIn('[ti:歌名]',text,'shifting must not drop metadata lines')
+        # earlier again returns to the original times
+        page.lyric_shift.setValue(2.0)
+        page.shift_direction.setCurrentIndex(page.shift_direction.findData('earlier'))
+        page.apply_lyric_shift()
+        self.assertIn('[00:01.00]',page.lyrics.toPlainText())
+        # the audio is untouched until the user saves
+        self.assertEqual(mp3.read_bytes(),original)
+        page.save();self.wait()
+        self.assertEqual(mp3.read_bytes(),original)
+        saved=read_metadata(page.path)
+        self.assertIn('[00:01.00]',saved.lyrics)
+
+    def test_lyric_shift_without_lyrics_explains_instead_of_failing(self):
+        page=self.window.pages['editor']
+        page.lyrics.setPlainText('')
+        page.apply_lyric_shift()
+        self.assertIn('请先导入或载入歌词',self.messages[-1])
+        page.lyrics.setPlainText('没有任何时间戳的纯文本')
+        page.apply_lyric_shift()
+        self.assertIn('没有可调整的时间戳',self.messages[-1])
+
+    def test_batch_tag_editing_writes_only_the_filled_fields(self):
+        from mediaanvil_qt.services import batch_edit_tags
+        sources=[]
+        for index in range(3):
+            wav=self.base/f'batch-{index}.wav'
+            with wave.open(str(wav),'wb') as out:
+                out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*4000)
+            outputs,lines=convert_files('audio',[wav],'',AudioConversionSettings('mp3',128),lambda *args:None)
+            self.assertEqual(len(outputs),1,lines)
+            sources.append(outputs[0])
+        # give one file a title that the batch must not erase
+        from sub2lrc.audio_metadata import write_metadata,AudioMetadataChanges
+        write_metadata(sources[0],AudioMetadataChanges(title='保留标题'))
+        progress=[]
+        lines=batch_edit_tags(sources,{'album':'合辑','artist':'','year':'2001','title':'','track':''},
+                              True,None,lambda p,t:progress.append(p))
+        self.assertEqual(len([l for l in lines if l.startswith('完成')]),3,lines)
+        self.assertEqual(progress[-1],100.0)
+        for audio in sources:
+            state=read_metadata(audio)
+            self.assertEqual(state.album,'合辑')
+            self.assertEqual(state.artist,'')
+            self.assertEqual(state.year,'2001')
+        self.assertEqual(read_metadata(sources[0]).title,'保留标题','a blank box must not erase an existing title')
+
+    def test_batch_tag_editing_reports_nothing_to_write(self):
+        from mediaanvil_qt.services import batch_edit_tags
+        lines=batch_edit_tags([self.base/'missing.mp3'],{'album':'','artist':'  '},True,None,lambda *a:None)
+        self.assertEqual(len(lines),1)
+        self.assertIn('跳过',lines[0])
+
+    def test_batch_tag_editing_continues_after_one_failure(self):
+        from mediaanvil_qt.services import batch_edit_tags
+        wav=self.base/'ok.wav'
+        with wave.open(str(wav),'wb') as out:
+            out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*4000)
+        outputs,_=convert_files('audio',[wav],'',AudioConversionSettings('mp3',128),lambda *args:None)
+        good=outputs[0]
+        broken=self.base/'broken.mp3';broken.write_bytes(b'not audio at all')
+        lines=batch_edit_tags([broken,good],{'album':'合辑'},True,None,lambda *a:None)
+        self.assertTrue(any(l.startswith('失败') for l in lines),lines)
+        self.assertTrue(any(l.startswith('完成') for l in lines),lines)
+        self.assertEqual(read_metadata(good).album,'合辑')
+
+    def test_editor_batch_tag_controls_gate_on_a_scan(self):
+        page=self.window.pages['editor']
+        self.assertFalse(page.batch_apply.isEnabled(),'batch write must wait for a scan')
+        match=type('Match',(),{'audio':self.base/'x.mp3','lyric_candidates':(),'cover_candidates':()})()
+        page.scanned([match])
+        self.assertTrue(page.batch_apply.isEnabled())
+        page.clear_matches()
+        self.assertFalse(page.batch_apply.isEnabled())
+        page.apply_batch_tags()
+        self.assertIn('请先扫描音乐文件夹',self.messages[-1])
+
+    def test_join_page_merges_files_in_list_order(self):
+        sources=[]
+        for index,frequency in enumerate((440,660,880)):
+            wav=self.base/f'part-{index}.wav'
+            with wave.open(str(wav),'wb') as out:
+                out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*8000)
+            sources.append(wav)
+        page=self.window.pages['join']
+        self.window.navigation.setCurrentRow(self.window.keys.index('join'))
+        self.qt.processEvents()
+        page.receive(sources)
+        page.mode_buttons['merge'].setChecked(True)
+        page.output.edit.setText(str(self.base/'out'))
+        (self.base/'out').mkdir(exist_ok=True)
+        page.start();self.wait()
+        self.assertEqual(len(page.last_outputs),1)
+        produced=page.last_outputs[0]
+        self.assertTrue(produced.is_file())
+        self.assertEqual(produced.suffix.lower(),'.mp3')
+        self.assertGreater(produced.stat().st_size,0)
+        # sources must survive untouched
+        for source in sources:self.assertTrue(source.exists())
+        self.assertEqual(page.result_table.rowCount(),1)
+
+    def test_join_page_splits_one_file_into_equal_parts(self):
+        source=self.base/'long.wav'
+        with wave.open(str(source),'wb') as out:
+            out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*8000*4)
+        page=self.window.pages['join']
+        self.window.navigation.setCurrentRow(self.window.keys.index('join'))
+        self.qt.processEvents()
+        page.receive([source])
+        page.mode_buttons['split'].setChecked(True)
+        page.split_mode.setCurrentIndex(page.split_mode.findData('parts'))
+        page.split_parts.setValue(4)
+        out_dir=self.base/'split-out';out_dir.mkdir()
+        page.output.edit.setText(str(out_dir))
+        page.start();self.wait()
+        self.assertEqual(len(page.last_outputs),4,[str(p) for p in page.last_outputs])
+        for produced in page.last_outputs:
+            self.assertTrue(produced.is_file());self.assertGreater(produced.stat().st_size,0)
+        self.assertTrue(source.exists(),'splitting must not consume the source')
+        self.assertEqual(page.result_table.rowCount(),4)
+
+    def test_join_page_refuses_merge_with_a_single_file(self):
+        source=self.base/'only.wav'
+        with wave.open(str(source),'wb') as out:
+            out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*4000)
+        page=self.window.pages['join']
+        page.receive([source])
+        page.mode_buttons['merge'].setChecked(True)
+        page.start()
+        self.assertIn('合并至少需要两个音频文件',self.messages[-1])
+        self.assertIsNone(self.window._worker)
+
+    def test_join_page_switches_labels_with_the_mode(self):
+        page=self.window.pages['join']
+        # a widget only reports visible() once its page is actually shown
+        self.window.navigation.setCurrentRow(self.window.keys.index('join'))
+        for _ in range(4):self.qt.processEvents()
+        page.mode_buttons['merge'].setChecked(True)
+        for _ in range(2):self.qt.processEvents()
+        self.assertEqual(page.start_button.text(),'开始合并')
+        self.assertFalse(page.split_options.isVisible())
+        page.mode_buttons['split'].setChecked(True)
+        for _ in range(2):self.qt.processEvents()
+        self.assertEqual(page.start_button.text(),'开始分割')
+        self.assertTrue(page.split_options.isVisible())
+        page.split_mode.setCurrentIndex(page.split_mode.findData('length'))
+        for _ in range(2):self.qt.processEvents()
+        self.assertTrue(page.split_length.isVisible())
+        self.assertFalse(page.split_parts.isVisible())
+        page.split_mode.setCurrentIndex(page.split_mode.findData('parts'))
+        for _ in range(2):self.qt.processEvents()
+        self.assertTrue(page.split_parts.isVisible())
+        self.assertFalse(page.split_length.isVisible())
+
+    def test_join_page_appears_in_navigation_and_localises(self):
+        labels=[button.text() for button in self.window.navigation.buttons]
+        self.assertIn('音频合并 / 分割',labels)
+        self.window.set_language('en_US');self.qt.processEvents()
+        labels=[button.text() for button in self.window.navigation.buttons]
+        self.assertIn('Join / Split',labels)
+        self.window.set_language('zh_CN');self.qt.processEvents()
+
     def test_metadata_editor_imports_srt_and_vtt_as_embedded_lrc(self):
         page=self.window.pages['editor']
         for suffix,timing in (('.srt','00:00:01,000 --> 00:00:02,000'),('.vtt','00:00:03.000 --> 00:00:04.000')):

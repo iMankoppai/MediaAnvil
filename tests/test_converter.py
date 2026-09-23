@@ -3,11 +3,14 @@ import tempfile
 import unittest
 
 from sub2lrc.converter import (
+    SubtitleCue,
     SubtitleError,
     convert_file,
     convert_text,
     parse_subtitle,
     read_subtitle,
+    shift_cues,
+    shift_lrc,
     unique_output_path,
 )
 
@@ -74,6 +77,41 @@ cue-id
             self.assertEqual(unique_output_path(directory, "歌曲.MP3.srt").name, "歌曲.lrc")
             self.assertEqual(unique_output_path(directory, "歌曲.flac.vtt").name, "歌曲.lrc")
             self.assertEqual(unique_output_path(directory, "歌曲.srt").name, "歌曲.lrc")
+
+    def test_shift_lrc_moves_every_timestamp(self) -> None:
+        source = "[00:01.00]第一句\n[00:05.50]第二句\n"
+        self.assertEqual(shift_lrc(source, 2.0), "[00:03.00]第一句\n[00:07.50]第二句\n")
+        self.assertEqual(shift_lrc(source, -0.5), "[00:00.50]第一句\n[00:05.00]第二句\n")
+
+    def test_shift_lrc_keeps_metadata_and_layout(self) -> None:
+        """Parsing drops [ti:]/[ar:], so a shift must rewrite text in place."""
+        source = "[ti:我的歌]\n[ar:歌手]\n[00:01.00]第一句\n\n[00:10.00]第二句\n"
+        shifted = shift_lrc(source, 1.0)
+        self.assertIn("[ti:我的歌]", shifted)
+        self.assertIn("[ar:歌手]", shifted)
+        self.assertIn("\n\n", shifted)
+        self.assertEqual(shifted.count("\n"), source.count("\n"))
+        self.assertEqual(shift_lrc(source, 0), source)
+
+    def test_shift_lrc_clamps_instead_of_producing_negative_times(self) -> None:
+        shifted = shift_lrc("[00:01.00]早\n[00:09.00]晚\n", -5.0)
+        self.assertEqual(shifted, "[00:00.00]早\n[00:04.00]晚\n")
+        self.assertNotIn("[-", shifted)
+
+    def test_shift_lrc_round_trips(self) -> None:
+        source = "[00:01.00]一\n[00:02.50]二\n[00:03.25]三\n"
+        self.assertEqual(shift_lrc(shift_lrc(source, 7.5), -7.5), source)
+
+    def test_shift_lrc_handles_multiple_stamps_and_milliseconds(self) -> None:
+        source = "[00:01.00][00:02.000]重复行\n"
+        shifted = shift_lrc(source, 1.0)
+        self.assertEqual(shifted, "[00:02.00][00:03.00]重复行\n")
+
+    def test_shift_cues_never_lets_an_end_precede_its_start(self) -> None:
+        cues = [SubtitleCue(1.0, "a", 3.0), SubtitleCue(10.0, "b", None)]
+        shifted = shift_cues(cues, -5.0)
+        self.assertEqual([(c.start_seconds, c.end_seconds) for c in shifted], [(0.0, 0.0), (5.0, None)])
+        self.assertEqual(shift_cues(cues, 0), cues)
 
     def test_output_name_still_avoids_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

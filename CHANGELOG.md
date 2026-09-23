@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.2.0
+
+- The tag editor can now change the track number and the year, not just title,
+  artist and album. Both were already read and used by batch rename, but there
+  was no way to correct them. The year is written to `TDRC` on ID3v2.4 and
+  `TYER` on ID3v2.3, matching how the reader already looks them up, and the other
+  spelling is removed so a file never carries two conflicting years.
+- Added an audio join / split page. Several files can be concatenated in list
+  order, or one file can be cut into equal parts or fixed-length pieces. Output
+  is always a new file; sources are never modified or deleted.
+- Added bulk tag editing: after scanning a music folder, fill in any of album,
+  artist or year and write the same values to every scanned file. Blank boxes are
+  left untouched, so an untouched field never erases an existing tag, and one
+  failing file does not stop the rest.
+- Added whole-timeline lyric offsetting on the tag editor. Choose a direction and
+  a number of seconds to move every timestamp, then save to write it into the
+  audio. Timestamps are rewritten in place, so metadata lines such as `[ti:]` and
+  `[ar:]` are preserved, and a negative shift clamps at zero instead of dropping
+  lines.
+
+### 中文说明
+
+- 标签编辑器现在可以修改曲目号与年份，不再只有歌名、歌手和专辑。这两项此前能被读取、
+  也被批量重命名使用，却没有任何办法修正。年份在 ID3v2.4 写入 `TDRC`、在 ID3v2.3
+  写入 `TYER`，与读取端的查找顺序一致；写入时会删除另一种写法，避免一个文件带有两个
+  互相冲突的年份。
+- 新增「音频合并 / 分割」页面。可以把多个文件按列表顺序拼接，也可以把单个文件按段数
+  等分或按每段时长切分。输出始终是新文件，源文件不会被修改或删除。
+- 新增批量标签编辑：扫描音乐文件夹后，填写专辑、歌手或年份中的任意项，即可把相同的值
+  写入全部已扫描文件。留空的输入框不会改动原值，因此未填写的字段绝不会清掉已有标签；
+  单个文件失败也不会中断其余文件。
+- 标签编辑器新增歌词时间轴整体偏移。选择提前或延后并填入秒数，即可整体调整所有时间戳，
+  保存后写入音频。时间戳采用原文本替换，`[ti:]`、`[ar:]` 等元数据行会被保留；负向偏移
+  在 0 秒处截断，不会丢弃歌词行。
+
 ## ffmpeg-vendor-9.0.2
 
 - Vendored FFmpeg 9.0.2. Verified essentials build from gyan.dev, published as an

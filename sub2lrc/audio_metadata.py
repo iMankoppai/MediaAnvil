@@ -54,6 +54,8 @@ class AudioMetadataChanges:
     title: str | None = None
     artist: str | None = None
     album: str | None = None
+    track: str | None = None
+    year: str | None = None
     lyrics_path: Path | None = None
     remove_lyrics: bool = False
     cover_path: Path | None = None
@@ -75,6 +77,19 @@ def _value(tags: object | None, key: str) -> str:
     if isinstance(value, list):
         return " / ".join(str(item) for item in value)
     return str(value)
+
+
+def _parse_track_pair(text: str) -> tuple[int, int]:
+    """Turn a track field into MP4's ``(number, total)`` form.
+
+    Accepts "3", "3/12" or "03 / 12" and ignores anything non-numeric, so a
+    free-text value clears the tag instead of raising.
+    """
+    head, _, tail = text.strip().partition("/")
+    def number(part: str) -> int:
+        digits = "".join(character for character in part if character.isdigit())
+        return int(digits) if digits else 0
+    return number(head), number(tail)
 
 
 def _generic_info(path: Path, audio: object, label: str, tag_count: int) -> AudioFileInfo:
@@ -126,6 +141,7 @@ class Mp3Adapter:
     def write(self, source: Path, changes: AudioMetadataChanges, destination: Path | None) -> Path:
         edits = Mp3Edits(
             title=changes.title, artist=changes.artist, album=changes.album,
+            track=changes.track, year=changes.year,
             lyrics_path=changes.lyrics_path, remove_lyrics=changes.remove_lyrics,
             cover_path=changes.cover_path, remove_cover=changes.remove_cover,
         )
@@ -157,7 +173,8 @@ class FlacAdapter:
             audio = FLAC(path)
             if audio.tags is None:
                 audio.add_tags()
-            for key, value in (("title", changes.title), ("artist", changes.artist), ("album", changes.album)):
+            for key, value in (("title", changes.title), ("artist", changes.artist), ("album", changes.album),
+                               ("tracknumber", changes.track), ("date", changes.year)):
                 if value is not None:
                     if value.strip(): audio[key] = [value.strip()]
                     elif key in audio: del audio[key]
@@ -213,10 +230,17 @@ class Mp4Adapter:
         def edit(path: Path) -> None:
             audio = MP4(path)
             if audio.tags is None: audio.add_tags()
-            for key, value in (("©nam", changes.title), ("©ART", changes.artist), ("©alb", changes.album)):
+            for key, value in (("©nam", changes.title), ("©ART", changes.artist), ("©alb", changes.album),
+                               ("©day", changes.year)):
                 if value is not None:
                     if value.strip(): audio.tags[key] = [value.strip()]
                     else: audio.tags.pop(key, None)
+            if changes.track is not None:
+                number, total = _parse_track_pair(changes.track)
+                if number:
+                    audio.tags["trkn"] = [(number, total or 0)]
+                else:
+                    audio.tags.pop("trkn", None)
             if changes.remove_lyrics: audio.tags.pop("©lyr", None)
             elif lyrics is not None: audio.tags["©lyr"] = [lyrics]
             if changes.remove_cover: audio.tags.pop("covr", None)
@@ -261,7 +285,8 @@ class OggAdapter:
         def edit(path: Path) -> None:
             audio, _label = self._open(path)
             if audio.tags is None: audio.add_tags()
-            for key, value in (("title", changes.title), ("artist", changes.artist), ("album", changes.album)):
+            for key, value in (("title", changes.title), ("artist", changes.artist), ("album", changes.album),
+                               ("tracknumber", changes.track), ("date", changes.year)):
                 if value is not None:
                     if value.strip(): audio[key] = [value.strip()]
                     elif key in audio: del audio[key]

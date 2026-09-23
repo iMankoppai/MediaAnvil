@@ -13,6 +13,7 @@ from .common import resource,Worker,Page,button,group,dialog_category,dialog_ini
 from .design import Navigation, STYLE
 from .documents import DocumentViewer
 from .conversion import ConversionPage
+from .join import JoinPage
 from .preview import PreviewPage
 from .metadata import MetadataPage
 from .rename import RenamePage
@@ -70,7 +71,8 @@ class MainWindow(QMainWindow):
         self.pages={
             'preview':PreviewPage(self), 'editor':MetadataPage(self),
             'subtitle':ConversionPage(self,'subtitle'), 'audio':ConversionPage(self,'audio'),
-            'image':ConversionPage(self,'image'), 'renamer':RenamePage(self), 'settings':SettingsPage(self),
+            'image':ConversionPage(self,'image'), 'join':JoinPage(self),
+            'renamer':RenamePage(self), 'settings':SettingsPage(self),
         }
         about=Page(self,'关于 MediaAnvil','让日常媒体整理更轻松')
         card,body=group(f'MediaAnvil  ·  v{__version__}');about.layout.addWidget(card)
@@ -78,7 +80,7 @@ class MainWindow(QMainWindow):
         text=QLabel('一个简洁、离线的多媒体工具箱。\n\n播放音频、同步歌词，编辑标签与封面，整理文件名，\n以及完成音频、图片和歌词字幕的格式转换。\n\n媒体文件始终在本机处理，默认保留原文件。');text.setWordWrap(True);body.addWidget(text)
         body.addWidget(button('使用说明',lambda:self.show_document('使用说明','USER_GUIDE.md','USER_GUIDE.en.md')),0,Qt.AlignmentFlag.AlignLeft)
         body.addWidget(button('第三方组件说明',lambda:self.show_document('第三方组件说明','THIRD_PARTY_NOTICES.md')),0,Qt.AlignmentFlag.AlignLeft);about.layout.addStretch();self.pages['about']=about
-        labels=['音频预览','音频标签编辑','歌词 / 字幕转换','音频格式转换','图片格式转换','批量重命名','设置','关于']
+        labels=['音频预览','音频标签编辑','歌词 / 字幕转换','音频格式转换','图片格式转换','音频合并 / 分割','批量重命名','设置','关于']
         self.keys=list(self.pages)
         for key,label in zip(self.keys,labels):
             page=self.pages[key];self.navigation.addItem(label)
@@ -115,7 +117,7 @@ class MainWindow(QMainWindow):
     def set_language(self,language):
         self.settings['language']=language;self.sidebar.setFixedWidth(204);apply_language(self,language)
         if language=='en_US':
-            labels=('Audio Preview','Tag Editor','Lyrics / Subtitles','Audio Converter','Image Converter','Batch Rename','Settings','About')
+            labels=('Audio Preview','Tag Editor','Lyrics / Subtitles','Audio Converter','Image Converter','Join / Split','Batch Rename','Settings','About')
             for item,label in zip(self.navigation.buttons,labels):item.setText(label)
         for item in self.navigation.buttons:item.setStyleSheet('font-size:13px;' if language=='en_US' else '')
         self.statusBar().showMessage(self.t('就绪 · 可直接拖入文件或文件夹'))

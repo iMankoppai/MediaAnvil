@@ -37,6 +37,8 @@ class Mp3Edits:
     title: str | None = None
     artist: str | None = None
     album: str | None = None
+    track: str | None = None
+    year: str | None = None
     lyrics_path: Path | None = None
     remove_lyrics: bool = False
     cover_path: Path | None = None
@@ -119,8 +121,8 @@ def save_mp3_edits(
     expected_cover = read_cover(edits.cover_path) if edits.cover_path is not None else None
 
     def edit(target: Path) -> None:
-        if any(value is not None for value in (edits.title, edits.artist, edits.album)):
-            update_mp3_metadata(target, edits.title, edits.artist, edits.album)
+        if any(value is not None for value in (edits.title, edits.artist, edits.album, edits.track, edits.year)):
+            update_mp3_metadata(target, edits.title, edits.artist, edits.album, track=edits.track, year=edits.year)
 
         if edits.remove_lyrics:
             remove_embedded_lyrics(target)
@@ -137,6 +139,8 @@ def save_mp3_edits(
             (edits.title, saved.title),
             (edits.artist, saved.artist),
             (edits.album, saved.album),
+            (edits.track, saved.track),
+            (edits.year, saved.year),
         ):
             if requested is not None and requested.strip() != actual:
                 raise Mp3EditorError("保存后的基础信息校验失败，原文件未被修改。")
