@@ -19,6 +19,20 @@ class QtBuildDependencyTests(unittest.TestCase):
         self.assertIn("'--smoke-test'", verifier)
         self.assertIn("report.json", verifier)
 
+    def test_powershell_scripts_keep_a_utf8_bom(self):
+        # Windows PowerShell 5.1 decodes a BOM-less UTF-8 file as ANSI, and a
+        # Chinese character's trailing byte can then swallow the newline after it,
+        # silently merging the next line into the comment above. The parser still
+        # reports zero errors while the script fails at run time, so the BOM is the
+        # only thing keeping these scripts correct. CI runs download_ffmpeg.ps1
+        # under `shell: powershell`, which is exactly that 5.1 interpreter.
+        root = Path(__file__).resolve().parents[1]
+        for name in ('build-qt.ps1', 'tools/download_ffmpeg.ps1'):
+            with self.subTest(script=name):
+                raw = (root / name).read_bytes()
+                self.assertEqual(raw[:3], b'\xef\xbb\xbf',
+                                 f'{name} lost its UTF-8 BOM')
+
     def test_user_guide_is_included_in_the_release(self):
         root=Path(__file__).resolve().parents[1]
         guide=root/'USER_GUIDE.md';script=(root/'build-qt.ps1').read_text(encoding='utf8')
