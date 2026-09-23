@@ -2,7 +2,7 @@
 
 **[简体中文 →](USER_GUIDE.md)**
 
-Applies to: MediaAnvil Qt 1.2.0 for Windows
+Applies to: MediaAnvil Qt 1.3.0 for Windows
 
 MediaAnvil is a local media toolbox for audio playback with synchronized lyrics, audio metadata and artwork editing, lyrics and subtitle conversion, audio and image conversion, and metadata-based batch renaming. All media processing happens on your computer.
 
@@ -65,19 +65,32 @@ During playback, the current line is highlighted and centered automatically. Cli
 
 Preview supports MP3, WAV, FLAC, M4A, AAC, OGG, and Opus.
 
+### Shift the lyrics timeline
+
+When the lyrics run consistently early or late, you can shift them right on the preview page and judge the result by ear:
+
+1. After loading audio, enter the number of seconds in the box below the lyrics card.
+2. Choose "Later" or "Earlier" and click "Apply".
+
+The highlighted line moves **immediately**, so you can adjust while listening. "Reset" restores the file's own timeline.
+
+**The preview page does not modify any file by default**: adjusting without saving leaves the audio completely untouched. Once the offset looks right, "Save to Audio" writes it, and it **always saves a new file** (named with a `_tagged` suffix) so the source is preserved.
+
+The offset changes only the lyrics; the audio's title, artist, album and other tags are left alone. Metadata lines such as `[ti:]` and `[ar:]` are preserved, a negative shift stops at `00:00.00` rather than producing negative timestamps, and no line is dropped. For SRT/VTT the end time moves together with the start time.
+
 ## 4. Tag Editor
 
 ### Edit basic information
 
 1. Open Tag Editor.
 2. Select Choose Audio.
-3. Edit the title, artist, album, track number, or year.
+3. Edit the title, artist, album, track number, year, or genre.
 4. Choose the save mode and output folder.
 5. Select Save to Audio.
 
 Save As is the default and leaves the source file unchanged. The source is replaced only when Overwrite Source is explicitly selected.
 
-**Track number** accepts a bare number such as `3` or a `3/12` number-of-total form. **Year** takes a four-digit value. Clearing a box and saving removes that tag.
+**Track number** accepts a bare number such as `3` or a `3/12` number-of-total form. **Year** takes a four-digit value. **Genre** accepts any text, such as `Pop` or `Rock`. Clearing a box and saving removes that tag.
 
 Writable formats are MP3, FLAC, M4A, OGG, and Opus. WAV metadata can be read but not saved. AAC is not supported by the tag editor.
 
@@ -124,7 +137,7 @@ Matching priority is exact name, name with spaces ignored, then names with copy 
 After scanning a music folder you can write the same tags to every scanned file at once:
 
 1. Expand "Smart File Matching" and select "Scan Music Folder…" to choose a folder.
-2. Fill in any of Album, Artist, or Year.
+2. Fill in any of Album, Artist, Year, Track Number, or Genre.
 3. Click "Batch Write Tags".
 
 **A blank box never changes the existing value**, so filling in only the album leaves every file's title and artist untouched. One failing file does not stop the rest, and the results are listed individually.
@@ -191,10 +204,29 @@ Join several audio files into one, or cut one file into pieces. **Output is alwa
 
 1. Click "Add Files" and add the audio in the order you want.
 2. Under "Mode", choose "Join into one file".
-3. Pick the output format and folder.
-4. Click "Start Joining".
+3. Reorder the list if needed (see below).
+4. Pick the output format and folder.
+5. Click "Start Joining".
 
-Files are concatenated in **list order**, so the order you add them becomes the final order. Joining needs at least two files.
+Files are concatenated in **list order**, so the list order is the final order. Joining needs at least two files.
+
+### Reorder the join list
+
+The list order decides the join order, and it can be changed in two ways:
+
+- **Drag**: drop an entry wherever you want it.
+- **Move Up / Move Down**: select one or more entries and click the buttons to move them one place at a time.
+
+The buttons also work well with a keyboard, or when the list is long enough that precise dragging is awkward.
+
+### Fade and loudness normalisation
+
+Output settings offer two optional finishing steps, **both off by default**:
+
+- **Fade in / out**: tick it and enter a length. The audio fades in at the start and out at the end, which avoids abrupt starts and stops at a join. When joining, it applies to the start and end of the whole result; when splitting, **every piece** gets its own fade. A length longer than the audio itself is shortened to half the clip, so the end never fades back up.
+- **Normalise volume**: levels loudness to the EBU R128 standard. When joining, each file is levelled **before** the concatenation, so recordings made at different volumes end up at a similar level; when splitting, each piece is levelled on its own.
+
+Both only affect newly created files; sources are untouched.
 
 ### Split one file
 

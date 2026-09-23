@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.3.0
+
+- The audio preview page can offset the lyric timeline. Choose a direction and a
+  number of seconds, and the highlighted line moves immediately so the offset can
+  be judged while listening; Reset restores the file's own timing. Nothing is
+  written until "Save to Audio" is pressed, and that always produces a new file,
+  so the preview page never modifies the source. LRC timestamps are rewritten in
+  place, keeping metadata lines such as `[ti:]`, while SRT and VTT are re-rendered
+  from shifted cues because their timestamps are ranges rather than points.
+- Joining and splitting can now fade the audio in and out and normalise its
+  loudness. Both are off by default. Loudness is levelled per input before the
+  join, so tracks recorded at different volumes end up at a similar level; a fade
+  longer than the clip is shortened to half its length rather than fading the
+  audio back up at the end.
+- The join list can be reordered by dragging an entry or with the new Move Up and
+  Move Down buttons. The order shown is the order used for the merge.
+- Genre can now be read and written for MP3, FLAC, M4A and OGG, and the tag
+  editor can change it alongside the other basic fields. Bulk tag editing gained
+  genre and track number; as before, a blank box never erases an existing value.
+
+### 中文说明
+
+- 音频预览页现在可以整体偏移歌词时间轴。选择方向并填入秒数后，高亮行会立即移动，
+  可以一边播放一边判断偏移是否合适；“重置”可恢复文件原本的时间轴。在点击
+  “保存到音频”之前不会写入任何内容，而保存始终生成新文件，因此预览页不会修改源文件。
+  LRC 采用原文本替换时间戳，`[ti:]` 等元数据行会被保留；SRT 与 VTT 的时间是区间而非
+  单点，因此由偏移后的字幕重新渲染。
+- 音频合并与分割新增淡入淡出和音量标准化，两项默认关闭。音量标准化在拼接前逐个输入
+  处理，因此音量不同的录音可以得到接近的响度；淡入淡出时长超过音频本身时会缩短为
+  音频的一半，不会出现结尾反而变响的情况。
+- 合并列表可以拖动条目调整顺序，也可以使用新增的“上移”“下移”按钮。列表显示的顺序
+  就是实际拼接的顺序。
+- 现在可以读写 MP3、FLAC、M4A 和 OGG 的流派，标签编辑器可在基本信息中修改。批量标签
+  编辑新增流派与曲目号；与之前一致，留空的输入框不会清掉已有标签。
+
 ## 1.2.0
 
 - The tag editor can now change the track number and the year, not just title,
