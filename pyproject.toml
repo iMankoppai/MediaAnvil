@@ -9,4 +9,12 @@ exclude = [".build-venv-windows", "build", "dist", "vendor"]
 # shadowed imports and unused locals. Style rules (E5xx line length, E7xx
 # multiple statements per line) stay off: the compact one-line style is
 # deliberate here and rewriting it would dwarf any behavioural change.
-select = ["E9", "F"]
+#
+# E401, E703 and E741 are selected individually rather than by turning on the
+# whole E category. Those three are not style preferences: a statement that ends
+# in a stray semicolon, imports crammed onto one line, and a variable named `l`
+# are all defects, and between them the repository had exactly six of them.
+# Enabling "E" wholesale would instead add about 2250 findings that are only the
+# compact one-line style (E701/E702/E501), which is deliberately not being
+# rewritten.
+select = ["E9", "F", "E401", "E703", "E741"]

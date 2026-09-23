@@ -1,4 +1,9 @@
-import time,tempfile,unittest,threading,wave,re
+import re
+import tempfile
+import threading
+import time
+import unittest
+import wave
 from pathlib import Path
 from unittest.mock import MagicMock,patch
 from PIL import Image
@@ -285,6 +290,58 @@ class QtRewriteTests(unittest.TestCase):
         self.assertIsNone(self.window.resolve_document(QUrl('../../secret.md')))
         self.assertIsNone(self.window.resolve_document(QUrl('NOT_A_REAL_FILE.md')))
 
+    def test_frozen_documents_are_read_from_the_bundle_and_are_not_empty(self):
+        """The guides must be readable through sys._MEIPASS, not just beside the source.
+
+        A frozen build resolves resources from the PyInstaller bundle, so a file
+        that exists in the repository can still be missing from the shipped app.
+        verify_qt_build.py checks that the documents are present in the release
+        folder; this checks that the frozen lookup path can actually read them.
+        """
+        import sys
+        from mediaanvil_qt.common import resource
+        bundle=self.base/'bundle';bundle.mkdir()
+        for name in ('USER_GUIDE.md','USER_GUIDE.en.md','README-Qt.md','README-Qt.en.md',
+                     'THIRD_PARTY_NOTICES.md'):
+            (bundle/name).write_text((Path(__file__).resolve().parents[1]/name).read_text(encoding='utf-8'),
+                                     encoding='utf-8')
+        original=getattr(sys,'_MEIPASS',None)
+        sys._MEIPASS=str(bundle)
+        try:
+            # resource() must follow the frozen path rather than the source tree.
+            self.assertSamePath(resource('USER_GUIDE.md'),bundle/'USER_GUIDE.md')
+            for name in ('USER_GUIDE.md','USER_GUIDE.en.md','README-Qt.md','README-Qt.en.md',
+                         'THIRD_PARTY_NOTICES.md'):
+                with self.subTest(document=name):
+                    text=resource(name).read_text(encoding='utf-8')
+                    self.assertTrue(text.strip(),f'{name} is empty in the bundle')
+            # And the whole open-a-guide path works against the bundle.
+            with patch.object(self.window,'present_document') as shown:
+                self.window.show_document('使用说明','USER_GUIDE.md','USER_GUIDE.en.md')
+            self.assertIn('# MediaAnvil',shown.call_args.args[1])
+            resolved=self.window.resolve_document(QUrl('USER_GUIDE.en.md'))
+            self.assertIsNotNone(resolved)
+            self.assertIn('# MediaAnvil User Guide',resolved[1])
+        finally:
+            if original is None:del sys._MEIPASS
+            else:sys._MEIPASS=original
+
+    def test_frozen_bundle_missing_a_guide_reports_instead_of_crashing(self):
+        """A missing or unreadable guide in the bundle must not take the app down."""
+        import sys
+        bundle=self.base/'empty-bundle';bundle.mkdir()
+        original=getattr(sys,'_MEIPASS',None)
+        sys._MEIPASS=str(bundle)
+        try:
+            with patch.object(self.window,'present_document') as shown:
+                self.window.show_document('使用说明','USER_GUIDE.md')
+            self.assertFalse(shown.called,'nothing should be presented for a missing document')
+            self.assertIn('文档无法打开',self.messages[-1])
+            self.assertIsNone(self.window.resolve_document(QUrl('USER_GUIDE.en.md')))
+        finally:
+            if original is None:del sys._MEIPASS
+            else:sys._MEIPASS=original
+
     def test_fixed_footer_never_overlaps_scrolling_content(self):
         for width,height in ((1440,900),(1100,700),(900,640)):
             self.window.resize(width,height)
@@ -407,7 +464,7 @@ class QtRewriteTests(unittest.TestCase):
                 left_bottom=page.step_cards[1].mapTo(page,page.step_cards[1].rect().bottomRight()).y()
                 right_bottom=page.step_cards[2].mapTo(page,page.step_cards[2].rect().bottomRight()).y()
                 self.assertLessEqual(abs(left_bottom-right_bottom),1,key)
-        self.window.resize(*default_window_size());
+        self.window.resize(*default_window_size())
         for _ in range(4):self.qt.processEvents()
         for key in ('subtitle','audio','image'):
             self.window.navigation.setCurrentRow(self.window.keys.index(key))
@@ -1019,7 +1076,7 @@ class QtRewriteTests(unittest.TestCase):
         progress=[]
         lines=batch_edit_tags(sources,{'album':'合辑','artist':'','year':'2001','title':'','track':''},
                               True,None,lambda p,t:progress.append(p))
-        self.assertEqual(len([l for l in lines if l.startswith('完成')]),3,lines)
+        self.assertEqual(len([line for line in lines if line.startswith('完成')]),3,lines)
         self.assertEqual(progress[-1],100.0)
         for audio in sources:
             state=read_metadata(audio)
@@ -1043,8 +1100,8 @@ class QtRewriteTests(unittest.TestCase):
         good=outputs[0]
         broken=self.base/'broken.mp3';broken.write_bytes(b'not audio at all')
         lines=batch_edit_tags([broken,good],{'album':'合辑'},True,None,lambda *a:None)
-        self.assertTrue(any(l.startswith('失败') for l in lines),lines)
-        self.assertTrue(any(l.startswith('完成') for l in lines),lines)
+        self.assertTrue(any(line.startswith('失败') for line in lines),lines)
+        self.assertTrue(any(line.startswith('完成') for line in lines),lines)
         self.assertEqual(read_metadata(good).album,'合辑')
 
     def test_editor_batch_tag_controls_gate_on_a_scan(self):
@@ -1090,7 +1147,7 @@ class QtRewriteTests(unittest.TestCase):
             self.assertEqual(len(outputs),1,lines)
             sources.append(outputs[0])
         lines=batch_edit_tags(sources,{'genre':'古典','track':'5'},True,None,lambda *a:None)
-        self.assertEqual(len([l for l in lines if l.startswith('完成')]),2,lines)
+        self.assertEqual(len([line for line in lines if line.startswith('完成')]),2,lines)
         for produced in sources:
             saved=read_metadata(produced)
             self.assertEqual(saved.genre,'古典')
