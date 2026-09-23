@@ -30,8 +30,8 @@ class AudioRenamerTests(unittest.TestCase):
         return path
 
     @staticmethod
-    def metadata(artist: str = "周杰伦", title: str = "晴天", album: str = "叶惠美", track: str = "1/12", year: str = "2003") -> SimpleNamespace:
-        return SimpleNamespace(artist=artist, title=title, album=album, track=track, year=year)
+    def metadata(artist: str = "周杰伦", title: str = "晴天", album: str = "叶惠美", track: str = "1/12", year: str = "2003", genre: str = "流行") -> SimpleNamespace:
+        return SimpleNamespace(artist=artist, title=title, album=album, track=track, year=year, genre=genre)
 
     def test_artist_title_template_and_two_digit_track(self) -> None:
         audio = self.touch("001.mp3")
@@ -90,9 +90,39 @@ class AudioRenamerTests(unittest.TestCase):
         before = audio.read_bytes()
         with patch("core.audio_renamer.read_metadata", return_value=self.metadata()):
             with self.assertRaises(RenameTemplateError):
-                build_rename_plan((audio,), "{genre} - {title}")
+                build_rename_plan((audio,), "{composer} - {title}")
         self.assertTrue(audio.exists())
         self.assertEqual(audio.read_bytes(), before)
+
+    def test_genre_is_available_to_templates_like_the_other_tag_fields(self) -> None:
+        audio = self.touch("001.mp3")
+        with patch("core.audio_renamer.read_metadata", return_value=self.metadata()):
+            fields = read_rename_fields(audio)
+            self.assertEqual(fields.genre, "流行")
+            self.assertEqual(render_filename_template("{genre} - {title}", fields), "流行 - 晴天.mp3")
+            self.assertEqual(render_filename_template("{track} {genre} {title}", fields), "01 流行 晴天.mp3")
+
+    def test_genre_follows_the_same_illegal_character_rules_as_other_fields(self) -> None:
+        """A genre such as "Rock/Pop" must not be able to escape the folder."""
+        audio = self.touch("001.mp3")
+        with patch("core.audio_renamer.read_metadata", return_value=self.metadata(genre="Rock/Pop")):
+            fields = read_rename_fields(audio)
+            rendered = render_filename_template("{genre} - {title}", fields)
+            self.assertNotIn("/", rendered)
+            self.assertNotIn("\\", rendered)
+            self.assertEqual(rendered, "Rock Pop - 晴天.mp3")
+
+    def test_empty_genre_is_blocked_and_can_fall_back_to_the_original_stem(self) -> None:
+        """A missing genre must behave exactly like any other missing field."""
+        audio = self.touch("001.mp3")
+        with patch("core.audio_renamer.read_metadata", return_value=self.metadata(genre="")):
+            fields = read_rename_fields(audio)
+            with self.assertRaises(MissingRenameFieldError):
+                render_filename_template("{genre} - {title}", fields)
+            self.assertEqual(
+                render_filename_template("{genre} - {title}", fields, fallback_missing=True),
+                "001 - 晴天.mp3",
+            )
 
     def test_execute_isolates_one_failure_and_preserves_content(self) -> None:
         good = self.touch("001.mp3", b"good")

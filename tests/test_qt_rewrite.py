@@ -4,6 +4,7 @@ import threading
 import time
 import unittest
 import wave
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock,patch
 from PIL import Image
@@ -26,7 +27,7 @@ from mediaanvil_qt.metadata import CropDialog
 from core.settings import save_settings
 from sub2lrc.audio_converter import AudioConversionSettings
 from sub2lrc.image_converter import ImageConversionSettings
-from sub2lrc.audio_metadata import read_metadata
+from sub2lrc.audio_metadata import AudioMetadataChanges,read_metadata,write_metadata
 from sub2lrc.audio_preview import PlaybackState
 
 
@@ -59,6 +60,9 @@ class QtRewriteTests(unittest.TestCase):
         while self.window._worker and time.monotonic()<deadline:
             self.qt.processEvents();time.sleep(.005)
         self.assertIsNone(self.window._worker,'worker did not complete');self.qt.processEvents()
+    def lyric_file(self,text,name='tmp-lyrics.lrc'):
+        """Write ``text`` to a scratch LRC file so it can be embedded."""
+        path=self.base/name;path.write_text(text,encoding='utf-8-sig');return path
     def test_pages_preserve_native_window_and_data(self):
         self.assertEqual(qt_version,'1.3.0')
         self.assertIn('v1.3.0',[label.text() for label in self.window.findChildren(QLabel)])
@@ -1153,6 +1157,80 @@ class QtRewriteTests(unittest.TestCase):
             self.assertEqual(saved.genre,'古典')
             self.assertEqual(saved.track,'5')
 
+    def test_batch_lyric_shift_moves_every_file_and_keeps_metadata_lines(self):
+        from mediaanvil_qt.services import batch_shift_lyrics
+        sources=[]
+        lyric='[ti:歌名]\n[ar:歌手]\n[00:10.00]第一句\n[00:20.50]第二句\n'
+        for index in range(2):
+            wav=self.base/f'shift-{index}.wav'
+            with wave.open(str(wav),'wb') as out:
+                out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*4000)
+            outputs,lines=convert_files('audio',[wav],'',AudioConversionSettings('mp3',128),lambda *args:None)
+            self.assertEqual(len(outputs),1,lines)
+            sources.append(outputs[0])
+        for produced in sources:
+            write_metadata(produced,AudioMetadataChanges(lyrics_path=self.lyric_file(lyric)))
+        lines=batch_shift_lyrics(sources,2.5,True,None,lambda *a:None)
+        self.assertEqual(len([line for line in lines if line.startswith('完成')]),2,lines)
+        for produced in sources:
+            text=read_metadata(produced).lyrics
+            self.assertIn('[ti:歌名]',text,'metadata lines must survive the shift')
+            self.assertIn('[ar:歌手]',text)
+            self.assertIn('[00:12.50]第一句',text)
+            self.assertIn('[00:23.00]第二句',text)
+
+    def test_batch_lyric_shift_skips_files_without_lyrics_and_reports_them(self):
+        from mediaanvil_qt.services import batch_shift_lyrics
+        wav=self.base/'nolyrics.wav'
+        with wave.open(str(wav),'wb') as out:
+            out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*4000)
+        outputs,lines=convert_files('audio',[wav],'',AudioConversionSettings('mp3',128),lambda *args:None)
+        self.assertEqual(len(outputs),1,lines)
+        before=read_metadata(outputs[0])
+        result=batch_shift_lyrics(outputs,3.0,True,None,lambda *a:None)
+        self.assertEqual(len(result),1,result)
+        self.assertTrue(result[0].startswith('跳过'),result)
+        self.assertIn('没有内嵌歌词',result[0])
+        self.assertEqual(read_metadata(outputs[0]).lyrics,before.lyrics)
+
+    def test_batch_lyric_shift_clamps_at_zero_without_dropping_lines(self):
+        """A negative shift past the start must clamp, never delete a lyric."""
+        from mediaanvil_qt.services import batch_shift_lyrics
+        wav=self.base/'clamp.wav'
+        with wave.open(str(wav),'wb') as out:
+            out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*4000)
+        outputs,lines=convert_files('audio',[wav],'',AudioConversionSettings('mp3',128),lambda *args:None)
+        self.assertEqual(len(outputs),1,lines)
+        write_metadata(outputs[0],AudioMetadataChanges(
+            lyrics_path=self.lyric_file('[00:01.00]早\n[00:30.00]晚\n')))
+        lines=batch_shift_lyrics(outputs,-5.0,True,None,lambda *a:None)
+        self.assertEqual(len([line for line in lines if line.startswith('完成')]),1,lines)
+        text=read_metadata(outputs[0]).lyrics
+        self.assertIn('[00:00.00]早',text)
+        self.assertIn('[00:25.00]晚',text)
+        self.assertEqual(len([line for line in text.splitlines() if line.strip()]),2,text)
+
+    def test_batch_lyric_shift_refuses_a_zero_offset(self):
+        from mediaanvil_qt.services import batch_shift_lyrics
+        result=batch_shift_lyrics([self.base/'x.mp3'],0,True,None,lambda *a:None)
+        self.assertEqual(len(result),1,result)
+        self.assertTrue(result[0].startswith('跳过'),result)
+
+    def test_batch_lyric_shift_reports_a_broken_file_and_continues(self):
+        from mediaanvil_qt.services import batch_shift_lyrics
+        broken=self.base/'broken.mp3';broken.write_bytes(b'not audio at all')
+        good=self.base/'good.wav'
+        with wave.open(str(good),'wb') as out:
+            out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*4000)
+        outputs,lines=convert_files('audio',[good],'',AudioConversionSettings('mp3',128),lambda *args:None)
+        self.assertEqual(len(outputs),1,lines)
+        write_metadata(outputs[0],AudioMetadataChanges(lyrics_path=self.lyric_file('[00:05.00]词\n')))
+        result=batch_shift_lyrics([broken,outputs[0]],1.0,True,None,lambda *a:None)
+        self.assertEqual(len(result),2,result)
+        self.assertTrue(any(line.startswith('失败') for line in result),result)
+        self.assertTrue(any(line.startswith('完成') for line in result),result)
+        self.assertIn('[00:06.00]词',read_metadata(outputs[0]).lyrics)
+
     def test_batch_tag_boxes_include_track_and_genre_and_stay_blank_by_default(self):
         page=self.window.pages['editor']
         self.assertEqual(set(page.batch_values),{'album','artist','year','track','genre'})
@@ -1163,6 +1241,201 @@ class QtRewriteTests(unittest.TestCase):
         page.match_rows=[type('Match',(),{'audio':self.base/'x.mp3'})()]
         page.apply_batch_tags()
         self.assertIn('请至少填写一个要批量写入的标签',self.messages[-1])
+
+    def test_batch_controls_never_overlap_each_other(self):
+        """Every batch box and button must occupy its own space.
+
+        The track-number box and the batch button were once placed on the same
+        grid row, which hid the track number behind the button. Nothing caught it
+        because the layout tests only checked that the page does not scroll
+        sideways, so this checks the rectangles directly.
+        """
+        self.window.navigation.setCurrentRow(self.window.keys.index('editor'))
+        page=self.window.pages['editor']
+        page.match_content.show()
+        for _ in range(4):self.qt.processEvents()
+        base=page.batch_fields_row
+        widgets=[(f'batch_values[{key}]',edit) for key,edit in page.batch_values.items()]
+        widgets.append(('batch_apply',page.batch_apply))
+        widgets.append(('batch_shift',page.batch_shift))
+        widgets.append(('batch_shift_seconds',page.batch_shift_seconds))
+        widgets.append(('batch_shift_direction',page.batch_shift_direction))
+        widgets.append(('batch_cover_choose',page.batch_cover_choose))
+        widgets.append(('batch_cover_path',page.batch_cover_path))
+        widgets.append(('batch_cover_apply',page.batch_cover_apply))
+        rects=[]
+        for name,widget in widgets:
+            with self.subTest(widget=name):
+                self.assertTrue(widget.isVisible(),f'{name} must be visible in the batch area')
+            top_left=widget.mapTo(base,widget.rect().topLeft())
+            rects.append((name,top_left.x(),top_left.y(),widget.width(),widget.height()))
+        for index,(name1,x1,y1,w1,h1) in enumerate(rects):
+            for name2,x2,y2,w2,h2 in rects[index+1:]:
+                with self.subTest(pair=(name1,name2)):
+                    overlaps=not (x1+w1<=x2 or x2+w2<=x1 or y1+h1<=y2 or y2+h2<=y1)
+                    self.assertFalse(overlaps,f'{name1} overlaps {name2}')
+
+    def test_batch_lyric_shift_controls_default_to_a_harmless_offset(self):
+        page=self.window.pages['editor']
+        self.assertGreater(page.batch_shift_seconds.value(),0,'a 0 default would do nothing')
+        self.assertEqual(page.batch_shift_direction.currentData(),'later')
+        # The button starts disabled until a folder has been scanned.
+        self.assertFalse(page.batch_shift.isEnabled())
+
+    def test_batch_lyric_shift_requires_a_scan_and_a_non_zero_offset(self):
+        page=self.window.pages['editor']
+        page.match_rows=[]
+        page.apply_batch_shift()
+        self.assertIn('请先扫描音乐文件夹',self.messages[-1])
+        page.match_rows=[type('Match',(),{'audio':self.base/'x.mp3'})()]
+        page.batch_shift_seconds.setValue(0)
+        page.apply_batch_shift()
+        self.assertIn('请填写要调整的秒数',self.messages[-1])
+
+    def test_batch_lyric_shift_direction_becomes_a_negative_offset(self):
+        """Choosing "Earlier" must send a negative number to the service."""
+        page=self.window.pages['editor']
+        page.match_rows=[type('Match',(),{'audio':self.base/'x.mp3'})()]
+        page.batch_shift_seconds.setValue(2.5)
+        page.batch_shift_direction.setCurrentIndex(1)   # 提前 / Earlier
+        with patch('mediaanvil_qt.metadata.batch_shift_lyrics',return_value=['完成']) as shift:
+            page.apply_batch_shift();self.wait()
+        self.assertEqual(shift.call_args.args[1],-2.5)
+        page.batch_shift_direction.setCurrentIndex(0)   # 延后 / Later
+        with patch('mediaanvil_qt.metadata.batch_shift_lyrics',return_value=['完成']) as shift:
+            page.apply_batch_shift();self.wait()
+        self.assertEqual(shift.call_args.args[1],2.5)
+
+    def test_batch_cover_writes_one_image_to_every_file(self):
+        from mediaanvil_qt.services import batch_set_cover
+        sources=[]
+        for index in range(2):
+            wav=self.base/f'cover-batch-{index}.wav'
+            with wave.open(str(wav),'wb') as out:
+                out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*4000)
+            outputs,lines=convert_files('audio',[wav],'',AudioConversionSettings('mp3',128),lambda *args:None)
+            self.assertEqual(len(outputs),1,lines)
+            sources.append(outputs[0])
+        cover=self.base/'album-cover.png'
+        image=Image.new('RGB',(64,64),(200,30,40));image.save(cover)
+        lines=batch_set_cover(sources,cover,True,None,lambda *a:None)
+        self.assertEqual(len([line for line in lines if line.startswith('完成')]),2,lines)
+        for produced in sources:
+            saved=read_metadata(produced)
+            self.assertTrue(saved.has_cover,produced.name)
+            self.assertGreater(len(saved.cover_data),0)
+            with Image.open(BytesIO(saved.cover_data)) as opened:
+                self.assertEqual(opened.size,(64,64))
+
+    def test_batch_cover_replaces_existing_artwork(self):
+        """The second image must win; an old cover must not be kept."""
+        from mediaanvil_qt.services import batch_set_cover
+        wav=self.base/'cover-replace.wav'
+        with wave.open(str(wav),'wb') as out:
+            out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*4000)
+        outputs,lines=convert_files('audio',[wav],'',AudioConversionSettings('mp3',128),lambda *args:None)
+        self.assertEqual(len(outputs),1,lines)
+        target=outputs[0]
+        first=self.base/'first.png';Image.new('RGB',(32,32),(10,10,10)).save(first)
+        second=self.base/'second.png';Image.new('RGB',(48,48),(240,240,10)).save(second)
+        batch_set_cover([target],first,True,None,lambda *a:None)
+        with Image.open(BytesIO(read_metadata(target).cover_data)) as opened:
+            self.assertEqual(opened.size,(32,32))
+        batch_set_cover([target],second,True,None,lambda *a:None)
+        with Image.open(BytesIO(read_metadata(target).cover_data)) as opened:
+            self.assertEqual(opened.size,(48,48),'the new artwork must replace the old one')
+
+    def test_batch_cover_converts_formats_the_tag_writer_rejects(self):
+        """A WebP cover has to be converted, not written through as-is."""
+        from mediaanvil_qt.services import batch_set_cover
+        wav=self.base/'cover-webp.wav'
+        with wave.open(str(wav),'wb') as out:
+            out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*4000)
+        outputs,lines=convert_files('audio',[wav],'',AudioConversionSettings('mp3',128),lambda *args:None)
+        self.assertEqual(len(outputs),1,lines)
+        webp=self.base/'art.webp';Image.new('RGB',(40,24),(20,120,200)).save(webp,'WEBP')
+        lines=batch_set_cover(outputs,webp,True,None,lambda *a:None)
+        self.assertEqual(len([line for line in lines if line.startswith('完成')]),1,lines)
+        saved=read_metadata(outputs[0])
+        self.assertTrue(saved.has_cover)
+        with Image.open(BytesIO(saved.cover_data)) as opened:
+            self.assertEqual(opened.size,(40,24))
+
+    def test_batch_cover_refuses_a_missing_image_without_touching_files(self):
+        from mediaanvil_qt.services import batch_set_cover
+        wav=self.base/'cover-missing.wav'
+        with wave.open(str(wav),'wb') as out:
+            out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*4000)
+        outputs,lines=convert_files('audio',[wav],'',AudioConversionSettings('mp3',128),lambda *args:None)
+        self.assertEqual(len(outputs),1,lines)
+        result=batch_set_cover(outputs,self.base/'nope.png',True,None,lambda *a:None)
+        self.assertEqual(len(result),1,result)
+        self.assertTrue(result[0].startswith('跳过'),result)
+        self.assertFalse(read_metadata(outputs[0]).has_cover)
+
+    def test_batch_cover_reports_a_broken_file_and_continues(self):
+        from mediaanvil_qt.services import batch_set_cover
+        broken=self.base/'broken.mp3';broken.write_bytes(b'not audio at all')
+        good=self.base/'cover-good.wav'
+        with wave.open(str(good),'wb') as out:
+            out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*4000)
+        outputs,lines=convert_files('audio',[good],'',AudioConversionSettings('mp3',128),lambda *args:None)
+        self.assertEqual(len(outputs),1,lines)
+        cover=self.base/'ok.png';Image.new('RGB',(20,20),(1,2,3)).save(cover)
+        result=batch_set_cover([broken,outputs[0]],cover,True,None,lambda *a:None)
+        self.assertEqual(len(result),2,result)
+        self.assertTrue(any(line.startswith('失败') for line in result),result)
+        self.assertTrue(any(line.startswith('完成') for line in result),result)
+        self.assertTrue(read_metadata(outputs[0]).has_cover)
+
+    def test_batch_cover_ui_requires_a_scan_and_a_chosen_image(self):
+        page=self.window.pages['editor']
+        page.match_rows=[]
+        page.apply_batch_cover()
+        self.assertIn('请先扫描音乐文件夹',self.messages[-1])
+        page.match_rows=[type('Match',(),{'audio':self.base/'x.mp3'})()]
+        page.apply_batch_cover()
+        self.assertIn('请先选择封面图片',self.messages[-1])
+
+    def test_batch_cover_ui_remembers_the_chosen_image(self):
+        page=self.window.pages['editor']
+        cover=self.base/'chosen.png';Image.new('RGB',(8,8),(0,0,0)).save(cover)
+        with patch('mediaanvil_qt.metadata.QFileDialog.getOpenFileName',return_value=(str(cover),'')):
+            page.choose_batch_cover()
+        self.assertEqual(page.batch_cover_path.text(),'chosen.png')
+        self.assertEqual(page.batch_cover,cover)
+        # Cancelling the dialog must leave the previous choice alone.
+        with patch('mediaanvil_qt.metadata.QFileDialog.getOpenFileName',return_value=('','')):
+            page.choose_batch_cover()
+        self.assertEqual(page.batch_cover,cover)
+
+    def test_both_cover_modes_are_available(self):
+        """Matching (per file) and one-image-for-all must both stay reachable."""
+        page=self.window.pages['editor']
+        self.assertTrue(hasattr(page,'batch_cover_apply'),'one image for all files')
+        self.assertTrue(hasattr(page,'write_all'),'matching write')
+        self.assertTrue(hasattr(page,'batch_cover_choose'))
+
+    def test_shift_direction_boxes_are_wide_enough_for_their_text(self):
+        """The direction text must fit in both languages.
+
+        Both boxes were 66px wide, which leaves an 18px text field for a 26px
+        label, so "延后" rendered clipped as "延丿" and "Earlier" was worse.
+        """
+        from PySide6.QtWidgets import QStyleOptionComboBox,QStyle
+        page=self.window.pages['editor']
+        preview=self.window.pages['preview']
+        for name,widget in (('editor direction',page.shift_direction),
+                            ('editor batch direction',page.batch_shift_direction),
+                            ('preview direction',preview.shift_direction)):
+            option=QStyleOptionComboBox();widget.initStyleOption(option)
+            field=widget.style().subControlRect(QStyle.ComplexControl.CC_ComboBox,option,
+                                                QStyle.SubControl.SC_ComboBoxEditField,widget)
+            for text in ('延后','提前','Later','Earlier'):
+                with self.subTest(box=name,text=text):
+                    needed=widget.fontMetrics().horizontalAdvance(text)
+                    self.assertGreaterEqual(field.width(),needed,
+                                            f'{name} clips "{text}" ({field.width()}px for {needed}px)')
 
     def test_batch_tag_layout_never_scrolls_sideways_on_a_narrow_window(self):
         """Five labelled boxes plus the button must not widen the page."""

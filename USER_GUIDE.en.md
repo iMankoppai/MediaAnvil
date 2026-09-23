@@ -144,6 +144,27 @@ After scanning a music folder you can write the same tags to every scanned file 
 
 Writing follows the "Save Mode" at the bottom of the page: with Save As the results go to the output folder and sources stay unchanged.
 
+### Shift lyrics in bulk
+
+After scanning a music folder you can move the **embedded lyrics** of every file earlier or later by the same number of seconds, which suits a whole batch that is off by the same amount:
+
+1. Expand "Smart File Matching" and select "Scan Music Folder…" to choose a folder.
+2. Enter the seconds after "Lyric Offset" and choose "Later" or "Earlier".
+3. Click "Batch Shift Lyrics".
+
+**Files without embedded lyrics are skipped and listed separately**, not treated as failures. A negative shift stops at `00:00.00`, so it never produces negative timestamps or drops a line, and metadata lines such as `[ti:]` and `[ar:]` are preserved.
+
+Writing again follows the "Save Mode" at the bottom of the page: with Save As the results go to the output folder and sources stay unchanged.
+
+### Write the same artwork in bulk
+
+There are two ways to handle artwork; pick the one you need:
+
+- **Keep each track's own image**: put the images next to the audio first (for example `song.jpg` or `song.png`), expand "Smart File Matching", scan, then click "Batch Write Artwork". MediaAnvil pairs them by file name.
+- **Give every track the same image**: click "Choose Artwork…" to pick one image, then click "Batch Write Same Artwork". This suits replacing the artwork of an entire album.
+
+The second way **replaces** the artwork already in each file. Formats other than JPG and PNG are converted before writing, so an unsupported format does not fail the batch.
+
 ## 5. Lyrics / Subtitle Converter
 
 LRC, SRT, and VTT can be converted in any direction.
@@ -263,6 +284,7 @@ Available variables:
 | `{album}` | Album |
 | `{track}` | Track number |
 | `{year}` | Year |
+| `{genre}` | Genre |
 
 Use original filename for missing fields prevents incomplete metadata from immediately blocking an item. Invalid filename characters are handled safely and conflicts are shown in the preview.
 

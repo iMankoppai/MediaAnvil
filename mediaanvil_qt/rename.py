@@ -32,10 +32,10 @@ class RenamePage(Page):
         self.undo_button=button('撤销上次重命名',self.undo);self.undo_button.setEnabled(False)
         rules,rules_layout,self.rules_detail=step_group(2,'重命名规则','设置文件名模板，使用下方变量快速插入');left_layout.addWidget(rules,1)
         fields=QFormLayout();fields.setContentsMargins(0,0,0,0);fields.setVerticalSpacing(8);fields.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow);rules_layout.addLayout(fields)
-        self.template=combo(['{artist} - {title}','{track} - {title}','{album} - {track} - {title}','{year} - {artist} - {title}']);self.template.setEditable(True);self.template.setMaximumWidth(16777215)
+        self.template=combo(['{artist} - {title}','{track} - {title}','{album} - {track} - {title}','{year} - {artist} - {title}','{genre} - {title}']);self.template.setEditable(True);self.template.setMaximumWidth(16777215)
         fields.addRow('重命名模板',self.template)
         chips=[]
-        for variable in ('{artist}','{title}','{album}','{track}','{year}'):
+        for variable in ('{artist}','{title}','{album}','{track}','{year}','{genre}'):
             chip=button(variable,lambda checked=False,value=variable:self.template.lineEdit().insert(value));chip.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed);chips.append(chip)
         self.chips_row=row(*chips);self.chips_row.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed);rules_layout.addWidget(self.chips_row)
         self.fallback=QCheckBox('缺少字段时使用原文件名代替')

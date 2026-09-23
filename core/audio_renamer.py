@@ -13,7 +13,7 @@ from sub2lrc.audio_metadata import AudioMetadataError, read_metadata
 
 
 SUPPORTED_RENAME_EXTENSIONS = frozenset({".mp3", ".flac", ".m4a", ".ogg", ".opus"})
-ALLOWED_TEMPLATE_FIELDS = frozenset({"artist", "title", "album", "track", "year"})
+ALLOWED_TEMPLATE_FIELDS = frozenset({"artist", "title", "album", "track", "year", "genre"})
 _COPY_SUFFIX = re.compile(r"\s+")
 _TRACK_NUMBER = re.compile(r"^\s*(\d+)")
 _YEAR_NUMBER = re.compile(r"(\d{4})")
@@ -45,6 +45,7 @@ class RenameFields:
     album: str = ""
     track: str = ""
     year: str = ""
+    genre: str = ""
 
     @property
     def original_stem(self) -> str:
@@ -149,6 +150,7 @@ def read_rename_fields(file: str | Path) -> RenameFields:
         album=_clean_text(getattr(metadata, "album", "")),
         track=_track_value(getattr(metadata, "track", "")),
         year=_year_value(getattr(metadata, "year", "")),
+        genre=_clean_text(getattr(metadata, "genre", "")),
     )
 
 
@@ -200,6 +202,7 @@ def _field_values(fields: RenameFields) -> dict[str, str]:
         "album": fields.album,
         "track": fields.track,
         "year": fields.year,
+        "genre": fields.genre,
     }
 
 

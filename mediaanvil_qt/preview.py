@@ -81,7 +81,7 @@ class PreviewPage(Page):
         self.lyric_shift=QDoubleSpinBox();self.lyric_shift.setRange(0.0,3600.0);self.lyric_shift.setDecimals(2)
         self.lyric_shift.setSingleStep(0.5);self.lyric_shift.setValue(0.5);self.lyric_shift.setSuffix('秒')
         self.lyric_shift.setFixedWidth(92);self.lyric_shift.setToolTip('要调整的秒数')
-        self.shift_direction=combo([('延后','later'),('提前','earlier')]);self.shift_direction.setFixedWidth(66)
+        self.shift_direction=combo([('延后','later'),('提前','earlier')]);self.shift_direction.setFixedWidth(96)
         self.shift_apply=button('应用',self.apply_lyric_shift);self.shift_apply.setFixedWidth(50)
         self.shift_reset=button('重置',self.reset_lyric_shift);self.shift_reset.setFixedWidth(50)
         self.shift_save=button('保存到音频',self.save_shifted_lyrics,True)

@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QLabel,QLineEdit,QPlainTextEdit,QFileDialog,QChec
     QDialog,QVBoxLayout,QHBoxLayout,QGridLayout,QSpinBox,QDoubleSpinBox,QDialogButtonBox,QWidget,QSizePolicy)
 from .common import Page,button,row,form,combo,OutputPath,table,fill_table,group,Columns,dialog_initial_directory,remember_dialog_selection,dialog_filters,remember_dialog_filter
 from .i18n import apply_language
-from .services import EMBEDDABLE_LYRIC_EXTENSIONS,prepare_lyrics_for_embedding,tagged_destination,write_matches,batch_edit_tags
+from .services import EMBEDDABLE_LYRIC_EXTENSIONS,prepare_lyrics_for_embedding,tagged_destination,write_matches,batch_edit_tags,batch_shift_lyrics,batch_set_cover
 from sub2lrc.audio_metadata import read_metadata,write_metadata,AudioMetadataChanges,export_metadata_cover,export_metadata_lyrics
 from sub2lrc.converter import shift_lrc
 from core.media_matcher import match_audio_file,scan_audio_folder,AUDIO_EXTENSIONS,COVER_EXTENSIONS
@@ -166,7 +166,7 @@ class MetadataPage(Page):
         self.lyric_shift=QDoubleSpinBox();self.lyric_shift.setRange(0.0,3600.0);self.lyric_shift.setDecimals(2)
         self.lyric_shift.setSingleStep(0.5);self.lyric_shift.setValue(0.5);self.lyric_shift.setSuffix('秒')
         self.lyric_shift.setFixedWidth(92);self.lyric_shift.setToolTip('要调整的秒数')
-        self.shift_direction=combo([('延后','later'),('提前','earlier')]);self.shift_direction.setFixedWidth(66)
+        self.shift_direction=combo([('延后','later'),('提前','earlier')]);self.shift_direction.setFixedWidth(96)
         self.shift_button=button('应用',self.apply_lyric_shift);self.shift_button.setFixedWidth(50)
         # The shift controls need their own row (the import/export row is a
         # stretched equal-width group). The artwork card gets a matching empty
@@ -205,6 +205,9 @@ class MetadataPage(Page):
         # same values to every scanned file. Blank boxes are left untouched.
         # A grid rather than one long row: five labelled boxes plus the button
         # overflow a narrow window, and the page must never scroll sideways.
+        # The fields occupy two rows of three columns and the buttons start on the
+        # row below them. Putting a button on a row that already holds a field
+        # makes the two overlap, which is what previously hid the track number.
         batch_fields=QWidget();batch_layout=QGridLayout(batch_fields)
         batch_layout.setContentsMargins(0,0,0,0);batch_layout.setHorizontalSpacing(8);batch_layout.setVerticalSpacing(6)
         self.batch_values={}
@@ -217,7 +220,27 @@ class MetadataPage(Page):
             batch_layout.addWidget(QLabel(self.app.t(label)),grid_row,column*2)
             batch_layout.addWidget(edit,grid_row,column*2+1)
         self.batch_apply=button('批量写入标签',self.apply_batch_tags,True);self.batch_apply.setEnabled(False)
-        batch_layout.addWidget(self.batch_apply,2,0,1,2)
+        # Shifting every lyric at once is the batch form of the per-file offset on
+        # the editor card: same direction, same seconds, applied to every scan.
+        self.batch_shift_seconds=QDoubleSpinBox();self.batch_shift_seconds.setRange(0.0,3600.0)
+        self.batch_shift_seconds.setDecimals(2);self.batch_shift_seconds.setSingleStep(0.5)
+        self.batch_shift_seconds.setValue(0.5);self.batch_shift_seconds.setSuffix('秒')
+        self.batch_shift_seconds.setFixedWidth(92);self.batch_shift_seconds.setToolTip('要调整的秒数')
+        self.batch_shift_direction=combo([('延后','later'),('提前','earlier')]);self.batch_shift_direction.setFixedWidth(96)
+        self.batch_shift=button('批量偏移歌词',self.apply_batch_shift,True);self.batch_shift.setEnabled(False)
+        # One chosen image written to every scanned file, as opposed to the
+        # matching write above, which pairs each track with the image beside it.
+        # Both are kept: matching suits a folder of files that already have their
+        # own artwork, this suits replacing the artwork of a whole album.
+        self.batch_cover_path=QLabel('未选择封面图片');self.batch_cover_path.setObjectName('muted')
+        self.batch_cover_choose=button('选择封面图片…',self.choose_batch_cover)
+        self.batch_cover_apply=button('批量写入同一封面',self.apply_batch_cover,True)
+        self.batch_cover_apply.setEnabled(False)
+        batch_cover=row(self.batch_cover_choose,self.batch_cover_path,self.batch_cover_apply)
+        batch_layout.addWidget(batch_cover,6,0,1,6)
+        batch_actions=row(self.batch_apply,QLabel('歌词偏移'),self.batch_shift_seconds,
+                          self.batch_shift_direction,self.batch_shift)
+        batch_layout.addWidget(batch_actions,4,0,1,6)
         batch_layout.setColumnStretch(6,1)
         matched.addWidget(batch_fields)
         self.batch_fields_row=batch_fields
@@ -390,10 +413,10 @@ class MetadataPage(Page):
         for i,m in enumerate(matches):
             for j,paths in ((1,m.lyric_candidates),(2,m.cover_candidates)):
                 box=combo([]);self.candidates(box,paths);self.matches.setCellWidget(i,j,box)
-        self.match_content.show();self.match_toggle.setText(self.app.t('收起匹配区域'));self.matches.show();self.write_all.setEnabled(bool(matches));self.batch_apply.setEnabled(bool(matches));self.clear_matches_button.setEnabled(bool(matches));self.app.statusBar().showMessage(self.app.t(f'扫描完成：{len(matches)} 首音频'))
+        self.match_content.show();self.match_toggle.setText(self.app.t('收起匹配区域'));self.matches.show();self.write_all.setEnabled(bool(matches));self.batch_apply.setEnabled(bool(matches));self.batch_shift.setEnabled(bool(matches));self.batch_cover_apply.setEnabled(bool(matches));self.clear_matches_button.setEnabled(bool(matches));self.app.statusBar().showMessage(self.app.t(f'扫描完成：{len(matches)} 首音频'))
     def clear_matches(self):
         self.match_rows=[];self.matches.clearContents();self.matches.setRowCount(0)
-        self.write_all.setEnabled(False);self.batch_apply.setEnabled(False);self.clear_matches_button.setEnabled(False)
+        self.write_all.setEnabled(False);self.batch_apply.setEnabled(False);self.batch_shift.setEnabled(False);self.batch_cover_apply.setEnabled(False);self.clear_matches_button.setEnabled(False)
         self.app.statusBar().showMessage(self.app.t('已清空匹配文件列表'))
     def batch_write(self,kind=None):
         rows=tuple((m.audio,self.matches.cellWidget(i,1).currentData() if kind!='cover' else None,self.matches.cellWidget(i,2).currentData() if kind!='lyrics' else None) for i,m in enumerate(self.match_rows))
@@ -411,3 +434,35 @@ class MetadataPage(Page):
         self.app.run_task(
             lambda report:batch_edit_tags(paths,values,overwrite,directory,report),
             lambda lines:self.app.show_text('批量标签结果','\n'.join(lines)))
+    def apply_batch_shift(self):
+        """Move the embedded lyrics of every scanned file by the same offset."""
+        if not self.match_rows:return self.app.inform(self.app.t('请先扫描音乐文件夹。'))
+        seconds=abs(self.batch_shift_seconds.value())
+        if not seconds:return self.app.inform(self.app.t('请填写要调整的秒数。'))
+        if self.batch_shift_direction.currentData()=='earlier':seconds=-seconds
+        paths=[m.audio for m in self.match_rows]
+        overwrite=self.mode.currentData()=='overwrite';directory=self.output.text()
+        self.app.run_task(
+            lambda report:batch_shift_lyrics(paths,seconds,overwrite,directory,report),
+            lambda lines:self.app.show_text('批量歌词偏移结果','\n'.join(lines)))
+    def choose_batch_cover(self):
+        """Pick the single image that will be written to every scanned file."""
+        start=dialog_initial_directory(self.app,'image')
+        chosen,_=QFileDialog.getOpenFileName(self,self.app.t('选择封面图片'),start,
+                                             'Images (*.jpg *.jpeg *.png *.webp *.bmp)')
+        if not chosen:return
+        remember_dialog_selection(self.app,'image',str(Path(chosen).parent))
+        self.batch_cover=Path(chosen)
+        self.batch_cover_path.setText(self.batch_cover.name)
+        self.batch_cover_path.setToolTip(str(self.batch_cover))
+    def apply_batch_cover(self):
+        """Write the chosen image to every scanned file, replacing existing art."""
+        if not self.match_rows:return self.app.inform(self.app.t('请先扫描音乐文件夹。'))
+        cover=getattr(self,'batch_cover',None)
+        if not cover or not Path(cover).is_file():
+            return self.app.inform(self.app.t('请先选择封面图片。'))
+        paths=[m.audio for m in self.match_rows]
+        overwrite=self.mode.currentData()=='overwrite';directory=self.output.text()
+        self.app.run_task(
+            lambda report:batch_set_cover(paths,cover,overwrite,directory,report),
+            lambda lines:self.app.show_text('批量封面结果','\n'.join(lines)))

@@ -5,9 +5,9 @@ from uuid import uuid4
 from PIL import Image
 from sub2lrc.audio_converter import convert_audio_batch
 from sub2lrc.image_converter import convert_image_batch
-from sub2lrc.converter import convert_content, convert_file, read_subtitle, unique_output_path
+from sub2lrc.converter import convert_content, convert_file, read_subtitle, shift_lrc, unique_output_path
 from sub2lrc.embedder import read_lrc
-from sub2lrc.audio_metadata import AudioMetadataChanges, write_metadata
+from sub2lrc.audio_metadata import AudioMetadataChanges, read_metadata, write_metadata
 from core.tasks import TaskCancelled
 
 
@@ -148,6 +148,77 @@ def batch_edit_tags(audio_paths, values, overwrite, directory, progress):
         try:
             target = None if overwrite else tagged_destination(audio, directory)
             output = write_metadata(audio, AudioMetadataChanges(**fields), target)
+            lines.append(f'完成：{output}')
+        except TaskCancelled:
+            raise
+        except Exception as exc:
+            lines.append(f'失败：{audio.name} — {exc}')
+        progress((index + 1) / total * 100, audio.name)
+    return lines
+
+
+def batch_shift_lyrics(audio_paths, seconds, overwrite, directory, progress):
+    """Move the embedded lyrics of many files by the same number of seconds.
+
+    Only files that actually carry lyrics are written; the rest are reported and
+    skipped so a folder of instrumentals does not produce a wall of failures.
+    The shift is applied to the text, so metadata lines such as ``[ti:]`` survive.
+    """
+    lines = []
+    total = len(audio_paths)
+    if not seconds:
+        return ['跳过：偏移秒数为 0，没有需要调整的歌词。']
+    for index, audio in enumerate(audio_paths):
+        if hasattr(progress, 'raise_if_cancelled'):
+            progress.raise_if_cancelled()
+        try:
+            state = read_metadata(audio)
+            if not state.has_lyrics or not state.lyrics.strip():
+                lines.append(f'跳过：{audio.name}（没有内嵌歌词）')
+            else:
+                shifted = shift_lrc(state.lyrics, seconds)
+                if shifted == state.lyrics:
+                    lines.append(f'跳过：{audio.name}（偏移后没有变化）')
+                else:
+                    target = None if overwrite else tagged_destination(audio, directory)
+                    with TemporaryDirectory(prefix='mediaanvil-shift-') as temporary:
+                        lyric = Path(temporary) / 'lyrics.lrc'
+                        lyric.write_text(shifted, encoding='utf-8-sig')
+                        output = write_metadata(audio, AudioMetadataChanges(lyrics_path=lyric), target)
+                    lines.append(f'完成：{output}')
+        except TaskCancelled:
+            raise
+        except Exception as exc:
+            lines.append(f'失败：{audio.name} — {exc}')
+        progress((index + 1) / total * 100, audio.name)
+    return lines
+
+
+def batch_set_cover(audio_paths, cover, overwrite, directory, progress):
+    """Write one image as the artwork of many files.
+
+    This is the counterpart to the per-file matching write: matching finds an
+    image beside each track, while this puts a single chosen image on all of
+    them, which is what replacing the artwork of a whole album needs.
+    Formats the tag writer does not accept are converted through a temporary PNG.
+    """
+    cover = Path(cover)
+    lines = []
+    total = len(audio_paths)
+    if not cover.is_file():
+        return ['跳过：没有选择封面图片。']
+    for index, audio in enumerate(audio_paths):
+        if hasattr(progress, 'raise_if_cancelled'):
+            progress.raise_if_cancelled()
+        try:
+            target = None if overwrite else tagged_destination(audio, directory)
+            with TemporaryDirectory(prefix='mediaanvil-cover-') as temporary:
+                image = cover
+                if cover.suffix.lower() not in {'.jpg', '.jpeg', '.png'}:
+                    with Image.open(cover) as opened:
+                        image = Path(temporary) / 'cover.png'
+                        opened.convert('RGBA').save(image)
+                output = write_metadata(audio, AudioMetadataChanges(cover_path=image), target)
             lines.append(f'完成：{output}')
         except TaskCancelled:
             raise
