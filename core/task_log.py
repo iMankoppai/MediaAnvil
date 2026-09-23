@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .settings import PRODUCT_NAME
+from .settings import SETTINGS_DIRECTORY
 
 LOG_DIRECTORY_NAME = "logs"
 LOG_FILE_NAME = "tasks.log"
@@ -22,11 +22,15 @@ BACKUP_COUNT = 5
 
 
 def log_directory(appdata_directory: str | Path | None = None) -> Path:
-    """Return ``%APPDATA%\\MediaAnvilQt\\logs`` (or a test override)."""
+    """Return ``%APPDATA%\\MediaAnvilQt\\logs`` (or a test override).
+
+    The folder name comes from one place so the settings file and the logs can
+    never drift into two different MediaAnvil folders.
+    """
     if appdata_directory is None:
         appdata_directory = os.environ.get("APPDATA")
     base = Path(appdata_directory) if appdata_directory else Path.home() / "AppData" / "Roaming"
-    return base / f"{PRODUCT_NAME}Qt" / LOG_DIRECTORY_NAME
+    return base / SETTINGS_DIRECTORY / LOG_DIRECTORY_NAME
 
 
 def _rotate(directory: Path, maximum: int, backups: int) -> Path:

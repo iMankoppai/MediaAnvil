@@ -129,6 +129,8 @@ EN = {
     '正在播放': 'Playing', '已暂停': 'Paused',
     '自动记住每个音频的播放位置': 'Remember each audio file\'s playback position',
     '关闭后预览页每次都从头播放': 'When off, the preview page always starts from the beginning',
+    '打开数据目录': 'Open Data Folder', '已打开数据目录': 'Opened the data folder',
+    '无法创建数据目录：': 'Unable to create the data folder: ',
     '已开启随机播放': 'Shuffle on', '已关闭随机播放': 'Shuffle off',
     '播放列表已结束': 'The queue has finished',
     '定时关闭已生效，播放已暂停': 'Sleep timer finished; playback paused',

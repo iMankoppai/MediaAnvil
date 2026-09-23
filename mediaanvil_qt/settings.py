@@ -125,6 +125,7 @@ class SettingsPage(Page):
         self.footer = QWidget(); footer = QHBoxLayout(self.footer); footer.setContentsMargins(0, 0, 0, 0); footer.setSpacing(10)
         self.footer_note = QLabel('ⓘ  修改设置后将自动应用到后续任务'); self.footer_note.setObjectName('muted')
         footer.addWidget(self.footer_note); footer.addStretch()
+        footer.addWidget(button('打开数据目录', app.open_data_directory, symbol='folder'))
         footer.addWidget(button('打开日志目录', app.open_log_directory, symbol='folder'))
         footer.addWidget(button('恢复默认设置', self.defaults, symbol='undo'))
         footer.addWidget(button('保存设置', self.save, True, 'save'))

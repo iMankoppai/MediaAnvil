@@ -11,6 +11,10 @@ from typing import Any
 
 
 PRODUCT_NAME = "MediaAnvil"
+# The folder under %APPDATA% that actually holds the settings and logs. It has
+# always been "MediaAnvilQt" while settings_path() claimed "MediaAnvil", so the
+# name is stated once here and both callers use it.
+SETTINGS_DIRECTORY = "MediaAnvilQt"
 DEFAULT_SETTINGS: dict[str, Any] = {
     "default_output_location": "source",
     "default_output_directory": "",
@@ -59,11 +63,15 @@ _current_settings: dict[str, Any] | None = None
 
 
 def settings_path(appdata_directory: str | Path | None = None) -> Path:
-    """Return ``%APPDATA%\\MediaAnvil\\settings.json`` (or a test override)."""
+    """Return ``%APPDATA%\\MediaAnvilQt\\settings.json`` (or a test override).
+
+    ``appdata_directory`` overrides the ``%APPDATA%`` part only, so passing a
+    temporary directory keeps the ``MediaAnvilQt`` sub-folder.
+    """
     if appdata_directory is None:
         appdata_directory = os.environ.get("APPDATA")
     base = Path(appdata_directory) if appdata_directory else Path.home() / "AppData" / "Roaming"
-    return base / PRODUCT_NAME / "settings.json"
+    return base / SETTINGS_DIRECTORY / "settings.json"
 
 
 def default_settings() -> dict[str, Any]:
@@ -173,6 +181,7 @@ def reset_settings(config_path: str | Path | None = None) -> dict[str, Any]:
 __all__ = [
     "DEFAULT_SETTINGS",
     "PRODUCT_NAME",
+    "SETTINGS_DIRECTORY",
     "default_settings",
     "get_setting",
     "last_load_warning",

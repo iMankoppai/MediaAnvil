@@ -1628,6 +1628,32 @@ class QtRewriteTests(unittest.TestCase):
         external=QMimeData();external.setUrls([QUrl.fromLocalFile(str(self.base))])
         self.assertFalse(page.queue._is_internal_drag(type('E',(),{'mimeData':lambda s:external})()))
 
+    def test_settings_page_offers_a_way_to_reach_the_data_folder(self):
+        """The user must be able to find their own records without guessing."""
+        self.window.navigation.setCurrentRow(self.window.keys.index('settings'))
+        for _ in range(4):self.qt.processEvents()
+        page=self.window.pages['settings']
+        labels=[b.text() for b in page.footer.findChildren(QPushButton)]
+        self.assertIn('打开数据目录',labels)
+        self.assertIn('打开日志目录',labels)
+        # The data folder is the one holding settings.json.
+        self.assertEqual(self.window.data_directory(),self.window.settings_file.parent)
+        opened=[]
+        with patch.object(self.window,'open_path',side_effect=lambda p:opened.append(Path(p))):
+            self.window.open_data_directory()
+        self.assertEqual(opened,[self.window.settings_file.parent])
+
+    def test_the_settings_and_log_folders_share_one_directory_name(self):
+        """Both live under the same %APPDATA% folder and must not drift apart."""
+        from core.settings import SETTINGS_DIRECTORY,settings_path
+        from core.task_log import log_directory
+        appdata=str(self.base/'Roaming')
+        self.assertEqual(settings_path(appdata).parent.name,SETTINGS_DIRECTORY)
+        self.assertEqual(log_directory(appdata).parent.name,SETTINGS_DIRECTORY)
+        # The two must resolve to the same folder, not merely similar ones.
+        self.assertEqual(settings_path(appdata).parent,log_directory(appdata).parent)
+        self.assertEqual(log_directory(appdata).name,'logs')
+
     def test_batch_tag_layout_never_scrolls_sideways_on_a_narrow_window(self):
         """Five labelled boxes plus the button must not widen the page."""
         self.window.resize(900,640)

@@ -55,7 +55,9 @@ class MainWindow(QMainWindow):
         screen=QApplication.primaryScreen()
         self.resize(*default_window_size(frame_height=frame_height,device_pixel_ratio=screen.devicePixelRatio() if screen else None))
         self.setWindowIcon(QIcon(str(resource('assets/mediaanvil-icon.png'))))
-        self.settings_file=Path(config_path) if config_path else settings_path().parent.parent/'MediaAnvilQt'/'settings.json'
+        # settings_path() already points at the MediaAnvilQt folder, so the
+        # caller no longer rebuilds the path from its parts.
+        self.settings_file=Path(config_path) if config_path else settings_path()
         self.settings=load_settings(self.settings_file);warning=last_load_warning()
         self._worker=None;self._task_outcome=None;self._done=None
         central=QWidget();central.setObjectName('shell');layout=QHBoxLayout(central);layout.setContentsMargins(0,0,0,0);layout.setSpacing(0);self.setCentralWidget(central)
@@ -186,6 +188,20 @@ class MainWindow(QMainWindow):
         except OSError as exc:return self.inform(self.t('无法创建日志目录：')+str(exc))
         self.open_path(directory)
         self.statusBar().showMessage(self.t('已打开日志目录'))
+    def data_directory(self):
+        """Folder holding settings.json; see data_directory on the settings page."""
+        return self.settings_file.parent
+    def open_data_directory(self):
+        """Show the folder that holds the settings, logs and playback positions.
+
+        Opening it is how a user finds or removes their own records; nothing here
+        deletes anything on its own.
+        """
+        directory=self.data_directory()
+        try:directory.mkdir(parents=True,exist_ok=True)
+        except OSError as exc:return self.inform(self.t('无法创建数据目录：')+str(exc))
+        self.open_path(directory)
+        self.statusBar().showMessage(self.t('已打开数据目录'))
     def document_title(self,name):
         key={'USER_GUIDE.md':'使用说明','USER_GUIDE.en.md':'使用说明',
              'THIRD_PARTY_NOTICES.md':'第三方组件说明','README-Qt.md':'README','README-Qt.en.md':'README'}.get(name,name)
