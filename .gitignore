@@ -43,3 +43,6 @@ android/signing.properties
 *.keystore
 
 .workbuddy-ai/
+
+# Working notes handed between development sessions, not part of the product
+/HANDOFF.md
