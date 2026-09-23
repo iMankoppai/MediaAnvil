@@ -114,6 +114,10 @@ class SettingsPage(Page):
         self.number(lyrics, 'default_volume', '默认音量', 0, 100, '%')
         self.switch(lyrics, 'auto_load_same_name_lyrics', '自动加载同名歌词')
         self.switch(lyrics, 'prefer_embedded_mp3_lyrics', '优先使用 MP3 内嵌歌词')
+        # Resuming long recordings is a preference, not a rule: some listeners
+        # always want a file to start from the beginning.
+        self.switch(lyrics, 'remember_playback_position', '自动记住每个音频的播放位置',
+                    '关闭后预览页每次都从头播放')
 
         scan = self.section('folder', '文件扫描', '扫描文件时的默认行为', 2, 0, 2)
         self.switch(scan, 'include_subfolders', '包含子文件夹')
@@ -137,7 +141,11 @@ class SettingsPage(Page):
 
     def switch(self, section, key, label, hint=''):
         control = Toggle(label); self.controls[key] = control
-        section.add(label, aligned_control(control)); section.search_text += hint
+        section.add(label, aligned_control(control))
+        # The hint is searchable and also explains the switch on hover.
+        section.search_text += hint
+        if hint:
+            control.setToolTip(hint)
 
     def number(self, section, key, label, low, high, unit=''):
         control = QSpinBox(); control.setRange(low, high); compact_control_width(control)

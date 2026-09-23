@@ -28,6 +28,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "default_volume": 80,
     "include_subfolders": False,
     "language": "zh_CN",
+    # Remember where each audio file was left off, keyed by normalised path.
+    # Off means the preview page always starts from the beginning.
+    "remember_playback_position": True,
+    "playback_positions": {},
     "last_audio_directory": "",
     "last_image_directory": "",
     "last_subtitle_directory": "",
@@ -90,6 +94,16 @@ def _normalise(data: object) -> dict[str, Any]:
         elif isinstance(default, (int, float)):
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 result[key] = value
+        elif isinstance(default, dict):
+            # Recording dictionaries such as playback_positions. Only string keys
+            # with numeric values survive, so a hand-edited or damaged file cannot
+            # inject a value the rest of the program would trip over.
+            if isinstance(value, dict):
+                result[key] = {
+                    str(name): float(position)
+                    for name, position in value.items()
+                    if isinstance(position, (int, float)) and not isinstance(position, bool)
+                }
     return result
 
 

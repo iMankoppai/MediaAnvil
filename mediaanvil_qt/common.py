@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushB
     QLineEdit, QFileDialog, QComboBox, QFormLayout, QListWidget,
     QAbstractItemView, QTableWidget, QTableWidgetItem, QHeaderView, QSlider, QStyle, QStyleOptionSlider, QFrame, QSizePolicy, QBoxLayout, QListWidgetItem, QStyledItemDelegate)
 from .design import icon
-from .i18n import tr
+from .i18n import tr, current_language as _current_language
 
 
 _DIALOG_SETTING_KEYS = {
@@ -127,6 +127,76 @@ def group(title):
     if title:
         heading = QLabel(title); heading.setObjectName('sectionTitle');heading.setSizePolicy(QSizePolicy.Policy.Preferred,QSizePolicy.Policy.Fixed);layout.addWidget(heading)
     return box, layout
+
+
+class SegmentedTabs(QWidget):
+    """A row of mutually exclusive headings, each owning one stacked view.
+
+    Two sibling panels are never shown at once, which is the point: the preview
+    page's lyric calibration controls must not sit next to the play queue, or the
+    user can adjust lyrics while looking at a list that has nothing to do with
+    them. Uses QTabBar so it inherits the project's underline styling.
+    """
+
+    changed = Signal(int)
+
+    def __init__(self, labels, views, *, trailing=None):
+        super().__init__()
+        from PySide6.QtWidgets import QTabBar, QStackedWidget
+        self.bar = QTabBar(); self.bar.setDrawBase(False); self.bar.setExpanding(False)
+        self.bar.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.stack = QStackedWidget()
+        # Keep the Chinese source text so the labels can be re-translated later;
+        # a QTabBar label is not a widget, so apply_language cannot reach it.
+        self._sources = list(labels)
+        self._suffix = ''
+        for label in labels:
+            self.bar.addTab(label)
+        for view in views:
+            self.stack.addWidget(view)
+        self.bar.currentChanged.connect(self.stack.setCurrentIndex)
+        self.bar.currentChanged.connect(self.changed.emit)
+        layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(8)
+        header = QWidget(); header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0); header_layout.setSpacing(8)
+        header_layout.addWidget(self.bar)
+        if trailing is not None:
+            header_layout.addWidget(trailing)
+        header_layout.addStretch(1)
+        layout.addWidget(header)
+        layout.addWidget(self.stack, 1)
+        self.header = header
+
+    def set_tab_text(self, index, text):
+        self.bar.setTabText(index, text)
+
+    def refresh_translated_text(self):
+        """Re-translate the tab labels after a language switch.
+
+        apply_language walks widgets, and a QTabBar label is not a widget, so the
+        labels have to be rebuilt here from their original Chinese source.
+        """
+        for index, source in enumerate(self._sources):
+            text = tr(source, _current_language())
+            if index == len(self._sources) - 1 and getattr(self, '_suffix', ''):
+                text = f'{text} {self._suffix}'
+            self.bar.setTabText(index, text)
+
+    def set_suffix(self, text):
+        """Text appended to the last tab, such as an item count."""
+        self._suffix = text
+        self.refresh_translated_text()
+
+    def current_index(self):
+        return self.bar.currentIndex()
+
+    def set_current_index(self, index):
+        self.bar.setCurrentIndex(index)
+
+    def set_alignment_right(self):
+        """Push a trailing widget to the far edge of the heading row."""
+        layout = self.header.layout()
+        layout.setStretch(layout.count() - 1, 1)
 
 
 class Columns(QWidget):

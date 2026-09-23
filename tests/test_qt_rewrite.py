@@ -63,6 +63,15 @@ class QtRewriteTests(unittest.TestCase):
     def lyric_file(self,text,name='tmp-lyrics.lrc'):
         """Write ``text`` to a scratch LRC file so it can be embedded."""
         path=self.base/name;path.write_text(text,encoding='utf-8-sig');return path
+    def fake_player(self,duration=3600.0,position=0.0,state=None):
+        """A stand-in for AudioPreviewPlayer that never touches ffplay."""
+        return type('FakePlayer',(),{
+            'duration':duration,'position':position,
+            'state':state if state is not None else PlaybackState.STOPPED,
+            'load':lambda self,path:duration,'set_volume':lambda self,v:None,
+            'set_speed':lambda self,s:None,'play':lambda self:None,'pause':lambda self:None,
+            'seek':lambda self,p:None,'close':lambda self:None,'stop':lambda self:None,
+        })()
     def test_pages_preserve_native_window_and_data(self):
         self.assertEqual(qt_version,'1.4.0')
         self.assertIn('v1.4.0',[label.text() for label in self.window.findChildren(QLabel)])
@@ -1436,6 +1445,188 @@ class QtRewriteTests(unittest.TestCase):
                     needed=widget.fontMetrics().horizontalAdvance(text)
                     self.assertGreaterEqual(field.width(),needed,
                                             f'{name} clips "{text}" ({field.width()}px for {needed}px)')
+
+    def test_the_lyric_controls_live_only_in_the_lyric_tab(self):
+        """Calibration must not sit next to the queue, which has no lyrics."""
+        page=self.window.pages['preview']
+        self.assertEqual(page.tabs.bar.count(),2)
+        self.assertEqual(page.tabs.current_index(),0)
+        # The offsets belong to the lyric view, and only to it.
+        self.assertIs(page.shift_row.parentWidget(),page.tabs.stack.widget(0))
+        self.assertNotIn(page.shift_row,page.tabs.stack.widget(1).findChildren(QWidget))
+        page.tabs.set_current_index(1)
+        for _ in range(3):self.qt.processEvents()
+        self.assertFalse(page.tabs.stack.widget(0).isVisible())
+        self.assertTrue(page.tabs.stack.widget(1).isVisible())
+        self.assertFalse(page.shift_row.isVisible())
+
+    def test_the_queue_button_reveals_the_queue_tab(self):
+        page=self.window.pages['preview']
+        page.tabs.set_current_index(0)
+        page.show_queue()
+        for _ in range(3):self.qt.processEvents()
+        self.assertEqual(page.tabs.current_index(),1)
+
+    def test_the_preview_page_offers_the_speed_repeat_and_sleep_choices(self):
+        page=self.window.pages['preview']
+        self.assertEqual([page.speed.itemData(i) for i in range(page.speed.count())],
+                         [0.5,0.75,1.0,1.25,1.5,1.75,2.0])
+        self.assertEqual(page.speed.currentData(),1.0,'1x is the sane default')
+        self.assertEqual([page.repeat.itemData(i) for i in range(page.repeat.count())],
+                         ['once','repeat_one','repeat_all'])
+        self.assertEqual(page.repeat.currentData(),'once')
+        # The sleep timer runs from one minute to 23:59, and starts off.
+        lengths=[page.sleep.itemData(i) for i in range(page.sleep.count())]
+        self.assertEqual(lengths[0],0)
+        self.assertEqual(min(v for v in lengths if v),1)
+        self.assertEqual(max(lengths),1439,'1439 minutes is 23:59')
+        self.assertEqual(page.sleep.currentData(),0)
+        self.assertEqual(page.repeat.itemText(0),'不循环')
+
+    def test_no_speed_option_is_outside_what_atempo_accepts(self):
+        """Every offered speed must map to a filter the player can actually use."""
+        from sub2lrc.audio_preview import speed_filters
+        page=self.window.pages['preview']
+        for index in range(page.speed.count()):
+            with self.subTest(speed=page.speed.itemData(index)):
+                speed_filters(page.speed.itemData(index))
+
+    def test_the_resume_row_is_hidden_until_a_file_has_its_own_record(self):
+        from core.playback_history import record_position
+        page=self.window.pages['preview']
+        self.assertFalse(page.resume_row.isVisible(),'nothing loaded yet')
+        audio=self.base/'resume.mp3'
+        with wave.open(str(audio),'wb') as out:
+            out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*8000)
+        page.path=audio
+        page.player=self.fake_player(3600.0)
+        page.refresh_last_position()
+        self.assertFalse(page.resume_row.isVisible(),'a file with no record shows no row')
+        record_position(self.window.settings,audio,2832.0,3600.0)
+        page.refresh_last_position()
+        self.assertTrue(page.resume_row.isVisible())
+        self.assertIn('47:12',page.resume_label.text())
+
+    def test_the_resume_row_can_be_switched_off_in_settings(self):
+        from core.playback_history import record_position
+        page=self.window.pages['preview']
+        audio=self.base/'off.mp3';audio.write_bytes(b'x')
+        record_position(self.window.settings,audio,2832.0,3600.0)
+        page.path=audio
+        page.player=self.fake_player(3600.0)
+        page.refresh_last_position()
+        self.assertTrue(page.resume_row.isVisible())
+        self.window.settings['remember_playback_position']=False
+        page.refresh_last_position()
+        self.assertFalse(page.resume_row.isVisible(),'the setting must hide the row')
+
+    def test_dropping_files_fills_the_queue_and_keeps_the_first_selected(self):
+        page=self.window.pages['preview']
+        files=[]
+        for index in range(3):
+            path=self.base/f'queue-{index}.mp3';path.write_bytes(b'x');files.append(path)
+        with patch.object(page,'load') as load:
+            self.assertEqual(page.receive(files),3)
+            load.assert_called_once_with(files[0])
+        self.assertEqual(len(page.queue_tracks),3)
+        self.assertEqual(page.queue.count(),3)
+        self.assertIn('3',page.queue_button.text())
+        # A second drop extends the queue without re-loading.
+        extra=self.base/'queue-3.mp3';extra.write_bytes(b'x')
+        with patch.object(page,'load') as load:
+            page.receive([extra])
+            load.assert_not_called()
+        self.assertEqual(len(page.queue_tracks),4)
+        # A file whose extension is not audio is not queued.
+        notes=self.base/'notes.txt';notes.write_bytes(b'x')
+        self.assertEqual(page.receive([notes]),0)
+        self.assertEqual(len(page.queue_tracks),4)
+
+    def test_the_queue_tab_count_follows_the_queue(self):
+        page=self.window.pages['preview']
+        path=self.base/'counted.mp3';path.write_bytes(b'x')
+        page.receive([path])
+        self.assertEqual(page.tabs.bar.tabText(1),'播放队列 (1)')
+        self.window.set_language('en_US')
+        for _ in range(3):self.qt.processEvents()
+        self.assertEqual(page.tabs.bar.tabText(1),'Queue (1)')
+        self.window.set_language('zh_CN')
+        for _ in range(3):self.qt.processEvents()
+
+    def test_auto_next_can_be_switched_off(self):
+        page=self.window.pages['preview']
+        for name in ('a.mp3','b.mp3'):
+            (self.base/name).write_bytes(b'x')
+        page.receive([self.base/'a.mp3',self.base/'b.mp3'])
+        page.queue_tracks.select(0)
+        page.auto_next.setChecked(False)
+        self.assertIsNone(page.pick_next(automatic=True),'automatic advance is off')
+        # A manual Next must still work with auto-advance off.
+        self.assertIsNotNone(page.pick_next(automatic=False))
+
+    def test_settings_offer_a_switch_for_remembering_playback_positions(self):
+        """The switch is the user-facing control for the resume feature."""
+        settings_page=self.window.pages['settings']
+        control=settings_page.controls.get('remember_playback_position')
+        self.assertIsNotNone(control,'the switch must exist on the settings page')
+        self.assertTrue(control.isChecked(),'remembering positions is on by default')
+        self.assertIn('从头播放',control.toolTip(),'the hint explains what turning it off does')
+
+    def test_switching_the_setting_off_stops_positions_being_recorded(self):
+        """Turning the switch off must stop new records, not just hide the row."""
+        from core.playback_history import saved_position
+        page=self.window.pages['preview']
+        audio=self.base/'switch.mp3';audio.write_bytes(b'x')
+        page.path=audio
+        page.player=self.fake_player(3600.0,position=600.0)
+        page.remember_position()
+        self.assertIsNotNone(saved_position(self.window.settings,audio),
+                             'a normal position is recorded while the switch is on')
+        self.window.settings['remember_playback_position']=False
+        page.remember_position()
+        self.assertIsNone(saved_position(self.window.settings,audio))
+
+    def test_the_settings_switch_survives_a_save_and_reload(self):
+        from core.settings import load_settings
+        settings_page=self.window.pages['settings']
+        settings_page.controls['remember_playback_position'].setChecked(False)
+        settings_page.save()
+        reloaded=load_settings(self.window.settings_file)
+        self.assertFalse(reloaded['remember_playback_position'])
+        settings_page.controls['remember_playback_position'].setChecked(True)
+        settings_page.save()
+
+    def test_reordering_the_queue_list_updates_the_queue_model(self):
+        """Dragging a row must change the order the queue actually plays."""
+        page=self.window.pages['preview']
+        files=[]
+        for index in range(4):
+            path=self.base/f'drag-{index}.mp3';path.write_bytes(b'x');files.append(path)
+        page.receive(files)
+        for _ in range(3):self.qt.processEvents()
+        self.assertTrue(page.queue.reorderable,'the queue list accepts internal drags')
+        self.assertEqual([p.name for p in page.queue_tracks.entries],
+                         ['drag-0.mp3','drag-1.mp3','drag-2.mp3','drag-3.mp3'])
+        # Moving the third row to the front must reach the model through the
+        # filesChanged signal, not just rearrange what is displayed.
+        page.queue.move_rows([2],0)
+        for _ in range(3):self.qt.processEvents()
+        self.assertEqual([p.name for p in page.queue_tracks.entries],
+                         ['drag-2.mp3','drag-0.mp3','drag-1.mp3','drag-3.mp3'])
+        self.assertEqual([Path(page.queue.item(i).text()).name for i in range(page.queue.count())],
+                         ['drag-2.mp3','drag-0.mp3','drag-1.mp3','drag-3.mp3'])
+
+    def test_dropping_files_onto_the_queue_from_explorer_still_reaches_the_window(self):
+        """The reorderable list must not swallow external file drops."""
+        page=self.window.pages['preview']
+        self.assertTrue(page.queue.reorderable)
+        # An internal drag is allowed; a drop carrying URLs is refused so the
+        # window-level importer still handles files dropped from Explorer.
+        from PySide6.QtCore import QMimeData,QUrl
+        internal=QMimeData()
+        self.assertTrue(page.queue._is_internal_drag(type('E',(),{'mimeData':lambda s:internal})()))
+        external=QMimeData();external.setUrls([QUrl.fromLocalFile(str(self.base))])
+        self.assertFalse(page.queue._is_internal_drag(type('E',(),{'mimeData':lambda s:external})()))
 
     def test_batch_tag_layout_never_scrolls_sideways_on_a_narrow_window(self):
         """Five labelled boxes plus the button must not widen the page."""

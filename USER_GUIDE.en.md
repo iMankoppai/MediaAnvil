@@ -46,6 +46,43 @@ Files on conversion pages are selected by default. Clear a file's checkbox to ex
 
 Click or drag the progress bar to seek. Use the lower slider to adjust volume. Press Space to play or pause.
 
+### Play queue
+
+The right-hand area has two tabs, "Synced Lyrics" and "Queue". Only one is shown at a time.
+
+Select or drop **several audio files at once** and they join the queue in order:
+
+- **Add Files** appends more audio to the queue.
+- **Clear List** empties the queue. It only clears the list and **never deletes files**.
+- **Shuffle** plays in a random order; press it again to turn it off.
+- **Drag to reorder** an entry, or move it with the keyboard.
+- Tick "Play the next track automatically" to continue into the next file when one ends.
+
+The number on the queue tab is how many files are queued. The "Queue (N)" button below the controls switches straight to that tab.
+
+### Speed, repeat and sleep timer
+
+Four controls sit under the transport buttons:
+
+| Control | Meaning |
+|---|---|
+| **Speed** | `0.5×` to `2×` (half speed to double speed). This changes playback only and **never modifies the file** |
+| **Repeat** | `No Repeat` / `Repeat One` / `Repeat All`. With Repeat One, pressing Next still moves on |
+| **Sleep timer** | `1 min` to `1439 min` (23:59). Playback pauses when it runs out |
+| **Queue (N)** | Switches to the play queue tab |
+
+The line beneath them summarises the current state, for example "Playing · 1.5× · Repeat One · stops in 30 min".
+
+### Resume playback
+
+Long recordings, podcasts and lectures can be picked up where you left off:
+
+- After loading audio, the track card shows **"Last played to 47:12"**. Choose Resume to continue there, or Play from Start to begin again.
+- **Every file keeps its own position.** Listen to A up to 47 minutes and B up to 22 minutes today, and tomorrow either one resumes where you stopped.
+- **A file that has never been played shows no such row.**
+- A brief listen (under 30 seconds) leaves no record, and a file played to within 30 seconds of its end counts as finished and starts over next time.
+- Turn off "Remember each audio file's playback position" under Settings → Lyrics and Preview to disable it. The preview page then always starts from the beginning and records nothing.
+
 ### Synchronized lyrics
 
 MediaAnvil can automatically load a matching `.lrc`, `.srt`, or `.vtt` file beside the audio, for example:

@@ -117,6 +117,21 @@ EN = {
     '请先载入带歌词的音频。': 'Load audio with lyrics first.',
     '请先应用歌词偏移，再保存。': 'Apply a lyric offset before saving.',
     '已恢复原始歌词时间轴': 'Original lyric timing restored',
+    # Preview page: play queue, resume and the option row. Strings already
+    # translated elsewhere in this table are deliberately not repeated here.
+    '播放队列': 'Queue', '拖动可调整顺序': 'Drag to reorder',
+    '继续播放': 'Resume', '从头播放': 'Play from Start',
+    '随机播放': 'Shuffle', '清空列表': 'Clear List',
+    '不循环': 'No Repeat', '单曲循环': 'Repeat One', '列表循环': 'Repeat All',
+    '不定时': 'Off', '播放结束后自动播放下一首': 'Play the next track automatically',
+    '播放速度': 'Playback speed', '播放结束后': 'When a track ends', '定时关闭': 'Sleep timer',
+    '显示播放队列': 'Show the play queue',
+    '正在播放': 'Playing', '已暂停': 'Paused',
+    '自动记住每个音频的播放位置': 'Remember each audio file\'s playback position',
+    '关闭后预览页每次都从头播放': 'When off, the preview page always starts from the beginning',
+    '已开启随机播放': 'Shuffle on', '已关闭随机播放': 'Shuffle off',
+    '播放列表已结束': 'The queue has finished',
+    '定时关闭已生效，播放已暂停': 'Sleep timer finished; playback paused',
     '智能匹配关联文件': 'Smart File Matching', '展开匹配区域': 'Expand Matching Area', '收起匹配区域': 'Collapse Matching Area',
     '自动查找同目录歌词与封面；多个候选需要手动选择。': 'Find lyrics and artwork in the same folder; choose manually when multiple matches exist.',
     '扫描音乐文件夹…': 'Scan Music Folder…', '音频': 'Audio', '歌词候选': 'Lyrics Candidates', '封面候选': 'Artwork Candidates',
@@ -243,6 +258,11 @@ def set_current_language(language):
     _current_language = language if language in ('zh_CN', 'en_US') else 'zh_CN'
 
 
+def current_language():
+    """The language in effect, for code that must format its own text."""
+    return _current_language
+
+
 def install_standard_translations(app, language):
     """Load Qt's bundled catalogue so standard buttons follow the interface language."""
     global _translator
@@ -305,6 +325,11 @@ def tr(text, language=None):
         (r'^歌词已偏移 (.*) 秒，保存后写入音频$', r'Lyrics shifted by \1 s; saved to the audio afterwards'),
         (r'^将合并 (\d+) 个文件，按列表顺序拼接（可拖动或上移/下移调整）$', r'Joining \1 files in list order (drag or use Move Up/Down to reorder)'),
         (r'^歌词已偏移 (.*) 秒（仅预览，未写入文件）$', r'Lyrics shifted by \1 s (preview only; nothing written)'),
+        (r'^队列 \((\d+)\)$', r'Queue (\1)'),
+        (r'^播放队列 \((\d+)\)$', r'Queue (\1)'),
+        (r'^(\d+) 分钟$', r'\1 min'),
+        (r'^(\d+) 分钟后停止$', r'stops in \1 min'),
+        (r'^上次播放至 (.*)$', r'Last played to \1'),
     )
     for pattern, replacement in patterns:
         if re.match(pattern, value):
@@ -365,4 +390,10 @@ def apply_language(root: QWidget, language: str):
             if hasattr(widget, name):
                 source = _source(widget, name, getattr(widget, name)); setattr(widget, name, tr(source, language))
         widget.update()
+    # Text the pages build themselves, such as "Queue (8)", is not reachable by
+    # walking widgets, so each page may expose a refresh hook for it.
+    for widget in widgets:
+        hook = getattr(widget, 'refresh_translated_text', None)
+        if callable(hook):
+            hook()
     localize_dialog_buttons(root, language)

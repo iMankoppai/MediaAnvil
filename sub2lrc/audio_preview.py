@@ -158,6 +158,26 @@ def _creation_flags() -> int:
     return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
+# atempo preserves pitch and natively accepts 0.5-2.0, which is exactly the range
+# the preview page offers, so one filter instance is always enough.
+MIN_SPEED = 0.5
+MAX_SPEED = 2.0
+_SPEED_EPSILON = 1e-9
+
+
+def speed_filters(speed: float) -> str:
+    """Return the ffmpeg ``-af`` filter for a playback speed.
+
+    An empty string means normal speed, in which case no filter is added at all.
+    """
+    speed = float(speed)
+    if not MIN_SPEED <= speed <= MAX_SPEED:
+        raise AudioPreviewError(f"播放速度需要在 {MIN_SPEED:g}× 到 {MAX_SPEED:g}× 之间。")
+    if abs(speed - 1.0) < _SPEED_EPSILON:
+        return ""
+    return f"atempo={speed:.6f}"
+
+
 def _suspend_process(process: subprocess.Popen[bytes]) -> None:
     if os.name == "nt":
         import ctypes
@@ -190,6 +210,7 @@ class AudioPreviewPlayer:
         self.source: Path | None = None
         self.duration = 0.0
         self.volume = 80
+        self.speed = 1.0
         self.state = PlaybackState.STOPPED
         self._position = 0.0
         self._started_at = 0.0
@@ -226,8 +247,12 @@ class AudioPreviewPlayer:
             raise AudioPreviewError("请先选择音频文件。")
         command = [
             str(self.ffplay_path), "-nodisp", "-autoexit", "-hide_banner", "-loglevel", "error",
-            "-ss", f"{position:.3f}", "-volume", str(self.volume), str(self.source),
+            "-ss", f"{position:.3f}", "-volume", str(self.volume),
         ]
+        filters = speed_filters(self.speed)
+        if filters:
+            command += ["-af", filters]
+        command.append(str(self.source))
         try:
             self._process = subprocess.Popen(
                 command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -303,6 +328,29 @@ class AudioPreviewPlayer:
             return
         position, previous_state = self.position, self.state
         self.volume = volume
+        if previous_state in {PlaybackState.PLAYING, PlaybackState.PAUSED}:
+            self._terminate()
+            self._position = position
+            self.state = PlaybackState.STOPPED
+            if position < self.duration:
+                self._start_process(position)
+                if previous_state == PlaybackState.PAUSED:
+                    self.pause()
+
+    def set_speed(self, speed: float) -> None:
+        """Change playback speed, restarting the process to apply it.
+
+        ffplay takes the speed as a filter argument, so it cannot be changed on a
+        running process. The position is carried over exactly, and a paused track
+        stays paused after the restart.
+        """
+        speed = float(speed)
+        if not MIN_SPEED <= speed <= MAX_SPEED:
+            raise AudioPreviewError(f"播放速度需要在 {MIN_SPEED:g}× 到 {MAX_SPEED:g}× 之间。")
+        if abs(speed - self.speed) < _SPEED_EPSILON:
+            return
+        position, previous_state = self.position, self.state
+        self.speed = speed
         if previous_state in {PlaybackState.PLAYING, PlaybackState.PAUSED}:
             self._terminate()
             self._position = position
