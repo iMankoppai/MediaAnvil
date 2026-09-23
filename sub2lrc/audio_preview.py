@@ -56,6 +56,24 @@ def parse_lrc_timeline(content: str) -> tuple[LyricLine, ...]:
     return tuple(sorted(timeline, key=lambda item: item.time_seconds))
 
 
+def shift_timeline(timeline: tuple[LyricLine, ...], seconds: float) -> tuple[LyricLine, ...]:
+    """Move every lyric line by ``seconds``, clamping at zero.
+
+    A negative shift that would push a line before the start of the track is
+    clamped to 0 rather than dropped, so no lyric silently disappears. Ends move
+    with their start and never precede it. The preview page only changes what is
+    on screen with this; nothing is written to the audio file.
+    """
+    if not seconds:
+        return timeline
+    shifted: list[LyricLine] = []
+    for line in timeline:
+        start = max(0.0, line.time_seconds + seconds)
+        end = None if line.end_seconds is None else max(start, line.end_seconds + seconds)
+        shifted.append(LyricLine(start, line.text, line.source_line, end))
+    return tuple(shifted)
+
+
 def current_lyric_index(timeline: tuple[LyricLine, ...], position: float) -> int | None:
     if not timeline:
         return None

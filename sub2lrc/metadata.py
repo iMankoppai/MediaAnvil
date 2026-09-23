@@ -21,6 +21,7 @@ class Mp3Metadata:
     has_lyrics: bool = False
     track: str = ""
     year: str = ""
+    genre: str = ""
 
 
 def _text_value(tags: object, frame_id: str) -> str:
@@ -62,6 +63,7 @@ def read_mp3_metadata(path: str | Path) -> Mp3Metadata:
         has_lyrics=bool(tags.getall("USLT") or tags.getall("SYLT")),
         track=_text_value(tags, "TRCK"),
         year=_text_value(tags, "TDRC") or _text_value(tags, "TYER"),
+        genre=_text_value(tags, "TCON"),
     )
 
 
@@ -84,6 +86,7 @@ def update_mp3_metadata(
     destination: str | Path | None = None,
     track: str | None = None,
     year: str | None = None,
+    genre: str | None = None,
 ) -> Path:
     """Update selected basic fields; ``None`` means leave that field unchanged.
 
@@ -98,6 +101,7 @@ def update_mp3_metadata(
         "TPE1": artist,
         "TALB": album,
         "TRCK": track,
+        "TCON": genre,
     }
     values = {frame_id: value.strip() for frame_id, value in requested.items() if value is not None}
     year_value = year.strip() if year is not None else None
@@ -107,11 +111,11 @@ def update_mp3_metadata(
 
     try:
         from mutagen import MutagenError
-        from mutagen.id3 import ID3, ID3NoHeaderError, TALB, TDRC, TIT2, TPE1, TRCK, TYER
+        from mutagen.id3 import ID3, ID3NoHeaderError, TALB, TCON, TDRC, TIT2, TPE1, TRCK, TYER
     except ImportError as exc:
         raise MetadataError("缺少 Mutagen 组件，请重新安装或重新打包 MediaAnvil。") from exc
 
-    frame_classes = {"TIT2": TIT2, "TPE1": TPE1, "TALB": TALB, "TRCK": TRCK}
+    frame_classes = {"TIT2": TIT2, "TPE1": TPE1, "TALB": TALB, "TRCK": TRCK, "TCON": TCON}
 
     def edit(target: Path) -> None:
         try:
@@ -136,7 +140,8 @@ def update_mp3_metadata(
         tags.save(target, v2_version=save_version)
 
         saved = read_mp3_metadata(target)
-        saved_values = {"TIT2": saved.title, "TPE1": saved.artist, "TALB": saved.album, "TRCK": saved.track}
+        saved_values = {"TIT2": saved.title, "TPE1": saved.artist, "TALB": saved.album,
+                        "TRCK": saved.track, "TCON": saved.genre}
         if any(saved_values[frame_id] != value for frame_id, value in values.items()):
             raise MetadataError("写入后的基础标签校验失败，原文件未被修改。")
         if year_value is not None and saved.year != year_value:

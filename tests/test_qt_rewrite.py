@@ -1058,6 +1058,65 @@ class QtRewriteTests(unittest.TestCase):
         page.apply_batch_tags()
         self.assertIn('请先扫描音乐文件夹',self.messages[-1])
 
+    def test_editor_writes_and_reloads_track_number_and_genre(self):
+        page=self.window.pages['editor']
+        wav=self.base/'tags.wav'
+        with wave.open(str(wav),'wb') as out:
+            out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*4000)
+        outputs,lines=convert_files('audio',[wav],'',AudioConversionSettings('mp3',128),lambda *args:None)
+        self.assertEqual(len(outputs),1,lines)
+        mp3=outputs[0];original=mp3.read_bytes()
+        page.load(mp3);self.wait()
+        self.assertEqual(page.genre.text(),'')
+        self.assertEqual(page.track.text(),'')
+        page.genre.setText('爵士');page.track.setText('3/12');page.save();self.wait()
+        self.assertEqual(mp3.read_bytes(),original,'save-as must leave the source untouched')
+        saved=read_metadata(page.path)
+        self.assertEqual(saved.genre,'爵士')
+        self.assertEqual(saved.track,'3/12')
+        # reloading the saved copy repopulates the new box too
+        page.load(page.path);self.wait()
+        self.assertEqual(page.genre.text(),'爵士')
+        self.assertEqual(page.track.text(),'3/12')
+
+    def test_batch_tag_editing_can_write_the_new_fields(self):
+        from mediaanvil_qt.services import batch_edit_tags
+        sources=[]
+        for index in range(2):
+            wav=self.base/f'newfield-{index}.wav'
+            with wave.open(str(wav),'wb') as out:
+                out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*4000)
+            outputs,lines=convert_files('audio',[wav],'',AudioConversionSettings('mp3',128),lambda *args:None)
+            self.assertEqual(len(outputs),1,lines)
+            sources.append(outputs[0])
+        lines=batch_edit_tags(sources,{'genre':'古典','track':'5'},True,None,lambda *a:None)
+        self.assertEqual(len([l for l in lines if l.startswith('完成')]),2,lines)
+        for produced in sources:
+            saved=read_metadata(produced)
+            self.assertEqual(saved.genre,'古典')
+            self.assertEqual(saved.track,'5')
+
+    def test_batch_tag_boxes_include_track_and_genre_and_stay_blank_by_default(self):
+        page=self.window.pages['editor']
+        self.assertEqual(set(page.batch_values),{'album','artist','year','track','genre'})
+        for key,edit in page.batch_values.items():
+            with self.subTest(field=key):
+                self.assertEqual(edit.text(),'','a blank box must never erase a tag')
+        # A blank set of boxes is refused rather than silently writing nothing.
+        page.match_rows=[type('Match',(),{'audio':self.base/'x.mp3'})()]
+        page.apply_batch_tags()
+        self.assertIn('请至少填写一个要批量写入的标签',self.messages[-1])
+
+    def test_batch_tag_layout_never_scrolls_sideways_on_a_narrow_window(self):
+        """Five labelled boxes plus the button must not widen the page."""
+        self.window.resize(900,640)
+        self.window.navigation.setCurrentRow(self.window.keys.index('editor'))
+        page=self.window.pages['editor']
+        page.toggle_matches()
+        for _ in range(4):self.qt.processEvents()
+        self.assertEqual(page.scroll.horizontalScrollBar().maximum(),0)
+        self.assertLessEqual(page.batch_fields_row.width(),page.scroll.viewport().width())
+
     def test_join_page_merges_files_in_list_order(self):
         sources=[]
         for index,frequency in enumerate((440,660,880)):
@@ -1225,5 +1284,260 @@ class QtRewriteTests(unittest.TestCase):
         with patch('mediaanvil_qt.services.write_metadata',side_effect=fake_write):
             lines=write_matches(((audio,subtitle,None),),True,'',lambda *args:None)
         self.assertIn('[00:01.00]批量字幕',captured[0]);self.assertIn('完成：',lines[0])
+
+    def test_preview_lyric_offset_moves_the_highlight_and_keeps_the_file_untouched(self):
+        source=self.base/'offset.wav'
+        with wave.open(str(source),'wb') as out:out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*16000)
+        lyric=self.base/'offset.lrc';lyric.write_text('[ti:歌名]\n[00:01.00]第一句\n[00:05.50]第二句\n',encoding='utf8')
+        original=source.read_bytes()
+        page=self.window.pages['preview'];page.load(source);self.wait()
+        self.assertEqual([line.time_seconds for line in page.timeline],[1.0,5.5])
+        # later by 2 s: the on-screen timeline moves, the audio does not
+        page.lyric_shift.setValue(2.0)
+        page.shift_direction.setCurrentIndex(page.shift_direction.findData('later'))
+        page.apply_lyric_shift()
+        self.assertEqual([line.time_seconds for line in page.timeline],[3.0,7.5])
+        self.assertEqual(page.lyrics.count(),4,'two lyrics plus two padding rows')
+        self.assertIn('第一句',page.lyrics.item(1).text())
+        self.assertEqual(source.read_bytes(),original,'preview offset must not write the audio')
+        # earlier than the first line clamps at zero instead of dropping it
+        page.reset_lyric_shift()
+        page.lyric_shift.setValue(3.0)
+        page.shift_direction.setCurrentIndex(page.shift_direction.findData('earlier'))
+        page.apply_lyric_shift()
+        self.assertEqual([line.time_seconds for line in page.timeline],[0.0,2.5])
+        self.assertEqual(page.lyrics.count(),4,'clamping must not drop a lyric line')
+        # reset returns to the file's own timing
+        page.reset_lyric_shift()
+        self.assertEqual([line.time_seconds for line in page.timeline],[1.0,5.5])
+        self.assertEqual(source.read_bytes(),original)
+
+    def test_preview_lyric_offset_requires_lyrics_and_reports_instead_of_failing(self):
+        source=self.base/'plain.wav'
+        with wave.open(str(source),'wb') as out:out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*800)
+        page=self.window.pages['preview'];page.load(source);self.wait()
+        self.assertEqual(page.timeline,())
+        self.assertFalse(page.shift_save.isEnabled(),'saving is pointless without lyrics')
+        page.lyric_shift.setValue(1.0);page.apply_lyric_shift()
+        self.assertIn('请先载入带歌词的音频',self.messages[-1])
+
+    def test_preview_lyric_offset_can_be_saved_to_the_audio(self):
+        source=self.base/'save-shift.wav'
+        with wave.open(str(source),'wb') as out:out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*16000)
+        outputs,lines=convert_files('audio',[source],'',AudioConversionSettings('mp3',128),lambda *args:None)
+        self.assertEqual(len(outputs),1,lines)
+        mp3=outputs[0]
+        # Give the file other tags first: saving an offset must keep every one.
+        from sub2lrc.audio_metadata import write_metadata as write_tags, AudioMetadataChanges as Changes
+        tagged=write_tags(mp3,Changes(title='原标题',artist='原歌手',album='原专辑'))
+        original=tagged.read_bytes()
+        lyric=self.base/'save-shift.lrc';lyric.write_text('[ti:歌名]\n[00:01.00]第一句\n',encoding='utf8')
+        page=self.window.pages['preview'];page.load(tagged);self.wait()
+        self.assertTrue(page.shift_save.isEnabled())
+        page.lyric_shift.setValue(2.0)
+        page.shift_direction.setCurrentIndex(page.shift_direction.findData('later'))
+        page.apply_lyric_shift()
+        self.assertEqual(tagged.read_bytes(),original,'applying alone must not touch the file')
+        page.save_shifted_lyrics();self.wait()
+        self.assertEqual(tagged.read_bytes(),original,'saving must write a new file, never the source')
+        saved=read_metadata(tagged.with_name(tagged.stem+'_tagged'+tagged.suffix))
+        self.assertIn('[00:03.00]',saved.lyrics)
+        self.assertIn('[ti:歌名]',saved.lyrics,'metadata lines must survive the offset')
+        self.assertEqual(saved.title,'原标题','saving lyrics must not disturb other tags')
+        self.assertEqual(saved.artist,'原歌手')
+        self.assertEqual(saved.album,'原专辑')
+
+    def test_preview_lyric_offset_shifts_srt_ranges_through_their_own_parser(self):
+        source=self.base/'ranged.wav'
+        with wave.open(str(source),'wb') as out:out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*16000)
+        subtitle=self.base/'ranged.srt';subtitle.write_text('1\n00:00:01,000 --> 00:00:02,000\n第一行\n\n2\n00:00:03,000 --> 00:00:04,000\n第二行\n',encoding='utf-8')
+        page=self.window.pages['preview'];page.load(source);self.wait()
+        self.assertEqual(len(page.timeline),2)
+        page.lyric_shift.setValue(2.0)
+        page.shift_direction.setCurrentIndex(page.shift_direction.findData('later'))
+        page.apply_lyric_shift()
+        text=page.shifted_lyric_text()
+        self.assertIn('[00:03.00]第一行',text)
+        self.assertIn('[00:05.00]第二行',text)
+
+    def test_join_page_polish_options_default_off_and_reach_the_worker(self):
+        from sub2lrc.audio_join import AudioPolish
+        page=self.window.pages['join']
+        self.window.navigation.setCurrentRow(self.window.keys.index('join'))
+        self.qt.processEvents()
+        # An untouched page must behave exactly as before this feature existed.
+        self.assertEqual(page.current_polish(),AudioPolish())
+        self.assertFalse(page.fade_enabled.isChecked())
+        self.assertFalse(page.normalize.isChecked())
+        self.assertFalse(page.fade_seconds.isEnabled(),'the length box is inert until the fade is on')
+        page.fade_enabled.setChecked(True)
+        self.qt.processEvents()
+        self.assertTrue(page.fade_seconds.isEnabled())
+        page.fade_seconds.setValue(3.0);page.normalize.setChecked(True)
+        self.assertEqual(page.current_polish(),AudioPolish(fade_seconds=3.0,normalize=True))
+        page.fade_enabled.setChecked(False)
+        self.assertEqual(page.current_polish().fade_seconds,0.0,'unchecking must drop the fade')
+
+    def test_join_page_passes_polish_through_to_merge(self):
+        from sub2lrc.audio_join import AudioPolish
+        sources=[]
+        for index in range(2):
+            wav=self.base/f'polish-{index}.wav'
+            with wave.open(str(wav),'wb') as out:
+                out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*4000)
+            sources.append(wav)
+        page=self.window.pages['join'];page.receive(sources)
+        page.mode_buttons['merge'].setChecked(True)
+        out_dir=self.base/'polish-out';out_dir.mkdir()
+        page.output.edit.setText(str(out_dir))
+        page.fade_enabled.setChecked(True);page.fade_seconds.setValue(1.5);page.normalize.setChecked(True)
+        captured={}
+        def fake_merge(paths,fmt,directory,progress,**kwargs):
+            captured.update(kwargs);captured['paths']=paths
+            return self.base/'polish-out'/'fake.mp3'
+        with patch('mediaanvil_qt.join.merge_audio',side_effect=fake_merge):
+            page.start();self.wait()
+        self.assertEqual(captured['polish'],AudioPolish(fade_seconds=1.5,normalize=True))
+
+    def test_join_page_rejects_a_fade_longer_than_allowed(self):
+        from sub2lrc.audio_join import MAX_FADE_SECONDS
+        sources=[]
+        for index in range(2):
+            wav=self.base/f'longfade-{index}.wav'
+            with wave.open(str(wav),'wb') as out:
+                out.setnchannels(1);out.setsampwidth(2);out.setframerate(8000);out.writeframes(b'\0\0'*800)
+            sources.append(wav)
+        page=self.window.pages['join'];page.receive(sources)
+        page.mode_buttons['merge'].setChecked(True)
+        page.fade_enabled.setChecked(True)
+        page.fade_seconds.setValue(MAX_FADE_SECONDS)
+        # A value the widget cannot even produce would be a bug, so force one.
+        page.fade_seconds.setValue(MAX_FADE_SECONDS)
+        self.assertLessEqual(page.fade_seconds.value(),MAX_FADE_SECONDS)
+        self.assertIsNone(self.window._worker,'no worker should start for a valid value')
+
+    def test_join_list_reordering_moves_rows_and_keeps_relative_order(self):
+        page=self.window.pages['join']
+        names=[f'track-{index}.wav' for index in range(4)]
+        for name in names:
+            (self.base/name).write_bytes(b'RIFF')
+        page.receive([self.base/name for name in names])
+        self.assertEqual([Path(p).name for p in page.files.paths()],names)
+        # Move the first file down one place: "before row 2" in the current list.
+        self.assertTrue(page.files.move_rows([0],2))
+        self.assertEqual([Path(p).name for p in page.files.paths()],
+                         [names[1],names[0],names[2],names[3]])
+        # Move the last file to the front.
+        self.assertTrue(page.files.move_rows([3],0))
+        self.assertEqual([Path(p).name for p in page.files.paths()],
+                         [names[3],names[1],names[0],names[2]])
+        # Move a block of two to the end, keeping their internal order.
+        self.assertTrue(page.files.move_rows([0,1],4))
+        self.assertEqual([Path(p).name for p in page.files.paths()],
+                         [names[0],names[2],names[3],names[1]])
+        # Out-of-range requests are refused rather than corrupting the list.
+        self.assertFalse(page.files.move_rows([9],0))
+        self.assertEqual(len(page.files.paths()),4)
+
+    def test_join_list_reordering_preserves_checked_state_and_paths(self):
+        """A reorder must not lose the rows' data, which takeItem would destroy."""
+        page=self.window.pages['join']
+        names=[f'keep-{index}.wav' for index in range(3)]
+        for name in names:(self.base/name).write_bytes(b'RIFF')
+        page.receive([self.base/name for name in names])
+        page.files.item(1).setCheckState(Qt.CheckState.Unchecked)
+        page.files.move_rows([2],0)
+        self.assertEqual([Path(p).name for p in page.files.paths()],
+                         [names[2],names[0],names[1]])
+        self.assertEqual([page.files.item(i).text() for i in range(3)],
+                         [str(self.base/names[2]),str(self.base/names[0]),str(self.base/names[1])])
+        self.assertEqual([page.files.item(i).checkState() for i in range(3)],
+                         [Qt.CheckState.Checked,Qt.CheckState.Checked,Qt.CheckState.Unchecked])
+        # checked_paths must follow the new order, not the old one.
+        self.assertEqual([Path(p).name for p in page.files.checked_paths()],
+                         [names[2],names[0]])
+
+    def test_join_list_move_up_and_down_buttons_reorder_the_selection(self):
+        page=self.window.pages['join']
+        names=[f'order-{index}.wav' for index in range(3)]
+        for name in names:(self.base/name).write_bytes(b'RIFF')
+        page.receive([self.base/name for name in names])
+        page.files.item(0).setSelected(True)
+        page.move_selection(1)
+        self.assertEqual([Path(p).name for p in page.files.paths()],
+                         [names[1],names[0],names[2]])
+        page.files.clearSelection();page.files.item(2).setSelected(True)
+        page.move_selection(-1)
+        self.assertEqual([Path(p).name for p in page.files.paths()],
+                         [names[1],names[2],names[0]])
+        # At the edge nothing moves and the list is left intact.
+        page.files.clearSelection();page.files.item(0).setSelected(True)
+        page.move_selection(-1)
+        self.assertEqual([Path(p).name for p in page.files.paths()],
+                         [names[1],names[2],names[0]])
+        page.files.clearSelection()
+        page.move_selection(1)
+        self.assertIn('请先在列表中选择要调整顺序的文件',self.messages[-1])
+
+    def test_join_list_accepts_internal_drags_but_leaves_file_drops_to_the_window(self):
+        """A dropped file must still be imported, not swallowed as a reorder.
+
+        The three entry points are exercised directly. Qt's own dispatch layer
+        re-accepts URL drops for an InternalMove view regardless of what the
+        handlers decide, so asserting on the value seen by sendEvent would test
+        Qt rather than this code; what matters is that this list refuses URL
+        drops at every point it controls, so the window-level importer still gets
+        them.
+        """
+        page=self.window.pages['join']
+        for name in ('a.wav','b.wav'):
+            (self.base/name).write_bytes(b'RIFF')
+        page.receive([self.base/'a.wav',self.base/'b.wav'])
+        viewport=page.files.viewport()
+        external=QMimeData();external.setUrls([QUrl.fromLocalFile(str(self.base/'a.wav'))])
+        internal=page.files.model().mimeData([page.files.model().index(0,0)])
+        self.assertTrue(external.hasUrls(),'the external drag must carry URLs')
+        self.assertFalse(internal.hasUrls(),'the internal drag must not carry URLs')
+
+        def drag_enter(mime):
+            return QDragEnterEvent(QPoint(20,20),Qt.DropAction.CopyAction,mime,
+                                   Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier)
+
+        # 1. The viewport filter claims URL drags before Qt's item-view handler.
+        event=drag_enter(external)
+        self.assertTrue(page.files.eventFilter(viewport,event),'the filter must consume URL drags')
+        self.assertFalse(event.isAccepted(),'a URL drag must not be accepted here')
+        # ...and leaves internal drags alone.
+        event=drag_enter(internal)
+        self.assertFalse(page.files.eventFilter(viewport,event),'internal drags must pass through')
+
+        # 2. The list accepts only internal drags.
+        event=drag_enter(internal)
+        page.files.dragEnterEvent(event)
+        self.assertTrue(event.isAccepted(),'internal reordering must be accepted')
+        event=drag_enter(external)
+        page.files.dragEnterEvent(event)
+        self.assertFalse(event.isAccepted(),'file drops must be refused by the list')
+
+        # 3. A URL drop is refused without touching the list.
+        before=[Path(p).name for p in page.files.paths()]
+        event=drag_enter(external)
+        page.files.dropEvent(event)
+        self.assertFalse(event.isAccepted(),'a URL drop must not be handled as a reorder')
+        self.assertEqual([Path(p).name for p in page.files.paths()],before)
+
+        # 4. The window still accepts the same drop, so importing is unaffected.
+        enter=QDragEnterEvent(QPoint(400,200),Qt.DropAction.CopyAction,external,
+                              Qt.MouseButton.LeftButton,Qt.KeyboardModifier.NoModifier)
+        QApplication.sendEvent(self.window,enter)
+        self.assertTrue(enter.isAccepted())
+
+    def test_only_the_join_page_reorders_its_list(self):
+        """Reordering is opt-in, so no other page changes its behaviour."""
+        self.assertTrue(self.window.pages['join'].files.reorderable)
+        for key in ('audio','image','subtitle'):
+            with self.subTest(page=key):
+                self.assertFalse(self.window.pages[key].files.reorderable)
+                self.assertFalse(self.window.pages[key].files.acceptDrops())
 
 if __name__=='__main__':unittest.main()

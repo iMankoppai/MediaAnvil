@@ -1,7 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import sys
-from PySide6.QtCore import Qt, Signal, QThread, QRect, QSize, QStandardPaths
+from PySide6.QtCore import Qt, Signal, QThread, QRect, QSize, QStandardPaths, QEvent
 from PySide6.QtGui import QPixmap, QPainter, QColor, QImageReader, QIcon
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QFileDialog, QComboBox, QFormLayout, QListWidget,
@@ -207,7 +207,7 @@ class FileDelegate(QStyledItemDelegate):
 class FileList(QListWidget):
     filesChanged = Signal()
     def sizeHint(self):return QSize(360,150)
-    def __init__(self, extensions):
+    def __init__(self, extensions, reorderable=False):
         super().__init__(); self.extensions = frozenset(extensions)
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.setMinimumHeight(125); self.setToolTip('可从资源管理器拖入文件或文件夹')
@@ -215,6 +215,113 @@ class FileList(QListWidget):
         self.setItemDelegate(FileDelegate(self));self.setIconSize(QSize(32,32))
         self.itemChanged.connect(lambda item:self.filesChanged.emit())
         self.choose_callback=None
+        # Reordering is opt-in because only the join page cares about list order.
+        # The whole window already accepts files dropped from Explorer, so this
+        # list must claim internal drags only and let external URL drops fall
+        # through to the window, or dropping a file onto the list would stop
+        # working.
+        self.reorderable=reorderable
+        if reorderable:
+            self.setDragEnabled(True);self.setAcceptDrops(True)
+            # InternalMove is what makes Qt treat a drag from this list as a
+            # reorder rather than a copy.
+            self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+            self.setDropIndicatorShown(True)
+            self.setDefaultDropAction(Qt.DropAction.MoveAction)
+            self.setToolTip('拖动条目可调整顺序；也可从资源管理器拖入文件或文件夹')
+            # In InternalMove mode Qt's own item-view drag handling claims URL
+            # drops before dragEnterEvent is consulted, which would stop files
+            # being dropped onto the list from Explorer. A viewport filter sees
+            # the event first and hands anything carrying URLs back to the
+            # window-level handler.
+            self.viewport().installEventFilter(self)
+    def eventFilter(self,watched,event):
+        # In InternalMove mode Qt's own item-view drag handling claims URL drops
+        # before dragEnterEvent is consulted, which would stop files being dropped
+        # onto the list from Explorer. Refusing the event here, before Qt's
+        # handler sees it, leaves the drop to the window-level importer.
+        if watched is self.viewport() and event.type() in (
+                QEvent.Type.DragEnter,QEvent.Type.DragMove,QEvent.Type.Drop):
+            if event.mimeData().hasUrls():
+                event.setAccepted(False)
+                return True
+        return super().eventFilter(watched,event)
+    def _is_internal_drag(self,event):
+        return self.reorderable and not event.mimeData().hasUrls()
+    def dragEnterEvent(self,event):
+        if self._is_internal_drag(event):event.acceptProposedAction()
+        else:event.ignore()
+    def dragMoveEvent(self,event):
+        if self._is_internal_drag(event):event.acceptProposedAction()
+        else:event.ignore()
+    def dropEvent(self,event):
+        if not self._is_internal_drag(event):return event.ignore()
+        rows=sorted(self.row(item) for item in self.selectedItems())
+        if not rows:return event.ignore()
+        index=self.indexAt(event.position().toPoint())
+        # Dropping onto a row inserts before it, or after it when the indicator
+        # says the pointer is below the row's midpoint.
+        before=self.count() if not index.isValid() else index.row()
+        if index.isValid() and self.dropIndicatorPosition()==QAbstractItemView.DropIndicatorPosition.BelowItem:
+            before=index.row()+1
+        self.move_rows(rows,before)
+        event.acceptProposedAction()
+    def move_rows(self,rows,before_index):
+        """Move ``rows`` together so they sit immediately before ``before_index``.
+
+        ``before_index`` is an index in the list *as it looks now*; the moved rows
+        are taken out first and re-inserted at the gap in front of that row, so
+        ``before_index=count()`` appends at the end. Rows keep their original
+        relative order and stay selected, so a second move continues from the new
+        position.
+
+        Expressing the destination as "before row N" rather than as a final index
+        keeps the arithmetic in one place: an insertion point in the shortened
+        list is just the number of rows that stay and currently precede N.
+
+        The entries are rebuilt from their stored data rather than moved with
+        ``takeItem``: under PySide6 the item returned by ``takeItem`` is already
+        owned by Python and re-adding it produces empty rows, so the list is
+        captured, cleared and repopulated instead.
+        """
+        chosen=sorted(set(rows))
+        if not chosen:return False
+        count=self.count()
+        if any(position<0 or position>=count for position in chosen):return False
+        chosen_set=set(chosen)
+        snapshot=[self._entry(index) for index in range(count)]
+        moved=[snapshot[position] for position in chosen]
+        remaining=[(index,entry) for index,entry in enumerate(snapshot) if index not in chosen_set]
+        insert_at=sum(1 for index,_entry in remaining if index<before_index)
+        entries=[entry for _index,entry in remaining]
+        for offset,entry in enumerate(moved):entries.insert(insert_at+offset,entry)
+        self.clear()
+        for entry in entries:self._add_entry(entry)
+        self.clearSelection()
+        for entry in entries:
+            if entry in moved:self._select_entry(entry)
+        self.filesChanged.emit()
+        return True
+    def _entry(self,index):
+        """Capture everything needed to rebuild one row."""
+        item=self.item(index)
+        return {'path':item.text(),'checked':item.checkState(),
+                'size':item.data(Qt.ItemDataRole.UserRole),'tip':item.toolTip(),
+                'icon':item.icon()}
+    def _add_entry(self,entry):
+        item=QListWidgetItem(entry['path'])
+        item.setToolTip(entry['tip'] or entry['path'])
+        item.setCheckState(entry['checked'])
+        if entry['size'] is not None:item.setData(Qt.ItemDataRole.UserRole,entry['size'])
+        if not entry['icon'].isNull():item.setIcon(entry['icon'])
+        item.setSizeHint(QSize(1,46))
+        self.addItem(item)
+        return item
+    def _select_entry(self,entry):
+        for index in range(self.count()):
+            if self.item(index).text()==entry['path']:
+                self.item(index).setSelected(True);self.setCurrentRow(index)
+                return
     def mouseReleaseEvent(self,event):
         super().mouseReleaseEvent(event)
         if not self.count() and event.button()==Qt.MouseButton.LeftButton and self.choose_callback:self.choose_callback()

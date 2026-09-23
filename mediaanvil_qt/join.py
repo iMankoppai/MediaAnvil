@@ -11,7 +11,8 @@ from .common import (Page, FileList, OutputPath, button, row, combo, Columns, ta
     fill_table)
 from .conversion import step_group
 from sub2lrc.audio_converter import FORMAT_SPECS, SUPPORTED_INPUT_EXTENSIONS
-from sub2lrc.audio_join import audio_duration, merge_audio, plan_equal_parts, plan_fixed_length, split_audio
+from sub2lrc.audio_join import (AudioPolish, MAX_FADE_SECONDS, audio_duration, merge_audio,
+    plan_equal_parts, plan_fixed_length, split_audio)
 
 
 class JoinPage(Page):
@@ -30,7 +31,7 @@ class JoinPage(Page):
         source, body, self.source_detail = step_group(1, '选择音频文件', '支持 MP3、WAV、FLAC、M4A、AAC、OGG 等格式')
         self.source_card = source
         left_layout.addWidget(source)
-        self.files = FileList(SUPPORTED_INPUT_EXTENSIONS)
+        self.files = FileList(SUPPORTED_INPUT_EXTENSIONS, reorderable=True)
         self.files.empty_kind = 'audio'
         self.files.empty_title = '点击添加文件 或 拖拽文件到此处'
         self.files.empty_hint = '合并需要至少两个文件；分割只需一个'
@@ -42,7 +43,15 @@ class JoinPage(Page):
         self.select_all.toggled.connect(self.check_all)
         self.selection_row = QWidget(); selection = QHBoxLayout(self.selection_row)
         selection.setContentsMargins(0, 0, 0, 0)
-        selection.addWidget(self.select_all); selection.addStretch(1)
+        selection.addWidget(self.select_all)
+        # Dragging is the quick way to reorder; these buttons are the accessible
+        # one, and they work when the list is too short to drop onto precisely.
+        self.move_up_button = button('上移', lambda: self.move_selection(-1))
+        self.move_down_button = button('下移', lambda: self.move_selection(1))
+        self.move_up_button.setToolTip('把选中的文件向上移动一位')
+        self.move_down_button.setToolTip('把选中的文件向下移动一位')
+        selection.addWidget(self.move_up_button); selection.addWidget(self.move_down_button)
+        selection.addStretch(1)
         selection.addWidget(self.toolbar.count_label); body.addWidget(self.selection_row)
 
         mode_card, mode_body, self.mode_detail = step_group(2, '处理方式', '选择合并多段音频，或把一段音频切成多段')
@@ -84,6 +93,23 @@ class JoinPage(Page):
         self.format.setFixedWidth(120)
         self.output = OutputPath()
         output_body.addWidget(row(QLabel('输出格式'), self.format, QLabel('输出目录'), self.output))
+        # Optional polish. Both default to off so an untouched page behaves
+        # exactly as before; nothing is applied unless the user asks for it.
+        self.fade_enabled = QCheckBox('淡入淡出')
+        self.fade_seconds = QDoubleSpinBox(); self.fade_seconds.setRange(0.1, MAX_FADE_SECONDS)
+        self.fade_seconds.setDecimals(1); self.fade_seconds.setSingleStep(0.5)
+        self.fade_seconds.setValue(2.0); self.fade_seconds.setSuffix(' 秒')
+        self.fade_seconds.setFixedWidth(110); self.fade_seconds.setEnabled(False)
+        self.fade_seconds.setToolTip('音频开头淡入、结尾淡出的时长')
+        self.normalize = QCheckBox('音量标准化')
+        self.normalize.setToolTip('按 EBU R128 把各段响度调整到一致，适合拼接音量不同的录音')
+        self.fade_enabled.toggled.connect(self.fade_seconds.setEnabled)
+        polish_row = row(self.fade_enabled, self.fade_seconds, self.normalize)
+        self.polish_row = polish_row
+        output_body.addWidget(polish_row)
+        self.polish_note = QLabel('两项默认关闭；勾选后仅作用于新生成的文件。')
+        self.polish_note.setObjectName('muted')
+        output_body.addWidget(self.polish_note)
 
         right = QWidget(); right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0); right_layout.setSpacing(10)
@@ -128,30 +154,53 @@ class JoinPage(Page):
             self.duration_note.setText(self.app.t('选择文件后显示时长'))
             return
         if self.current_mode() == 'merge':
-            self.duration_note.setText(self.app.t(f'将合并 {len(paths)} 个文件，按列表顺序拼接'))
+            self.duration_note.setText(self.app.t(f'将合并 {len(paths)} 个文件，按列表顺序拼接（可拖动或上移/下移调整）'))
         else:
             self.duration_note.setText(self.app.t('分割只处理列表中的第一个文件'))
 
     def receive(self, paths):
         return self.files.add_paths(paths)
 
+    def move_selection(self, direction):
+        """Move the selected rows one place up or down, keeping them together."""
+        rows=sorted(self.files.row(item) for item in self.files.selectedItems())
+        if not rows:
+            return self.app.inform(self.app.t('请先在列表中选择要调整顺序的文件。'))
+        # "Before row N" in the current list: one above the block for an upward
+        # move, and the row just past the block for a downward move.
+        before=rows[0]-1 if direction<0 else rows[-1]+2
+        if before<0:return
+        if direction>0 and rows[-1]>=self.files.count()-1:return
+        if self.files.move_rows(rows,before):self.update_duration_note()
+
     def check_all(self, checked):
         for index in range(self.files.count()):
             self.files.item(index).setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
 
     # ---- work ----------------------------------------------------------
+    def current_polish(self):
+        """Snapshot the optional fade / normalisation choices for the worker."""
+        fade = self.fade_seconds.value() if self.fade_enabled.isChecked() else 0.0
+        return AudioPolish(fade_seconds=fade, normalize=self.normalize.isChecked())
+
     def start(self):
         paths = self.files.checked_paths()
         if not paths:
             return self.app.inform(self.app.t('请先添加并勾选要处理的文件。'))
         output_format = self.format.currentData()
         directory = self.output.text()
+        polish = self.current_polish()
+        try:
+            polish.validate()
+        except Exception as exc:
+            return self.app.inform(str(exc))
         if self.current_mode() == 'merge':
             if len(paths) < 2:
                 return self.app.inform(self.app.t('合并至少需要两个音频文件。'))
             sources = list(paths)
             self.app.run_task(
                 lambda report: [merge_audio(sources, output_format, directory, report,
+                                            polish=polish,
                                             cancel_check=report.raise_if_cancelled,
                                             process_callback=report.register_process)],
                 self.finished)
@@ -165,6 +214,7 @@ class JoinPage(Page):
             total = audio_duration(source)
             plans = plan_equal_parts(total, parts) if by_parts else plan_fixed_length(total, length)
             return list(split_audio(source, plans, output_format, directory, report,
+                                    polish=polish,
                                     cancel_check=report.raise_if_cancelled,
                                     process_callback=report.register_process))
         self.app.run_task(work, self.finished)

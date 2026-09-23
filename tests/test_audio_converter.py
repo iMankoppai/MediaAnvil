@@ -2,7 +2,9 @@ from io import StringIO
 import math
 import os
 from pathlib import Path
+import re
 import struct
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -354,6 +356,210 @@ class AudioConverterTests(unittest.TestCase):
             self.assertEqual(metadata["title"], ["中文标题"])
             self.assertEqual(metadata["artist"], ["日本語歌手"])
             self.assertEqual(metadata["album"], ["English Album"])
+
+
+class AudioJoinPolishTests(unittest.TestCase):
+    """Fade and loudness treatment, measured on real FFmpeg output.
+
+    These use the vendored FFmpeg and read the result back with FFmpeg's own
+    measurement filters, because the whole point of the feature is what the audio
+    actually sounds like: a command that merely builds without error proves
+    nothing about the level at the start and end of the file.
+    """
+
+    def setUp(self) -> None:
+        self.ffmpeg = required_real_ffmpeg()
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def _tone(self, name: str, frequency: int, seconds: float, gain: float) -> Path:
+        path = self.root / name
+        subprocess.run(
+            [str(self.ffmpeg), "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+             "-i", f"sine=frequency={frequency}:duration={seconds}", "-af", f"volume={gain}",
+             "-ac", "2", "-ar", "44100", "-y", str(path)],
+            check=True, capture_output=True,
+        )
+        return path
+
+    def _mean_volume(self, path: Path, start: float | None = None, span: float | None = None) -> float:
+        """Mean level of a slice, in dBFS, measured by FFmpeg itself."""
+        command = [str(self.ffmpeg), "-hide_banner", "-nostdin"]
+        if start is not None:
+            command += ["-ss", str(start)]
+        command += ["-i", str(path)]
+        if span is not None:
+            command += ["-t", str(span)]
+        command += ["-af", "volumedetect", "-f", "null", "-"]
+        result = subprocess.run(command, capture_output=True, text=True, errors="replace")
+        match = re.search(r"mean_volume:\s*(-?[\d.]+) dB", result.stderr)
+        self.assertIsNotNone(match, f"volumedetect produced no level for {path.name}")
+        return float(match.group(1))
+
+    def _lufs(self, path: Path, start: float | None = None, span: float | None = None) -> float:
+        """Integrated loudness in LUFS, measured by FFmpeg's EBU R128 scanner."""
+        command = [str(self.ffmpeg), "-hide_banner", "-nostdin"]
+        if start is not None:
+            command += ["-ss", str(start)]
+        command += ["-i", str(path)]
+        if span is not None:
+            command += ["-t", str(span)]
+        command += ["-af", "ebur128=peak=true", "-f", "null", "-"]
+        result = subprocess.run(command, capture_output=True, text=True, errors="replace")
+        values = re.findall(r"I:\s*(-?[\d.]+)\s*LUFS", result.stderr)
+        self.assertTrue(values, f"ebur128 produced no loudness for {path.name}")
+        return float(values[-1])
+
+    def test_default_polish_is_off_and_changes_nothing(self) -> None:
+        from sub2lrc.audio_join import AudioPolish
+        self.assertEqual(AudioPolish(), AudioPolish(fade_seconds=0.0, normalize=False))
+        # A negative fade is a programming error, not a silent no-op.
+        with self.assertRaises(AudioConversionError):
+            AudioPolish(fade_seconds=-1.0).validate()
+
+    def test_merge_fade_quiets_only_the_two_ends(self) -> None:
+        from sub2lrc.audio_join import AudioPolish, merge_audio
+        first = self._tone("fade-a.wav", 440, 4, 0.8)
+        second = self._tone("fade-b.wav", 660, 4, 0.8)
+        plain = self.root / "plain"; plain.mkdir()
+        faded_dir = self.root / "faded"; faded_dir.mkdir()
+        base = merge_audio([first, second], "wav", plain, ffmpeg_path=self.ffmpeg)
+        faded = merge_audio([first, second], "wav", faded_dir, ffmpeg_path=self.ffmpeg,
+                            polish=AudioPolish(fade_seconds=1.0))
+        # The ends get quieter...
+        self.assertLess(self._mean_volume(faded, 0.0, 0.4), self._mean_volume(base, 0.0, 0.4) - 3.0)
+        self.assertLess(self._mean_volume(faded, 7.6, 0.4), self._mean_volume(base, 7.6, 0.4) - 3.0)
+        # ...while the middle, including the join between the two files, is untouched.
+        self.assertAlmostEqual(self._mean_volume(faded, 3.6, 0.8), self._mean_volume(base, 3.6, 0.8), delta=0.5)
+
+    def test_merge_normalisation_levels_tracks_recorded_at_different_volumes(self) -> None:
+        from sub2lrc.audio_join import AudioPolish, merge_audio
+        loud = self._tone("loud.wav", 440, 10, 0.5)
+        quiet = self._tone("quiet.wav", 660, 10, 0.2)
+        before = abs(self._lufs(loud) - self._lufs(quiet))
+        self.assertGreater(before, 5.0, "the fixture must actually differ in level")
+        directory = self.root / "normalised"; directory.mkdir()
+        joined = merge_audio([loud, quiet], "wav", directory, ffmpeg_path=self.ffmpeg,
+                             polish=AudioPolish(normalize=True))
+        after = abs(self._lufs(joined, 0.5, 8.0) - self._lufs(joined, 10.5, 8.0))
+        # Normalising each input before the join must bring the two halves together.
+        self.assertLess(after, 1.0, f"halves differ by {after:.1f} LU after normalisation")
+        self.assertLess(after, before)
+
+    def test_split_applies_a_fade_to_every_piece(self) -> None:
+        from sub2lrc.audio_join import AudioPolish, plan_equal_parts, split_audio
+        source = self._tone("splitsrc.wav", 440, 8, 0.8)
+        plain_dir = self.root / "split-plain"; plain_dir.mkdir()
+        faded_dir = self.root / "split-faded"; faded_dir.mkdir()
+        plans = plan_equal_parts(8.0, 4)
+        base = split_audio(source, plans, "wav", plain_dir, ffmpeg_path=self.ffmpeg)
+        faded = split_audio(source, plans, "wav", faded_dir, ffmpeg_path=self.ffmpeg,
+                            polish=AudioPolish(fade_seconds=0.5))
+        self.assertEqual(len(faded), 4)
+        for index, (base_piece, faded_piece) in enumerate(zip(base, faded)):
+            with self.subTest(piece=index):
+                # Every piece is a standalone file, so every piece fades.
+                self.assertLess(self._mean_volume(faded_piece, 0.0, 0.2),
+                                self._mean_volume(base_piece, 0.0, 0.2) - 2.0)
+                self.assertLess(self._mean_volume(faded_piece, 1.8, 0.2),
+                                self._mean_volume(base_piece, 1.8, 0.2) - 2.0)
+
+    def test_fades_never_overlap_on_a_clip_shorter_than_the_fade(self) -> None:
+        from sub2lrc.audio_join import AudioPolish, merge_audio
+        # 1.0 s of audio with a 3 s fade. Without clamping, the fade-out would be
+        # scheduled past the end and the tail would fade back up instead of down.
+        # With clamping each fade gets half the clip, so the level must fall
+        # monotonically towards the end.
+        short_a = self._tone("short-a.wav", 440, 0.5, 0.8)
+        short_b = self._tone("short-b.wav", 660, 0.5, 0.8)
+        directory = self.root / "short"; directory.mkdir()
+        joined = merge_audio([short_a, short_b], "wav", directory, ffmpeg_path=self.ffmpeg,
+                             polish=AudioPolish(fade_seconds=3.0))
+        self.assertGreater(joined.stat().st_size, 0)
+        head = self._mean_volume(joined, 0.0, 0.1)
+        middle = self._mean_volume(joined, 0.45, 0.1)
+        tail = self._mean_volume(joined, 0.88, 0.1)
+        # The start is faded down, the middle is untouched, the tail is quietest.
+        self.assertLess(head, middle - 5.0, "the start should be faded in")
+        self.assertLess(tail, middle - 5.0, "the end should be faded out")
+        # The decisive check: the tail is quieter than the middle rather than
+        # louder, which is what a fade scheduled past the end would produce.
+        self.assertLess(tail, middle)
+
+
+class GenreTagTests(unittest.TestCase):
+    """Genre must round-trip through every writable format, not just MP3."""
+
+    def setUp(self) -> None:
+        self.ffmpeg = required_real_ffmpeg()
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def _source(self) -> Path:
+        path = self.root / "tone.wav"
+        subprocess.run(
+            [str(self.ffmpeg), "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+             "-i", "sine=frequency=440:duration=1", "-ac", "2", "-ar", "44100", "-y", str(path)],
+            check=True, capture_output=True,
+        )
+        return path
+
+    def test_genre_round_trips_in_every_writable_format(self) -> None:
+        from sub2lrc.audio_metadata import AudioMetadataChanges, read_metadata, write_metadata
+        source = self._source()
+        for output_format in ("mp3", "flac", "m4a", "ogg"):
+            with self.subTest(output=output_format):
+                convert_audio(source, self.root, AudioConversionSettings(output_format),
+                              ffmpeg_path=self.ffmpeg)
+                produced = self.root / f"tone.{output_format}"
+                self.assertEqual(read_metadata(produced).genre, "", "a fresh file has no genre")
+                result = write_metadata(produced, AudioMetadataChanges(genre="爵士 Jazz"))
+                saved = read_metadata(result)
+                self.assertEqual(saved.genre, "爵士 Jazz")
+
+    def test_genre_write_leaves_the_other_tags_alone(self) -> None:
+        from sub2lrc.audio_metadata import AudioMetadataChanges, read_metadata, write_metadata
+        source = self._source()
+        convert_audio(source, self.root, AudioConversionSettings("mp3"), ffmpeg_path=self.ffmpeg)
+        produced = self.root / "tone.mp3"
+        write_metadata(produced, AudioMetadataChanges(title="原标题", artist="原歌手", album="原专辑", year="1999"))
+        result = write_metadata(produced, AudioMetadataChanges(genre="Rock"))
+        saved = read_metadata(result)
+        self.assertEqual(saved.genre, "Rock")
+        self.assertEqual(saved.title, "原标题")
+        self.assertEqual(saved.artist, "原歌手")
+        self.assertEqual(saved.album, "原专辑")
+        self.assertEqual(saved.year, "1999")
+
+    def test_clearing_a_genre_removes_it(self) -> None:
+        from sub2lrc.audio_metadata import AudioMetadataChanges, read_metadata, write_metadata
+        source = self._source()
+        convert_audio(source, self.root, AudioConversionSettings("mp3"), ffmpeg_path=self.ffmpeg)
+        produced = self.root / "tone.mp3"
+        write_metadata(produced, AudioMetadataChanges(genre="Pop"))
+        self.assertEqual(read_metadata(produced).genre, "Pop")
+        # An empty string is a deliberate removal, not "leave unchanged".
+        result = write_metadata(produced, AudioMetadataChanges(genre=""))
+        self.assertEqual(read_metadata(result).genre, "")
+
+    def test_track_number_round_trips_alongside_genre(self) -> None:
+        from sub2lrc.audio_metadata import AudioMetadataChanges, read_metadata, write_metadata
+        source = self._source()
+        for output_format in ("mp3", "flac", "m4a", "ogg"):
+            with self.subTest(output=output_format):
+                convert_audio(source, self.root, AudioConversionSettings(output_format),
+                              ffmpeg_path=self.ffmpeg)
+                produced = self.root / f"tone.{output_format}"
+                result = write_metadata(produced, AudioMetadataChanges(track="7", genre="Jazz"))
+                saved = read_metadata(result)
+                self.assertEqual(saved.track, "7")
+                self.assertEqual(saved.genre, "Jazz")
 
 
 if __name__ == "__main__":

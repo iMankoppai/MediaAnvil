@@ -12,6 +12,7 @@ from sub2lrc.audio_preview import (
     load_audio_lyrics,
     lyric_index_from_display_line,
     parse_lrc_timeline,
+    shift_timeline,
 )
 
 
@@ -50,6 +51,32 @@ class AudioPreviewTests(unittest.TestCase):
         self.assertEqual(timeline[current_lyric_index(timeline, 6.0) or 0].text, "第二句")
         self.assertEqual(lyric_index_from_display_line(timeline, 2), 1)
         self.assertIsNone(lyric_index_from_display_line(timeline, 99))
+
+    def test_shift_timeline_moves_lines_and_clamps_instead_of_dropping_them(self) -> None:
+        timeline = parse_lrc_timeline("[00:01.00]早\n[00:09.00]晚\n")
+        moved = shift_timeline(timeline, 2.0)
+        self.assertEqual([line.time_seconds for line in moved], [3.0, 11.0])
+        self.assertEqual([line.text for line in moved], ["早", "晚"])
+        # A negative shift clamps at zero and keeps every line.
+        earlier = shift_timeline(timeline, -5.0)
+        self.assertEqual([line.time_seconds for line in earlier], [0.0, 4.0])
+        self.assertEqual(len(earlier), len(timeline), "no lyric may be dropped by clamping")
+        self.assertTrue(all(line.time_seconds >= 0 for line in earlier))
+        # Zero is a no-op, and the source timeline is never mutated.
+        self.assertEqual(shift_timeline(timeline, 0), timeline)
+        self.assertEqual([line.time_seconds for line in timeline], [1.0, 9.0])
+
+    def test_shift_timeline_moves_end_times_and_never_inverts_them(self) -> None:
+        from sub2lrc.audio_preview import LyricLine
+        timeline = (LyricLine(1.0, "一", 0, 3.0), LyricLine(5.0, "二", 1, None))
+        moved = shift_timeline(timeline, 2.0)
+        self.assertEqual([(line.time_seconds, line.end_seconds) for line in moved],
+                         [(3.0, 5.0), (7.0, None)])
+        earlier = shift_timeline(timeline, -2.0)
+        self.assertEqual([(line.time_seconds, line.end_seconds) for line in earlier],
+                         [(0.0, 1.0), (3.0, None)])
+        self.assertTrue(all(line.end_seconds is None or line.end_seconds >= line.time_seconds
+                            for line in earlier))
 
     def test_same_name_external_lrc_is_loaded_without_changing_audio(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

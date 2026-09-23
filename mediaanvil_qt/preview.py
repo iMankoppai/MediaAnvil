@@ -1,12 +1,16 @@
 from pathlib import Path
+import tempfile
+from uuid import uuid4
 from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtGui import QShortcut, QKeySequence
-from PySide6.QtWidgets import QLabel, QListWidget, QListWidgetItem, QFileDialog, QAbstractItemView, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QStyledItemDelegate, QStyleOptionViewItem, QStyle
-from .common import Page, row, button, ClickSlider, group, Columns, set_picture, dialog_initial_directory, remember_dialog_selection, dialog_filters, remember_dialog_filter
+from PySide6.QtWidgets import QLabel, QListWidget, QListWidgetItem, QFileDialog, QAbstractItemView, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QDoubleSpinBox, QStyledItemDelegate, QStyleOptionViewItem, QStyle
+from .common import Page, row, button, combo, ClickSlider, group, Columns, set_picture, dialog_initial_directory, remember_dialog_selection, dialog_filters, remember_dialog_filter
 from .design import icon
-from sub2lrc.audio_preview import AudioPreviewPlayer, PlaybackState, load_audio_lyrics, current_lyric_index
+from .services import tagged_destination
+from sub2lrc.audio_preview import AudioPreviewPlayer, PlaybackState, load_audio_lyrics, current_lyric_index, shift_timeline
 from sub2lrc.audio_converter import SUPPORTED_INPUT_EXTENSIONS
-from sub2lrc.audio_metadata import read_metadata
+from sub2lrc.audio_metadata import read_metadata, write_metadata, AudioMetadataChanges
+from sub2lrc.converter import cues_to_lrc, detect_format, parse_text, shift_cues, shift_lrc
 
 
 class LyricList(QListWidget):
@@ -70,6 +74,20 @@ class PreviewPage(Page):
         # automatically falls back to the Chinese UI font for CJK glyphs.
         self.lyrics.setStyleSheet('QListWidget { border:0; font-family:"Segoe UI Symbol"; font-size:17px; font-weight:600; color:#7c8eab; } QListWidget::item { border:0; outline:0; } QListWidget::item:focus { border:0; outline:0; } QListWidget::item:hover { background:#f4f7fd; } QListWidget::item:selected { color:#0877ff; background:#edf4ff; font-weight:700; }')
         self.lyrics.itemClicked.connect(self.lyric_clicked);lyric_layout.addWidget(self.lyrics,1)
+        # Lyric timeline offset. Tuning it here is what the preview page is for:
+        # the highlight follows the shift immediately so the user can listen and
+        # adjust. Writing it back is optional, so the page stays read-only unless
+        # the user explicitly saves.
+        self.lyric_shift=QDoubleSpinBox();self.lyric_shift.setRange(0.0,3600.0);self.lyric_shift.setDecimals(2)
+        self.lyric_shift.setSingleStep(0.5);self.lyric_shift.setValue(0.5);self.lyric_shift.setSuffix('秒')
+        self.lyric_shift.setFixedWidth(92);self.lyric_shift.setToolTip('要调整的秒数')
+        self.shift_direction=combo([('延后','later'),('提前','earlier')]);self.shift_direction.setFixedWidth(66)
+        self.shift_apply=button('应用',self.apply_lyric_shift);self.shift_apply.setFixedWidth(50)
+        self.shift_reset=button('重置',self.reset_lyric_shift);self.shift_reset.setFixedWidth(50)
+        self.shift_save=button('保存到音频',self.save_shifted_lyrics,True)
+        self.shift_save.setEnabled(False)
+        self.shift_row=row(self.lyric_shift,self.shift_direction,self.shift_apply,self.shift_reset,self.shift_save)
+        lyric_layout.addWidget(self.shift_row)
         self.layout.addWidget(Columns(left,lyric_card,700),1)
         self.timer=QTimer(self);self.timer.setInterval(80);self.timer.timeout.connect(self.poll);self.timer.start()
         # Keep Space available when an import leaves focus on the sidebar or
@@ -102,21 +120,17 @@ class PreviewPage(Page):
         path,player,(source,timeline),meta=data
         if self.player:self.player.close()
         self.path=path;self.player=player;self.timeline=timeline;self.active_line=None
+        # Keep the raw lyric text and its original timeline so an offset can be
+        # applied, undone and re-applied without re-reading the file.
+        self.lyric_source=source;self.base_timeline=timeline;self.applied_shift=0.0
+        self.shift_save.setEnabled(bool(timeline))
         self._missing_reported=False;self._ticks=0
         self.title.setText((meta.title or path.stem) if meta else path.stem)
         self.info.setText(f'{meta.artist}  ·  {meta.info.format_label}  ·  {self.timestamp(player.duration)}' if meta else self.timestamp(player.duration))
         self.file_path.setText(str(path));self.file_path.setToolTip(str(path))
         if meta and meta.cover_data:set_picture(self.artwork,meta.cover_data,80)
         else:self.artwork.setPixmap(icon('music','#397bf3',38).pixmap(38,38))
-        self.lyrics.clear()
-        if timeline:
-            spacer=QListWidgetItem('');spacer.setData(Qt.ItemDataRole.UserRole,'padding');spacer.setFlags(Qt.ItemFlag.NoItemFlags);self.lyrics.addItem(spacer)
-        for line in timeline:
-            item=QListWidgetItem(line.text or '♪');item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            item.setSizeHint(QSize(1,max(44,28+24*max(1,len(line.text.splitlines())))));self.lyrics.addItem(item)
-        if timeline:
-            spacer=QListWidgetItem('');spacer.setFlags(Qt.ItemFlag.NoItemFlags);self.lyrics.addItem(spacer);self.lyrics.update_padding()
-        if not timeline:self.lyrics.addItem(self.app.t('暂无同步歌词，可正常播放音频'))
+        self.refill_lyrics()
         self.position.setRange(0,int(player.duration*1000))
         self.status.setText(self.app.t('音频与歌词已载入' if timeline else '音频已载入 · 暂无同步歌词'))
         self.poll()
@@ -175,6 +189,64 @@ class PreviewPage(Page):
         if self.player and 0<=index<len(self.timeline):
             try:self.player.seek(self.timeline[index].time_seconds);self.poll()
             except Exception as exc:self.app.inform(str(exc))
+    def apply_lyric_shift(self):
+        """Move the on-screen timeline by the chosen direction and magnitude."""
+        seconds=abs(self.lyric_shift.value())
+        if self.shift_direction.currentData()=='earlier':seconds=-seconds
+        self.shift_lyrics(seconds)
+    def shift_lyrics(self,seconds):
+        """Re-render the lyric list at a new offset without touching the audio."""
+        if not getattr(self,'base_timeline',None):return self.app.inform(self.app.t('请先载入带歌词的音频。'))
+        if not seconds:return self.app.inform(self.app.t('请先设置偏移秒数。'))
+        shifted=shift_timeline(self.base_timeline,seconds)
+        self.applied_shift=seconds;self.timeline=shifted;self.active_line=None
+        self.refill_lyrics()
+        self.update_display(self.player.position if self.player else 0)
+        self.status.setText(self.app.t(f'歌词已偏移 {seconds:+.2f} 秒（仅预览，未写入文件）'))
+    def reset_lyric_shift(self):
+        """Return the on-screen timeline to the file's original timing."""
+        if not getattr(self,'base_timeline',None):return self.app.inform(self.app.t('请先载入带歌词的音频。'))
+        self.applied_shift=0.0;self.timeline=self.base_timeline;self.active_line=None
+        self.refill_lyrics();self.update_display(self.player.position if self.player else 0)
+        self.status.setText(self.app.t('已恢复原始歌词时间轴'))
+    def refill_lyrics(self):
+        """Rebuild the lyric list for the current timeline, keeping the layout."""
+        timeline=self.timeline
+        self.lyrics.clear()
+        if timeline:
+            spacer=QListWidgetItem('');spacer.setData(Qt.ItemDataRole.UserRole,'padding');spacer.setFlags(Qt.ItemFlag.NoItemFlags);self.lyrics.addItem(spacer)
+        for line in timeline:
+            item=QListWidgetItem(line.text or '♪');item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            item.setSizeHint(QSize(1,max(44,28+24*max(1,len(line.text.splitlines())))));self.lyrics.addItem(item)
+        if timeline:
+            spacer=QListWidgetItem('');spacer.setFlags(Qt.ItemFlag.NoItemFlags);self.lyrics.addItem(spacer);self.lyrics.update_padding()
+        else:
+            self.lyrics.addItem(self.app.t('暂无同步歌词，可正常播放音频'))
+    def shifted_lyric_text(self):
+        """Return the offset lyrics as LRC text ready to embed.
+
+        LRC is rewritten in place so metadata lines such as ``[ti:]`` survive.
+        SRT and VTT are re-rendered from shifted cues, which is the only correct
+        way to move their ``-->`` ranges.
+        """
+        source=self.lyric_source
+        try:kind=detect_format(self.path,source)
+        except Exception:kind='lrc'
+        if kind=='lrc':return shift_lrc(source,self.applied_shift)
+        return cues_to_lrc(shift_cues(parse_text(source,kind),self.applied_shift))
+    def save_shifted_lyrics(self):
+        """Write the offset lyrics into the audio, keeping every other tag."""
+        if not self.path or not getattr(self,'base_timeline',None):return self.app.inform(self.app.t('请先载入带歌词的音频。'))
+        if not self.applied_shift:return self.app.inform(self.app.t('请先应用歌词偏移，再保存。'))
+        path=self.path
+        def work(report):
+            text=self.shifted_lyric_text()
+            with tempfile.TemporaryDirectory(prefix='mediaanvil-preview-') as temporary:
+                lyrics=Path(temporary)/('shifted-'+uuid4().hex+'.lrc')
+                lyrics.write_text(text,encoding='utf-8')
+                target=tagged_destination(path)
+                return write_metadata(path,AudioMetadataChanges(lyrics_path=lyrics),target)
+        self.app.run_task(work,lambda target:self.app.inform('已另存为：\n'+str(target)))
     def volume_changed(self):
         if self.player:
             try:self.player.set_volume(self.volume.value())

@@ -126,7 +126,7 @@ def convert_files(kind, paths, directory, settings, progress, cancel_check=None,
     return outputs, lines
 
 
-BATCH_EDITABLE_FIELDS = ('title', 'artist', 'album', 'track', 'year')
+BATCH_EDITABLE_FIELDS = ('title', 'artist', 'album', 'track', 'year', 'genre')
 
 
 def batch_edit_tags(audio_paths, values, overwrite, directory, progress):

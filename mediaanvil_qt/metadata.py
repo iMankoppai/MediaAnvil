@@ -147,12 +147,12 @@ class MetadataPage(Page):
         self.details=QLabel('选择音频后显示格式、时长、码率与标签信息');self.details.setWordWrap(True);self.details.setObjectName('notice');file_body.addWidget(self.details)
         basic,fields=form('基本信息')
         self.title=QLineEdit();self.artist=QLineEdit();self.album=QLineEdit()
-        self.track=QLineEdit();self.year=QLineEdit()
+        self.track=QLineEdit();self.year=QLineEdit();self.genre=QLineEdit()
         self.title.setPlaceholderText('请输入歌名');self.artist.setPlaceholderText('请输入歌手');self.album.setPlaceholderText('请输入专辑')
-        self.track.setPlaceholderText('如 3 或 3/12');self.year.setPlaceholderText('如 2024')
+        self.track.setPlaceholderText('如 3 或 3/12');self.year.setPlaceholderText('如 2024');self.genre.setPlaceholderText('如 流行 / Rock')
         fields.setRowWrapPolicy(fields.RowWrapPolicy.WrapAllRows)
         fields.addRow('歌名',self.title);fields.addRow('歌手',self.artist);fields.addRow('专辑',self.album)
-        fields.addRow('曲目号',self.track);fields.addRow('年份',self.year)
+        fields.addRow('曲目号',self.track);fields.addRow('年份',self.year);fields.addRow('流派',self.genre)
         lyric_card,lyric_layout=group('歌词')
         self.lyrics=QPlainTextEdit();self.lyrics.setReadOnly(True);self.lyrics.setPlaceholderText('尚未读取歌词');self.lyrics.setStyleSheet('QPlainTextEdit { font-family:"Segoe UI Symbol"; }');self.lyrics.setMinimumHeight(130);self.lyrics.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Expanding);lyric_layout.addWidget(self.lyrics,1)
         self.import_lyrics_button=button('导入歌词 / 字幕…',self.import_lyrics,symbol='upload');self.export_lyrics_button=button('导出歌词…',lambda:self.export('lyrics'))
@@ -203,15 +203,22 @@ class MetadataPage(Page):
         matched.addWidget(row(button('批量写入歌词',lambda:self.batch_write('lyrics')),button('批量写入封面',lambda:self.batch_write('cover')),self.write_all))
         # Batch tag editing: fill only the boxes you want applied, then write the
         # same values to every scanned file. Blank boxes are left untouched.
-        batch_fields=QWidget();batch_layout=QHBoxLayout(batch_fields);batch_layout.setContentsMargins(0,0,0,0);batch_layout.setSpacing(8)
+        # A grid rather than one long row: five labelled boxes plus the button
+        # overflow a narrow window, and the page must never scroll sideways.
+        batch_fields=QWidget();batch_layout=QGridLayout(batch_fields)
+        batch_layout.setContentsMargins(0,0,0,0);batch_layout.setHorizontalSpacing(8);batch_layout.setVerticalSpacing(6)
         self.batch_values={}
-        for key,label in (('album','专辑'),('artist','歌手'),('year','年份')):
+        for position,(key,label) in enumerate((('album','专辑'),('artist','歌手'),('year','年份'),
+                                               ('track','曲目号'),('genre','流派'))):
             edit=QLineEdit();edit.setPlaceholderText(self.app.t(label))
-            edit.setFixedWidth(120);edit.setClearButtonEnabled(True)
+            edit.setFixedWidth(110);edit.setClearButtonEnabled(True)
             self.batch_values[key]=edit
-            batch_layout.addWidget(QLabel(self.app.t(label)));batch_layout.addWidget(edit)
+            column=position%3;grid_row=(position//3)*2
+            batch_layout.addWidget(QLabel(self.app.t(label)),grid_row,column*2)
+            batch_layout.addWidget(edit,grid_row,column*2+1)
         self.batch_apply=button('批量写入标签',self.apply_batch_tags,True);self.batch_apply.setEnabled(False)
-        batch_layout.addWidget(self.batch_apply);batch_layout.addStretch(1)
+        batch_layout.addWidget(self.batch_apply,2,0,1,2)
+        batch_layout.setColumnStretch(6,1)
         matched.addWidget(batch_fields)
         self.batch_fields_row=batch_fields
         self.match_content.hide()
@@ -255,7 +262,7 @@ class MetadataPage(Page):
     def reset(self):
         if not self.state:return
         s=self.state;self.lyric_path=self.cover_path=None;self.remove_lyrics.setChecked(False);self.remove_cover.setChecked(False)
-        self.title.setText(s.title);self.artist.setText(s.artist);self.album.setText(s.album);self.track.setText(s.track);self.year.setText(s.year);self.lyrics.setPlainText(s.lyrics);self.cover.set_artwork(s.cover_data,self.app.t('暂无封面'))
+        self.title.setText(s.title);self.artist.setText(s.artist);self.album.setText(s.album);self.track.setText(s.track);self.year.setText(s.year);self.genre.setText(getattr(s,'genre',''));self.lyrics.setPlainText(s.lyrics);self.cover.set_artwork(s.cover_data,self.app.t('暂无封面'))
         self.filename.setText(str(self.path));i=s.info
         if self.app.settings.get('language')=='en_US':
             self.details.setText(f'{i.format_label} · {i.duration_seconds:.1f} s · {i.bitrate_kbps} kbps · {i.sample_rate_hz} Hz · {i.channels} channels · {i.file_size_bytes/1024/1024:.2f} MB · {i.tag_count} tags' + ('' if s.writable else ' · Read only'))
@@ -342,7 +349,13 @@ class MetadataPage(Page):
     def save(self):
         if not self.path or not self.state:return self.app.inform('请先选择音频。')
         if not self.state.writable:return self.app.inform('该格式当前只支持读取信息。')
-        path=self.path;changes=AudioMetadataChanges(self.title.text(),self.artist.text(),self.album.text(),self.track.text(),self.year.text(),self.lyric_path,self.remove_lyrics.isChecked(),self.cover_path,self.remove_cover.isChecked())
+        # Keyword arguments on purpose: this list has grown twice already, and a
+        # positional call silently shifts every later field when one is inserted.
+        path=self.path;changes=AudioMetadataChanges(
+            title=self.title.text(),artist=self.artist.text(),album=self.album.text(),
+            track=self.track.text(),year=self.year.text(),genre=self.genre.text(),
+            lyrics_path=self.lyric_path,remove_lyrics=self.remove_lyrics.isChecked(),
+            cover_path=self.cover_path,remove_cover=self.remove_cover.isChecked())
         overwrite=self.mode.currentData()=='overwrite';directory=self.output.text()
         def work(report):
             destination=None if overwrite else tagged_destination(path,directory)

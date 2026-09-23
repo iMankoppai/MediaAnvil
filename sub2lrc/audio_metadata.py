@@ -47,6 +47,7 @@ class AudioMetadata:
     info: AudioFileInfo
     track: str = ""
     year: str = ""
+    genre: str = ""
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,7 @@ class AudioMetadataChanges:
     album: str | None = None
     track: str | None = None
     year: str | None = None
+    genre: str | None = None
     lyrics_path: Path | None = None
     remove_lyrics: bool = False
     cover_path: Path | None = None
@@ -135,13 +137,13 @@ class Mp3Adapter:
         return AudioMetadata(
             state.title, state.artist, state.album, state.has_lyrics, state.lyrics,
             state.has_cover, state.cover_data, state.cover_mime, detail.lyrics_count,
-            detail.cover_count, True, info, state.track, state.year,
+            detail.cover_count, True, info, state.track, state.year, state.genre,
         )
 
     def write(self, source: Path, changes: AudioMetadataChanges, destination: Path | None) -> Path:
         edits = Mp3Edits(
             title=changes.title, artist=changes.artist, album=changes.album,
-            track=changes.track, year=changes.year,
+            track=changes.track, year=changes.year, genre=changes.genre,
             lyrics_path=changes.lyrics_path, remove_lyrics=changes.remove_lyrics,
             cover_path=changes.cover_path, remove_cover=changes.remove_cover,
         )
@@ -163,6 +165,7 @@ class FlacAdapter:
             bool(cover), cover.data if cover else None, cover.mime if cover else None,
             1 if lyrics else 0, len(pictures), True, _generic_info(path, audio, "FLAC", len(tags or {})),
             _value(tags, "tracknumber"), _value(tags, "date") or _value(tags, "year"),
+            _value(tags, "genre"),
         )
 
     def write(self, source: Path, changes: AudioMetadataChanges, destination: Path | None) -> Path:
@@ -174,7 +177,7 @@ class FlacAdapter:
             if audio.tags is None:
                 audio.add_tags()
             for key, value in (("title", changes.title), ("artist", changes.artist), ("album", changes.album),
-                               ("tracknumber", changes.track), ("date", changes.year)):
+                               ("tracknumber", changes.track), ("date", changes.year), ("genre", changes.genre)):
                 if value is not None:
                     if value.strip(): audio[key] = [value.strip()]
                     elif key in audio: del audio[key]
@@ -208,7 +211,7 @@ class Mp4Adapter:
             _value(tags, "©nam"), _value(tags, "©ART"), _value(tags, "©alb"), bool(lyrics), lyrics,
             bool(cover), bytes(cover) if cover else None, mime, 1 if lyrics else 0, len(covers), True,
             _generic_info(path, audio, "M4A", len(tags)),
-            self._track_value(tags), _value(tags, "©day"),
+            self._track_value(tags), _value(tags, "©day"), _value(tags, "©gen"),
         )
 
     @staticmethod
@@ -231,7 +234,7 @@ class Mp4Adapter:
             audio = MP4(path)
             if audio.tags is None: audio.add_tags()
             for key, value in (("©nam", changes.title), ("©ART", changes.artist), ("©alb", changes.album),
-                               ("©day", changes.year)):
+                               ("©day", changes.year), ("©gen", changes.genre)):
                 if value is not None:
                     if value.strip(): audio.tags[key] = [value.strip()]
                     else: audio.tags.pop(key, None)
@@ -276,6 +279,7 @@ class OggAdapter:
             bool(cover), cover.data if cover else None, cover.mime if cover else None,
             1 if lyrics else 0, len(pictures), True, _generic_info(path, audio, label, len(tags)),
             _value(tags, "tracknumber"), _value(tags, "date") or _value(tags, "year"),
+            _value(tags, "genre"),
         )
 
     def write(self, source: Path, changes: AudioMetadataChanges, destination: Path | None) -> Path:
@@ -286,7 +290,7 @@ class OggAdapter:
             audio, _label = self._open(path)
             if audio.tags is None: audio.add_tags()
             for key, value in (("title", changes.title), ("artist", changes.artist), ("album", changes.album),
-                               ("tracknumber", changes.track), ("date", changes.year)):
+                               ("tracknumber", changes.track), ("date", changes.year), ("genre", changes.genre)):
                 if value is not None:
                     if value.strip(): audio[key] = [value.strip()]
                     elif key in audio: del audio[key]
