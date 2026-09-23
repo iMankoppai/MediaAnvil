@@ -67,14 +67,39 @@ jobs:
       - name: Publish GitHub release
         shell: pwsh
         run: |
-          $files = Get-ChildItem -LiteralPath release -File | ForEach-Object FullName
+          # GitHub can create an empty release by itself the moment an annotated
+          # tag is pushed, so by the time this step runs the tag often already has
+          # a release with no assets. That is why the branch below exists, and why
+          # every gh call is checked: a release that exists with no files looks
+          # completely successful from the outside, which is exactly how v1.3.0
+          # shipped with an empty download list.
+          $ErrorActionPreference = 'Stop'
+          $files = @(Get-ChildItem -LiteralPath release -File | ForEach-Object FullName)
+          if ($files.Count -lt 2) { throw "Expected a package and its checksum in release/, found $($files.Count)." }
           $notes = "release/notes.md"
           python tools/release_notes.py $env:RELEASE_TAG $notes
           if ($LASTEXITCODE -ne 0) { throw "CHANGELOG.md has no entry for $env:RELEASE_TAG" }
           $releases = gh release list --limit 100 --json tagName | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw "Could not list releases." }
           if ($releases.tagName -contains $env:RELEASE_TAG) {
             gh release upload $env:RELEASE_TAG @files --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Uploading assets to $env:RELEASE_TAG failed." }
             gh release edit $env:RELEASE_TAG --notes-file $notes
+            if ($LASTEXITCODE -ne 0) { throw "Updating the notes for $env:RELEASE_TAG failed." }
           } else {
             gh release create $env:RELEASE_TAG @files --verify-tag --notes-file $notes --title "MediaAnvil Windows $env:RELEASE_TAG"
+            if ($LASTEXITCODE -ne 0) { throw "Creating the release $env:RELEASE_TAG failed." }
           }
+          # Read the assets back from the API rather than trusting the commands
+          # above: this is the check that would have caught the empty v1.3.0.
+          # The release is looked up by id and its assets fetched from the
+          # dedicated endpoint on purpose. `releases/tags/<tag>` and
+          # `gh release view --json assets` both report an empty asset list for a
+          # release that definitely has files, so either would fail this check
+          # spuriously and block a good release.
+          $releaseId = gh api "repos/${{ github.repository }}/releases/tags/$env:RELEASE_TAG" --jq '.id'
+          if ($LASTEXITCODE -ne 0) { throw "Could not read back the release for $env:RELEASE_TAG." }
+          $published = gh api "repos/${{ github.repository }}/releases/$releaseId/assets" --jq 'length'
+          if ($LASTEXITCODE -ne 0) { throw "Could not read back the assets for $env:RELEASE_TAG." }
+          if ([int]$published -lt 2) { throw "$env:RELEASE_TAG has $published assets after publishing; expected the package and its checksum." }
+          Write-Host "Published $env:RELEASE_TAG with $published assets."

@@ -104,6 +104,32 @@ class QtBuildDependencyTests(unittest.TestCase):
         # an existing release must also pick up corrected notes
         self.assertIn('gh release edit', workflow)
 
+    def test_release_workflow_fails_when_assets_do_not_reach_the_release(self):
+        """v1.3.0 published with an empty download list and still looked green.
+
+        GitHub can create the release from the tag before this job runs, so the
+        upload path is the normal one, and a failed upload there must not be
+        reported as a successful release.
+        """
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / '.github/workflows/release.yml').read_text(encoding='utf8')
+        # Every gh call has to be checked, or a failure is silently ignored.
+        for call in ('gh release upload', 'gh release edit', 'gh release create'):
+            with self.subTest(call=call):
+                self.assertIn(call, workflow)
+        self.assertGreaterEqual(workflow.count('$LASTEXITCODE -ne 0'), 4,
+                                'each gh invocation needs a status check')
+        # An empty file list must abort rather than publish a release with no files.
+        self.assertIn('$files.Count -lt 2', workflow)
+        # And the published assets are read back from the API afterwards.
+        self.assertIn('has $published assets after publishing', workflow)
+        # The assets must be fetched from the per-release endpoint by id.
+        # `releases/tags/<tag>` and `gh release view --json assets` both report an
+        # empty asset list for a release that has files, so checking either would
+        # fail a good release.
+        self.assertIn('/releases/$releaseId/assets', workflow)
+        self.assertNotIn("--jq '.assets | length'", workflow)
+
     def test_release_notes_script_fails_without_an_entry(self):
         import subprocess
         import sys
