@@ -1,6 +1,6 @@
 # MediaAnvil 多环境人工验收清单
 
-> 适用版本：1.3.0（Windows）
+> 适用版本：1.4.0（Windows）
 > 用途：在**我无法覆盖的环境**里人工验证。自动化测试只能证明"在这台开发机上正确"，
 > 换机器、换用户名、换缩放比例的结果必须由人在真机上确认。
 
@@ -27,10 +27,10 @@
 
 ### 1.1 下载
 
-从 Releases 页面下载 `MediaAnvil-v1.3.0-Windows-x64.zip`：
+从 Releases 页面下载 `MediaAnvil-v1.4.0-Windows-x64.zip`：
 
 ```
-https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.3.0
+https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.4.0
 ```
 
 **解压到完整文件夹**，不要只把 EXE 拖出来。运行时必须保留 `_internal` 目录。
@@ -40,7 +40,7 @@ https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.3.0
 压缩包里带了一个 `.sha256` 文件。在解压目录打开 PowerShell：
 
 ```powershell
-Get-FileHash .\MediaAnvil-v1.3.0-Windows-x64.zip -Algorithm SHA256
+Get-FileHash .\MediaAnvil-v1.4.0-Windows-x64.zip -Algorithm SHA256
 ```
 
 把输出的哈希和 `.sha256` 文件里的字符串对比，**应完全一致**。
@@ -69,7 +69,7 @@ Get-FileHash .\MediaAnvil-v1.3.0-Windows-x64.zip -Algorithm SHA256
 |---|---|---|
 | A1 | 在一台**没装 Python** 的电脑（或一个没装过 Python 的干净 Windows 账户）上解压并双击 `MediaAnvilQt.exe` | 程序正常打开，停在"音频预览"页 |
 | A2 | 观察是否弹出缺 DLL、缺 Python、缺模块之类的错误 | **不应有任何报错** |
-| A3 | 打开"关于"页 | 显示版本 `v1.3.0` |
+| A3 | 打开"关于"页 | 显示版本 `v1.4.0` |
 | A4 | 关掉程序，再开一次 | 正常打开（确认不是首次偶然成功） |
 
 **风险说明**：如果这步失败，说明打包漏了依赖。这是最严重的问题。

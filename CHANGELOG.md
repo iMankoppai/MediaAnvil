@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.4.0
+
+- Lyrics can now be shifted in bulk. The offset that the editor and preview pages
+  already applied to one file at a time can be applied to every file in a scanned
+  folder, which suits a whole batch that is consistently early or late. Files
+  without embedded lyrics are listed as skipped rather than failed, a negative
+  shift still clamps at `00:00.00` instead of dropping lines, and one broken file
+  does not stop the batch.
+- Artwork can now be written in bulk in a second way. Matching already paired each
+  track with the image beside it; in addition, one chosen image can now be written
+  to every scanned file, which is what replacing the cover of a whole album needs.
+  Formats other than JPG and PNG are converted before writing, and a missing image
+  stops the batch without touching any file.
+- Rename templates accept `{genre}`, handled exactly like the other fields: an
+  empty genre is refused unless the fallback for missing fields is enabled, and
+  illegal characters such as the slash in `Rock/Pop` are replaced so that a genre
+  cannot move a file out of its folder.
+- Fixed a layout fault that hid the track-number box in bulk tag editing behind the
+  batch button. The batch fields now occupy two rows and the buttons sit below
+  them.
+- Fixed the Later/Earlier box being too narrow for its own text. The box left an
+  18-pixel text field for a 26-pixel label, so `延后` appeared clipped as `延丿`,
+  and the English `Earlier` was cut off as well. This affected all three places the
+  box appears: the tag editor, bulk tag editing and the audio preview.
+
+### 中文说明
+
+- 歌词现在可以批量偏移。编辑页和预览页原本一次只能处理一个文件，现在可以把扫描到的
+  整个文件夹统一提前或延后，适合整批歌词都偏了同样秒数的情况。没有内嵌歌词的文件会
+  列为"跳过"而不是失败；负向偏移仍在 `00:00.00` 截断，不会丢行；个别文件损坏也不会
+  中断整批处理。
+- 封面新增第二种批量写法。原有的"智能匹配"会为每首歌配好它旁边的图片；现在还可以
+  指定一张图片写入所有已扫描的文件，这正是整张专辑统一换封面需要的。JPG、PNG 之外的
+  格式会在写入前自动转换；图片不存在时会中止整批，且不碰任何文件。
+- 重命名模板支持 `{genre}`，处理方式与其他字段完全一致：流派为空时默认拒绝，除非开启
+  "缺少字段时使用原文件名代替"；`Rock/Pop` 里的斜杠等非法字符会被替换，流派无法把文件
+  移到别的文件夹。
+- 修复了批量标签编辑中"曲目号"输入框被"批量写入标签"按钮遮住的问题。现在批量字段占
+  两行，按钮位于它们下方。
+- 修复了"延后/提前"下拉框太窄导致文字显示不全的问题。该下拉框只给文字留出 18 像素，
+  而"延后"需要 26 像素，因此显示成"延丿"，英文的 `Earlier` 同样被裁。标签编辑页、
+  批量标签编辑和音频预览三处都受影响，现已全部修正。
+
 ## 1.3.0
 
 - The audio preview page can offset the lyric timeline. Choose a direction and a
