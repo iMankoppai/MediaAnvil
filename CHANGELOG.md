@@ -24,6 +24,29 @@
   18-pixel text field for a 26-pixel label, so `延后` appeared clipped as `延丿`,
   and the English `Earlier` was cut off as well. This affected all three places the
   box appears: the tag editor, bulk tag editing and the audio preview.
+- The audio preview page now keeps a play queue. Several files can be selected or
+  dropped at once and play in order, and the order can be changed by dragging an
+  entry or with the keyboard. There is a Shuffle toggle and a switch that carries
+  on to the next track automatically when one ends.
+- Long recordings can be resumed. Each file keeps its own position rather than
+  only the most recent one, so several two-hour files can be part-way through at
+  once. The track card shows "Last played to 47:12" with Resume and Play from
+  Start, and shows nothing at all for a file that has never been played. A listen
+  under 30 seconds leaves no record, a file played to within 30 seconds of its end
+  counts as finished and starts over next time, and the whole feature can be
+  switched off under Settings.
+- Playback speed can be set from `0.5×` to `2×`. It changes playback only and
+  never rewrites the file. Pitch is preserved, so a slowed-down voice still sounds
+  like the same person.
+- Playback can repeat one track, repeat the whole queue or stop at the end, and a
+  sleep timer from 1 minute to 1439 minutes (23:59) pauses playback when it runs
+  out. A line under the controls summarises the current combination, for example
+  "Playing · 1.5× · Repeat One · stops in 30 min".
+- The right-hand side of the preview page is now two tabs, Lyrics and Queue, shown
+  one at a time. The lyric offset controls live inside the lyric tab, so they can
+  no longer appear beside a queue that has nothing to do with them.
+- The settings page gained an Open Data Folder button, which shows the folder
+  holding the settings, logs and playback positions.
 
 ### 中文说明
 
@@ -42,6 +65,20 @@
 - 修复了"延后/提前"下拉框太窄导致文字显示不全的问题。该下拉框只给文字留出 18 像素，
   而"延后"需要 26 像素，因此显示成"延丿"，英文的 `Earlier` 同样被裁。标签编辑页、
   批量标签编辑和音频预览三处都受影响，现已全部修正。
+- 音频预览页新增播放队列。一次可以选择或拖入多个音频，按顺序播放；顺序可以拖动条目或
+  用键盘调整。另有"随机播放"开关，以及一首播完自动接下一首的开关。
+- 长录音现在可以接着听。**每个文件各记各的位置**，而不是只记最后一首，因此几段两小时的
+  录音可以同时都是"听了一半"的状态。歌曲信息会显示"上次播放至 47:12"，并提供"继续播放"
+  和"从头播放"；从没播放过的文件不显示这一行。只听不足 30 秒不会留下记录；听到距结尾
+  30 秒以内视为已听完，下次从头开始；整个功能可以在设置中关闭。
+- 新增播放速度，`0.5×` 到 `2×`。只改变播放，**不修改文件**；音调保持不变，放慢后仍是
+  同一个人的声音。
+- 新增循环方式（不循环 / 单曲循环 / 列表循环）和定时关闭（`1 分钟` 到 `1439 分钟`，
+  即 23:59），到时间自动暂停。控件下方一行会显示当前组合，例如
+  "正在播放 · 1.5× · 单曲循环 · 30 分钟后停止"。
+- 预览页右侧改为「同步歌词」和「播放队列」两个页签，同一时间只显示一个。歌词偏移控件
+  位于歌词页签内，因此不会再出现在与歌词无关的队列界面上。
+- 设置页新增「打开数据目录」按钮，可直接打开存放设置、日志和播放位置的文件夹。
 
 ## 1.3.0
 
