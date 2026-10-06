@@ -1,5 +1,6 @@
 from dataclasses import replace
 import csv
+from core.tasks import TaskRecord
 from pathlib import Path
 from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QColor
@@ -57,6 +58,11 @@ class RenamePage(Page):
         self.step_cards=(source,rules,preview);self.columns=Columns(left,preview,700);self.layout.addWidget(self.columns,1)
         self.files.filesChanged.connect(self.invalidate);self.template.currentTextChanged.connect(self.invalidate);self.fallback.toggled.connect(self.invalidate)
         self._layout_ready=True
+    def current_preset_state(self):
+        return {'kind':'rename','template':self.template.currentText(),'fallback_missing':self.fallback.isChecked()}
+    def apply_preset(self,fields):
+        if fields.get('template'):self.template.setCurrentText(fields['template'])
+        if 'fallback_missing' in fields:self.fallback.setChecked(bool(fields['fallback_missing']))
     def receive(self,paths):return self.files.add_paths(paths)
     def check_files(self,checked):
         for i in range(self.files.count()):self.files.item(i).setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
@@ -117,11 +123,15 @@ class RenamePage(Page):
         plan=replace(self.plan,items=selected)
         self.app.run_task(lambda report:execute_rename_plan(plan,cancel_check=report.raise_if_cancelled),self.executed)
     def executed(self,result):
-        if result.records:self.records=result.records
+        if result.records:self.records=result.records+result.related_records
+        records=[TaskRecord(item.source,'失败' if any(f.source==item.source for f in result.failures) else '已完成','') for item in getattr(result,'skipped',())]
+        records += [TaskRecord(f.source,'失败',f.message) for f in result.failures]
+        records += [TaskRecord(r.old_path,'已完成') for r in result.records if r.old_path not in {record.source for record in records}]
+        self.app.record_task_history('rename',records)
         self.undo_button.setEnabled(bool(self.records))
         paths={r.old_path:r.new_path for r in result.records};current=[paths.get(p,p) for p in self.files.paths()]
         self.files.clear();self.files.add_paths(current);self.invalidate()
-        self.app.show_text('重命名结果','\n'.join([f'完成：{r.old_path.name} → {r.new_path.name}' for r in result.records]+[f'跳过：{i.original_name} — {i.message or i.status}' for i in result.skipped]+[f'失败：{i.source.name} — {i.message}' for i in result.failures]))
+        self.app.show_text('重命名结果','\n'.join([f'完成：{r.old_path.name} → {r.new_path.name}' for r in result.records]+[f'完成：{r.old_path.name} → {r.new_path.name}' for r in result.related_records]+[f'跳过：{i.original_name} — {i.message or i.status}' for i in result.skipped]+[f'失败：{i.source.name} — {i.message}' for i in result.failures]))
     def undo(self):
         records=self.records
         if records:self.app.run_task(lambda report:undo_rename(records,report.raise_if_cancelled),self.undone)

@@ -8,6 +8,7 @@ import re
 import string
 from typing import Callable, Iterable
 
+from core.media_matcher import LYRIC_EXTENSIONS, COVER_EXTENSIONS, matched_companions
 from core.windows_paths import sanitize_windows_stem, validate_windows_filename
 from sub2lrc.audio_metadata import AudioMetadataError, read_metadata
 
@@ -61,6 +62,7 @@ class RenamePlanItem:
     status: str
     message: str = ""
     fields: RenameFields | None = None
+    related: tuple[RenameRecord, ...] = ()
 
     @property
     def can_rename(self) -> bool:
@@ -88,6 +90,7 @@ class RenameRecord:
     new_path: Path
 
 
+
 @dataclass(frozen=True)
 class RenameFailure:
     source: Path
@@ -99,6 +102,7 @@ class RenameExecutionResult:
     records: tuple[RenameRecord, ...]
     skipped: tuple[RenamePlanItem, ...]
     failures: tuple[RenameFailure, ...]
+    related_records: tuple[RenameRecord, ...] = ()
 
     @property
     def success_count(self) -> int:
@@ -249,6 +253,29 @@ def _path_key(path: Path) -> str:
         return str(path.absolute()).casefold()
 
 
+def related_media_records(audio: Path, new_audio_name: str) -> tuple[RenameRecord, ...]:
+    """Build safe old->new records for strongly matched related media files."""
+    new_stem = Path(new_audio_name).stem
+    records: list[RenameRecord] = []
+    seen: set[str] = set()
+    for candidate in matched_companions(audio, [*LYRIC_EXTENSIONS, *COVER_EXTENSIONS]):
+        if candidate.name.casefold().startswith(audio.name.casefold()):
+            suffix = candidate.name[len(audio.name):]
+            target = audio.parent / f"{new_audio_name}{suffix}"
+        elif candidate.name.casefold().startswith(audio.stem.casefold()):
+            suffix = candidate.name[len(audio.stem):]
+            target = audio.parent / f"{new_stem}{suffix}"
+        else:
+            target = audio.parent / f"{new_stem}{candidate.suffix}"
+        if _path_key(target) == _path_key(candidate) or target.exists():
+            continue
+        key = _path_key(candidate)
+        if key not in seen:
+            seen.add(key)
+            records.append(RenameRecord(candidate, target))
+    return tuple(records)
+
+
 def _unique_destination(directory: Path, filename: str, source: Path, reserved: set[str]) -> tuple[Path, bool]:
     candidate = directory / filename
     stem = candidate.stem
@@ -305,7 +332,8 @@ def build_rename_plan(
             if _path_key(target) == _path_key(path):
                 provisional.append(RenamePlanItem(path, path.name, target, new_name, "无需修改", "文件名已经符合模板", fields))
             else:
-                provisional.append(RenamePlanItem(path, path.name, target, new_name, "可重命名", "", fields))
+                related = related_media_records(path, new_name)
+                provisional.append(RenamePlanItem(path, path.name, target, new_name, "可重命名", "", fields, related))
 
     conflicts = detect_conflicts(provisional)
     conflict_keys = set(conflicts)
@@ -327,7 +355,8 @@ def build_rename_plan(
         status = "可重命名（自动避让）" if avoided else "可重命名"
         message = "目标文件已存在，已生成安全的新文件名" if avoided else ""
         reserved.add(_path_key(target))
-        planned.append(RenamePlanItem(item.source, item.original_name, target, target.name, status, message, item.fields))
+        related = related_media_records(item.source, target.name)
+        planned.append(RenamePlanItem(item.source, item.original_name, target, target.name, status, message, item.fields, related))
     return RenamePlan(tuple(planned), template, fallback_missing)
 
 
@@ -338,6 +367,7 @@ def execute_rename_plan(
 ) -> RenameExecutionResult:
     """Execute only approved plan items; one filesystem error never aborts the batch."""
     records: list[RenameRecord] = []
+    related_records: list[RenameRecord] = []
     skipped: list[RenamePlanItem] = []
     failures: list[RenameFailure] = []
     for item in plan.items:
@@ -361,9 +391,22 @@ def execute_rename_plan(
             continue
         record = RenameRecord(item.source, item.target)
         records.append(record)
+        for related_record in item.related:
+            try:
+                if not related_record.old_path.is_file():
+                    raise OSError("关联文件不存在")
+                if related_record.new_path.exists():
+                    raise OSError("关联目标已存在，未覆盖")
+                related_record.old_path.rename(related_record.new_path)
+            except OSError as exc:
+                failures.append(RenameFailure(related_record.old_path, str(exc)))
+                if on_item:
+                    on_item(item, "部分完成")
+                continue
+            related_records.append(related_record)
         if on_item:
             on_item(item, "已完成")
-    return RenameExecutionResult(tuple(records), tuple(skipped), tuple(failures))
+    return RenameExecutionResult(tuple(records), tuple(skipped), tuple(failures), tuple(related_records))
 
 
 def undo_rename(records: Iterable[RenameRecord], cancel_check: Callable[[], None] | None = None) -> UndoResult:

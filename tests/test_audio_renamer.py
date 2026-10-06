@@ -146,6 +146,86 @@ class AudioRenamerTests(unittest.TestCase):
         self.assertEqual(renamed.read_bytes(), b"good")
         self.assertEqual(bad.read_bytes(), b"bad")
 
+    def test_matching_lyric_and_cover_follow_the_audio_rename(self) -> None:
+        audio = self.touch("001.mp3", b"audio")
+        audio.with_suffix(".lrc").write_text("[00:01.00]歌词", encoding="utf-8")
+        audio.with_suffix(".jpg").write_bytes(b"cover")
+        audio.with_name("001.mp3.vtt").write_text("WEBVTT", encoding="utf-8")
+        # Ambiguous candidates must not be renamed automatically.
+        other = self.touch("001 副本.png", b"ambiguous")
+        with patch("core.audio_renamer.read_metadata", return_value=self.metadata(title="晴天")):
+            plan = build_rename_plan((audio,), "{title}")
+        item = plan.items[0]
+        self.assertEqual(
+            {record.old_path.name for record in item.related},
+            {"001.lrc", "001.jpg", "001.mp3.vtt"},
+        )
+        result = execute_rename_plan(plan)
+        self.assertEqual(result.success_count, 1)
+        self.assertEqual(
+            {record.old_path.name for record in result.related_records},
+            {"001.lrc", "001.jpg", "001.mp3.vtt"},
+        )
+        renamed = self.root / "晴天.mp3"
+        self.assertTrue(renamed.exists())
+        self.assertEqual(renamed.read_bytes(), b"audio")
+        self.assertTrue((self.root / "晴天.lrc").exists())
+        self.assertTrue((self.root / "晴天.jpg").exists())
+        self.assertTrue((self.root / "晴天.mp3.vtt").exists())
+        self.assertFalse((self.root / "001.lrc").exists())
+        self.assertFalse((self.root / "001.jpg").exists())
+        self.assertFalse((self.root / "001.mp3.vtt").exists())
+        self.assertTrue(other.exists())
+
+    def test_exact_lyric_wins_and_copy_is_left_in_place(self) -> None:
+        audio = self.touch("001.mp3", b"audio")
+        audio.with_suffix(".lrc").write_text("first", encoding="utf-8")
+        self.touch("001 - 副本.lrc").write_bytes(b"second")
+        with patch("core.audio_renamer.read_metadata", return_value=self.metadata(title="晴天")):
+            plan = build_rename_plan((audio,), "{title}")
+        self.assertEqual([record.old_path.name for record in plan.items[0].related], ["001.lrc"])
+        result = execute_rename_plan(plan)
+        self.assertEqual(result.success_count, 1)
+        self.assertEqual([record.old_path.name for record in result.related_records], ["001.lrc"])
+        self.assertFalse((self.root / "001.lrc").exists())
+        self.assertTrue((self.root / "晴天.lrc").exists())
+        self.assertTrue((self.root / "001 - 副本.lrc").exists())
+        self.assertTrue((self.root / "晴天.mp3").exists())
+
+    def test_existing_related_target_blocks_only_that_related_file(self) -> None:
+        audio = self.touch("001.mp3", b"audio")
+        audio.with_suffix(".lrc").write_text("lyrics", encoding="utf-8")
+        audio.with_suffix(".png").write_bytes(b"cover")
+        self.touch("晴天.lrc").write_bytes(b"occupied")
+        self.touch("晴天.png").write_bytes(b"occupied-cover")
+        with patch("core.audio_renamer.read_metadata", return_value=self.metadata(title="晴天")):
+            plan = build_rename_plan((audio,), "{title}")
+        self.assertEqual(plan.items[0].related, ())
+        result = execute_rename_plan(plan)
+        self.assertEqual(result.success_count, 1)
+        self.assertEqual(result.related_records, ())
+        self.assertTrue((self.root / "001.lrc").exists())
+        self.assertTrue((self.root / "晴天.lrc").exists())
+        self.assertTrue((self.root / "001.png").exists())
+        self.assertTrue((self.root / "晴天.png").exists())
+        self.assertTrue((self.root / "晴天.mp3").exists())
+
+    def test_related_names_follow_an_automatically_avoided_audio_target(self) -> None:
+        audio = self.touch("001.mp3", b"audio")
+        audio.with_suffix(".lrc").write_text("lyrics", encoding="utf-8")
+        self.touch("晴天.mp3").write_bytes(b"occupied")
+        with patch("core.audio_renamer.read_metadata", return_value=self.metadata(title="晴天")):
+            plan = build_rename_plan((audio,), "{title}")
+        item = plan.items[0]
+        self.assertEqual(item.target.name, "晴天_1.mp3")
+        self.assertEqual([record.new_path.name for record in item.related], ["晴天_1.lrc"])
+        result = execute_rename_plan(plan)
+        self.assertEqual(result.success_count, 1)
+        self.assertTrue((self.root / "晴天_1.mp3").exists())
+        self.assertTrue((self.root / "晴天_1.lrc").exists())
+        self.assertFalse((self.root / "001.lrc").exists())
+        self.assertTrue((self.root / "晴天.mp3").exists())
+
     def test_undo_restores_last_batch_without_overwriting(self) -> None:
         source = self.touch("001.mp3", b"content")
         with patch("core.audio_renamer.read_metadata", return_value=self.metadata()):
