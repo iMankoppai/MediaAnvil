@@ -1,4 +1,4 @@
-# MediaAnvil 1.4.0
+# MediaAnvil 1.5.0
 
 [![Release](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?label=release)](https://github.com/iMankoppai/MediaAnvil/releases)
 [![License](https://img.shields.io/github/license/iMankoppai/MediaAnvil)](LICENSE)
@@ -10,7 +10,7 @@ MediaAnvil 是一款面向 Windows 的本地多媒体工具箱。它使用 Qt �
 
 **[English →](README.en.md)**
 
-![MediaAnvil 1.4.0 音频预览界面](assets/screenshots/audio-preview.png)
+![MediaAnvil 1.5.0 音频预览界面](assets/screenshots/audio-preview.png)
 
 ## 主要功能
 
@@ -78,8 +78,9 @@ MediaAnvil 是一款面向 Windows 的本地多媒体工具箱。它使用 Qt �
 
 | 版本 | 平台 | 说明 |
 | --- | --- | --- |
-| [v1.4.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.4.0) | Windows x64 | **最新版**：播放队列、倍速、断点续播、批量歌词偏移 |
-| [v1.2.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.2.0) | Windows x64 | 上一版本：音频合并与分段、批量标签修改 |
+| [v1.5.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.5.0) | Windows x64 | **最新版**：任务中心、媒体检查、波形裁剪、关联文件同步改名 |
+| [v1.4.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.4.0) | Windows x64 | 上一版本：播放队列、倍速、断点续播、批量歌词偏移 |
+| [v1.2.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.2.0) | Windows x64 | 音频合并与分段、批量标签修改 |
 
 全部版本见 [Releases](https://github.com/iMankoppai/MediaAnvil/releases)。
 

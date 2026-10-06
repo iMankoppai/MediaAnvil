@@ -1,4 +1,4 @@
-# MediaAnvil 1.4.0
+# MediaAnvil 1.5.0
 
 [![Release](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?label=release)](https://github.com/iMankoppai/MediaAnvil/releases)
 [![License](https://img.shields.io/github/license/iMankoppai/MediaAnvil)](LICENSE)
@@ -10,7 +10,7 @@ For end-user instructions, see the [User Guide](USER_GUIDE.en.md). For source se
 
 **[简体中文 →](README.md)**
 
-![MediaAnvil 1.4.0 audio preview](assets/screenshots/audio-preview-en.png)
+![MediaAnvil 1.5.0 audio preview](assets/screenshots/audio-preview-en.png)
 
 ## Features
 
@@ -78,8 +78,9 @@ Configure save behavior, conversion quality, lyrics preview, and file scanning i
 
 | Version | Platform | Notes |
 | --- | --- | --- |
-| [v1.4.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.4.0) | Windows x64 | **Latest**: playback queue, speed control, playback resume, bulk lyric shifts |
-| [v1.2.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.2.0) | Windows x64 | Previous version: audio joining/splitting and bulk tag editing |
+| [v1.5.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.5.0) | Windows x64 | **Latest**: task center, media checks, waveform cropping, companion-file renaming |
+| [v1.4.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.4.0) | Windows x64 | Previous version: playback queue, speed control, playback resume, bulk lyric shifts |
+| [v1.2.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.2.0) | Windows x64 | Audio joining/splitting and bulk tag editing |
 
 See [Releases](https://github.com/iMankoppai/MediaAnvil/releases) for all versions.
 

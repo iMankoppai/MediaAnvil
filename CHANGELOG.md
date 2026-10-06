@@ -1,5 +1,69 @@
 # Changelog
 
+## 1.5.0
+
+- Renaming a track now renames its matching lyrics and artwork with it. Batch
+  rename previously moved only the audio, so the renamed file no longer found the
+  lyric or image beside it and automatic loading silently stopped working. Files
+  whose names match exactly, or that carry the full audio name such as
+  `song.mp3.vtt`, follow the audio; ambiguous candidates such as a copied lyric and
+  targets that already exist are left exactly where they are, and Undo restores the
+  whole group together.
+- A new Task Center page shows what each batch conversion or rename actually did,
+  one row per file, with a Retry Failed button for the ones that did not work. The
+  window is no longer disabled while a task runs, so other pages can be browsed
+  during a long conversion; a second task still waits for the first to finish rather
+  than writing files at the same time.
+- Common settings can be saved as named presets. The audio, image and subtitle
+  converters and the rename page each keep their own presets, so a "podcast" or
+  "archive" combination of format, quality and output folder is one click away
+  instead of being retyped. Presets are stored locally with the other settings.
+- Batch tag writing can be previewed before it happens. A new Preview Changes
+  action lists every file that would change as `field: old value -> new value`, so a
+  bulk edit can be checked before anything is written; an empty box still means
+  "leave this field alone" and is never reported as clearing a tag.
+- A missing-media check scans a folder and reports which tracks have no lyrics, no
+  artwork, or missing title, artist or album tags. It uses the same conservative
+  matching as the existing smart-matching panel, so a file with several candidate
+  lyrics is not called "missing" just because the choice is ambiguous.
+- Audio can now be cropped to a chosen range on the join and split page. It is the
+  third mode of that page: the waveform is decoded in the background, the range is
+  dragged on the waveform or typed as start and end seconds, the selection can be
+  auditioned before committing it, and the clip is exported through the existing
+  split pipeline. Output follows the same avoid-existing-file rule, and the optional
+  fade and loudness options apply to the clip as well. The source file is never
+  modified.
+- Folder scanning and large imports are faster. Adding a few hundred files took tens
+  of seconds because every path was resolved to its final on-disk name and the
+  matcher re-tested each file against every candidate; the redundant work is gone,
+  which took a several-hundred-file folder from seconds to milliseconds.
+
+### 中文说明
+
+- 重命名歌曲时，同名的歌词和封面会一起改名。之前的批量重命名只移动音频，改名后
+  程序就找不到旁边的歌词或图片，自动加载会静默失效。名字完全相同、或带有完整音频名
+  的（例如 `song.mp3.vtt`）会跟随音频；像"歌词副本"这样的歧义候选，以及目标名已被
+  占用的文件，都保持原位不动；撤销时整组一起恢复。
+- 新增「任务中心」页，逐个文件显示每次批量转换或重命名实际做了什么，失败项可以点
+  「重试失败项」单独重试。任务运行期间不再禁用整个窗口，长时间的转换过程中可以继续
+  浏览其他页面；同时仍然只允许一个任务在跑，避免两个任务同时写文件。
+- 常用设置可以存成命名预设。音频、图片、歌词字幕三个转换页和重命名页各自保存自己的
+  预设，把格式、质量和输出目录组合成"播客"或"归档"方案，用的时候一键套用，不必每次
+  重填。预设与其他设置一起保存在本机。
+- 批量写入标签之前可以先预览。新增「预览修改」会把每个会变化的文件列成
+  「字段：原值 → 新值」，确认无误再写；输入框留空仍然表示"这一项保持原样"，不会被
+  当成清空标签。
+- 新增媒体检查，扫描文件夹后列出哪些音频缺歌词、缺封面，或缺少标题、歌手、专辑标签。
+  它使用与现有「智能匹配」相同的保守规则，因此存在多个歌词候选的文件不会仅仅因为
+  需要选择就被判定为"缺失"。
+- 音频现在可以在合并 / 分割页上按选区裁剪。它是该页的第三种模式：波形在后台解码，
+  在波形上拖动选择区间，或直接输入开始和结束秒数，提交前可以先试听选段，然后走现有的
+  分割流程导出。输出同样遵守不覆盖已有文件的规则，可选的淡入淡出和音量标准化也会
+  作用到裁剪结果上。源文件不会被修改。
+- 文件夹扫描和大量导入更快了。之前添加几百个文件要几十秒，因为每个路径都要解析成
+  最终的真实文件名，匹配器还会把每个文件重新和所有候选比较一遍；去掉这些重复工作后，
+  几百个文件的文件夹从秒级降到毫秒级。
+
 ## 1.4.0
 
 - Lyrics can now be shifted in bulk. The offset that the editor and preview pages
