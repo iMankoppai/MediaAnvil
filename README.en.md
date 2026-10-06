@@ -20,9 +20,13 @@ For end-user instructions, see the [User Guide](USER_GUIDE.en.md). For source se
 - Cover art tools: Preview, import, export, and remove cover art, with free rectangular cropping during import.
 - Smart matching: Scan the audio file's directory for lyrics and cover art, recognize conventional and double-extension names, and write selected matches in batches.
 - Lyrics and subtitle conversion: Convert between LRC, SRT, and VTT while preserving multiline content and avoiding existing files safely.
+- Audio join / split / crop: Concatenate files, split by parts or length, and crop a waveform selection, with optional fade and loudness normalisation.
 - Audio conversion: Batch-convert between MP3, WAV, FLAC, M4A/AAC, and OGG, with bitrate, quality, sample-rate, channel, and metadata-preservation options.
 - Image conversion: Batch-convert between JPG, PNG, WebP, and BMP, with quality and transparency handling.
-- Batch renaming: Generate filenames from audio metadata, preview conflicts before execution, and undo the most recent rename operation.
+- Batch renaming: Generate filenames from audio metadata, rename matching lyrics and covers together with the audio, preview conflicts before execution, and undo the most recent rename operation.
+- Task Center: Review per-file results for batch conversions and renames, retry failures in one click, and keep browsing while tasks run.
+- Task Presets: Save common formats, quality levels, and output folders for one-click reuse; preview “old → new” comparisons before batch tag writes.
+- Media Check: Scan a music folder to find files that are missing lyrics, artwork, or key tags.
 
 ## Interface
 
@@ -74,8 +78,8 @@ Configure save behavior, conversion quality, lyrics preview, and file scanning i
 
 | Version | Platform | Notes |
 | --- | --- | --- |
-| [v1.2.0-alpha.2](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.2.0-alpha.2) | Windows x64 · Android | **Latest**: waveform clipping, equalizer, library upgrades |
-| [v1.1](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.1) | Windows x64 · Android | Previous version |
+| [v1.4.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.4.0) | Windows x64 | **Latest**: playback queue, speed control, playback resume, bulk lyric shifts |
+| [v1.2.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.2.0) | Windows x64 | Previous version: audio joining/splitting and bulk tag editing |
 
 See [Releases](https://github.com/iMankoppai/MediaAnvil/releases) for all versions.
 

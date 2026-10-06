@@ -20,9 +20,13 @@ MediaAnvil 是一款面向 Windows 的本地多媒体工具箱。它使用 Qt �
 - 封面处理：预览、导入、导出、移除封面，导入时提供自由矩形裁剪。
 - 智能匹配：扫描同目录歌词和封面，支持普通及双后缀命名，可批量写入所选关联文件。
 - 歌词/字幕转换：LRC、SRT、VTT 三种格式互转，保留多行内容并安全避开已有文件。
+- 音频合并 / 分割 / 裁剪：多段拼接、按段数或时长分割，以及按波形选区裁剪；可选淡入淡出与响度标准化。
 - 音频转换：MP3、WAV、FLAC、M4A/AAC、OGG 批量互转，支持码率、质量、采样率、声道与标签保留设置。
 - 图片转换：JPG、PNG、WebP、BMP 批量互转，支持质量和透明背景处理。
-- 批量重命名：根据音频标签生成文件名，执行前预览冲突，支持撤销最近一次批量重命名。
+- 批量重命名：根据音频标签生成文件名，音频改名时自动同步同名歌词和封面；执行前预览冲突，支持撤销最近一次批量重命名。
+- 任务中心：集中查看批量转换与重命名的每个文件状态，失败项可一键重试；任务运行时可继续浏览其他页面。
+- 任务预设：把常用格式、质量和输出目录保存为一键预设；批量标签写入前可预览“原值 → 新值”对照。
+- 媒体检查：快速扫描音乐文件夹，找出缺歌词、缺封面或缺关键标签的文件。
 
 ## 界面展示
 
@@ -74,8 +78,8 @@ MediaAnvil 是一款面向 Windows 的本地多媒体工具箱。它使用 Qt �
 
 | 版本 | 平台 | 说明 |
 | --- | --- | --- |
-| [v1.2.0-alpha.2](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.2.0-alpha.2) | Windows x64 · Android | **最新版**：波形裁剪、均衡器、媒体库升级 |
-| [v1.1](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.1) | Windows x64 · Android | 上一版本 |
+| [v1.4.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.4.0) | Windows x64 | **最新版**：播放队列、倍速、断点续播、批量歌词偏移 |
+| [v1.2.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.2.0) | Windows x64 | 上一版本：音频合并与分段、批量标签修改 |
 
 全部版本见 [Releases](https://github.com/iMankoppai/MediaAnvil/releases)。
 

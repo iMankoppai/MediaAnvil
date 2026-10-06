@@ -254,9 +254,9 @@ JPG/JPEG, PNG, WebP, and BMP can be converted in any direction.
 
 MediaAnvil preserves source dimensions. PNG and WebP can retain transparency; transparent pixels are placed on a white background when converting to JPG or BMP.
 
-## 8. Join / Split Audio
+## 8. Join / Split / Crop Audio
 
-Join several audio files into one, or cut one file into pieces. **Output is always a new file; sources are never modified or deleted.**
+Join several audio files into one, cut one file into pieces, or crop a range from the waveform. **Output is always a new file; sources are never modified or deleted.**
 
 ### Join several files
 
@@ -299,9 +299,19 @@ Output files are named `name-01`, `name-02` and so on. An existing file with the
 
 You can stop the work with "Cancel Task" in the status bar; cancelling removes the unfinished piece.
 
+### Crop a range (waveform selection)
+
+1. Add the audio (only the **first** file in the list is used).
+2. Under "Mode", choose "Crop Selected Range"; the waveform is generated.
+3. Drag the dashed lines on the waveform to set the range, or type the "Start / End" seconds directly.
+4. Click "Preview Selection" to check the result.
+5. Pick the output format and folder, then click "Export Selection".
+
+The exported clip follows the same avoid-existing-file rules, and fade / loudness options also apply to the crop result.
+
 ## 9. Batch Rename
 
-Batch Rename generates filenames from audio metadata. It does not re-encode audio or change metadata.
+Batch Rename generates filenames from audio metadata. It does not re-encode audio or change metadata. Matching lyrics and covers are renamed together with the audio, so automatic loading keeps working after a rename.
 
 Supported formats are MP3, FLAC, M4A, OGG, and Opus.
 
