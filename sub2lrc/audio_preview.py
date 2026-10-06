@@ -239,7 +239,8 @@ class AudioPreviewPlayer:
                 self._process = None
                 self._position = self.duration
                 return self._position
-            return min(self.duration, self._position + self.clock() - self._started_at)
+            elapsed = (self.clock() - self._started_at) * self.speed
+            return min(self.duration, self._position + elapsed)
         return self._position
 
     def _start_process(self, position: float) -> None:

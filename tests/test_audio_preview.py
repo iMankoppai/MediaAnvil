@@ -186,6 +186,29 @@ class AudioPreviewTests(unittest.TestCase):
         self.assertTrue(suspend.called)  # type: ignore[attr-defined]
         self.assertTrue(resume.called)  # type: ignore[attr-defined]
 
+    @patch("sub2lrc.audio_preview._suspend_process")
+    @patch("sub2lrc.audio_preview._resume_process")
+    @patch("sub2lrc.audio_preview.subprocess.Popen", side_effect=FakeProcess)
+    def test_position_counts_playback_speed_and_survives_speed_changes(
+        self, popen: object, resume: object, suspend: object
+    ) -> None:
+        now = [200.0]
+        player = AudioPreviewPlayer(Path(__file__), clock=lambda: now[0])
+        player.source = Path("song.mp3")
+        player.duration = 90.0
+        player.speed = 2.0
+        player.play()
+        now[0] = 210.0
+        self.assertAlmostEqual(player.position, 20.0)
+        player.pause()
+        now[0] = 220.0
+        self.assertAlmostEqual(player.position, 20.0)
+        player.play()
+        player.speed = 0.5
+        # set_speed restarts the process, so the clock starts over at 20 seconds.
+        now[0] = 230.0
+        self.assertAlmostEqual(player.position, 25.0)
+
     def test_errors_are_clear_and_no_lyrics_is_normal(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "audio.wav"
