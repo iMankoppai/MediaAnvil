@@ -1,6 +1,7 @@
 from pathlib import Path
 import shutil
 import time
+from core.tasks import TaskRecord
 from datetime import datetime
 from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QColor
@@ -138,6 +139,27 @@ class ConversionPage(Page):
         for control in self.toolbar.findChildren(QPushButton):control.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed)
         self.start_button.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed)
         self._layout_ready=True
+    def current_preset_state(self):
+        fields={'kind':self.kind,'format':self.format.currentData(),'output_directory':self.output.text()}
+        if self.kind=='audio':
+            fields.update(parameter=self.parameter.currentData(),rate=self.rate.currentData(),channels=self.channels.currentData(),preserve=self.preserve.isChecked())
+        elif self.kind=='image':
+            fields.update(quality=self.quality.value() if IMAGE_FORMAT_SPECS[self.format.currentData()].supports_quality else None)
+        else:
+            fields.update(duration=self.duration.value())
+        return fields
+    def apply_preset(self,fields):
+        if fields.get('format'):self.format.setCurrentIndex(max(0,self.format.findData(fields['format'])))
+        if self.kind=='audio':
+            if fields.get('parameter') is not None:self.parameter.setCurrentIndex(max(0,self.parameter.findData(fields['parameter'])))
+            if fields.get('rate') is not None:self.rate.setCurrentIndex(max(0,self.rate.findData(fields['rate'])))
+            if fields.get('channels') is not None:self.channels.setCurrentIndex(max(0,self.channels.findData(fields['channels'])))
+            if 'preserve' in fields:self.preserve.setChecked(bool(fields['preserve']))
+        elif self.kind=='image':
+            if fields.get('quality') is not None:self.quality.setValue(int(fields['quality']))
+        else:
+            if fields.get('duration') is not None:self.duration.setValue(float(fields['duration']))
+        if fields.get('output_directory') is not None:self.output.edit.setText(fields['output_directory'])
     def receive(self,paths):return self.files.add_paths(paths)
     def check_all(self,checked):
         for i in range(self.files.count()):self.files.item(i).setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
@@ -177,6 +199,7 @@ class ConversionPage(Page):
         self.app.run_task(work,self.completed)
     def completed(self,records):
         self.records=records;self.last_outputs=[r['path'] for r in records if r['path']]
+        self.app.record_task_history(self.kind,[TaskRecord(r['source'],'失败' if not r['path'] else '已完成',r['message'],r['path']) for r in records])
         self.empty.hide();self.summary.show();self.result_picker.setEnabled(bool(records))
         if self.kind=='subtitle':self.results.show()
         else:self.result_table.show();self.results.show()

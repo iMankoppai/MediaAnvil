@@ -1,7 +1,9 @@
-"""Cooperative cancellation primitives shared by UI and worker code."""
+"""Cooperative cancellation and task-history primitives shared by UI workers."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
 from threading import Event, Lock
 from typing import Any
 
@@ -51,4 +53,32 @@ class CancellationToken:
                 self._process = None
 
 
-__all__ = ["CancellationToken", "TaskCancelled"]
+@dataclass(frozen=True)
+class TaskRecord:
+    """One item in a recent batch task, kept locally only for retry actions."""
+
+    source: Path
+    state: str
+    message: str = ""
+    output: Path | None = None
+
+    @property
+    def failed(self) -> bool:
+        return self.state == "失败"
+
+
+@dataclass(frozen=True)
+class TaskHistory:
+    kind: str
+    records: tuple[TaskRecord, ...] = ()
+
+    @property
+    def failures(self) -> tuple[TaskRecord, ...]:
+        return tuple(record for record in self.records if record.failed)
+
+    @property
+    def succeeded(self) -> tuple[TaskRecord, ...]:
+        return tuple(record for record in self.records if not record.failed)
+
+
+__all__ = ["CancellationToken", "TaskCancelled", "TaskRecord", "TaskHistory"]

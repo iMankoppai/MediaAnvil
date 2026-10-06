@@ -421,16 +421,22 @@ class FileList(QListWidget):
         painter.drawText(QRect(8, top+64, width-16, 20), Qt.AlignmentFlag.AlignCenter, tr('或使用上方按钮添加文件与文件夹'))
     def paths(self): return tuple(Path(self.item(i).text()) for i in range(self.count()))
     def add_paths(self, paths):
-        known = {str(p.resolve()).casefold() for p in self.paths()}; n = 0
-        for path in map(Path, paths):
-            key = str(path.resolve()).casefold()
-            if path.is_file() and path.suffix.lower() in self.extensions and key not in known:
-                item=QListWidgetItem(str(path));item.setToolTip(str(path));item.setCheckState(Qt.CheckState.Checked)
-                try:item.setData(Qt.ItemDataRole.UserRole,file_size(path.stat().st_size))
-                except OSError:pass
-                item.setIcon(thumbnail(path) if path.suffix.lower() in {'.jpg','.jpeg','.png','.webp','.bmp'} else icon('music' if path.suffix.lower() not in {'.lrc','.srt','.vtt'} else 'text'))
-                item.setSizeHint(QSize(1,46));self.addItem(item);known.add(key);n+=1
-        if n: self.filesChanged.emit()
+        known = {str(p).casefold() for p in self.paths()}; n = 0
+        was_blocked = self.signalsBlocked()
+        self.blockSignals(True)
+        try:
+            for path in map(Path, paths):
+                key = str(path).casefold()
+                if path.is_file() and path.suffix.lower() in self.extensions and key not in known:
+                    item=QListWidgetItem(str(path));item.setToolTip(str(path));item.setCheckState(Qt.CheckState.Checked)
+                    try:item.setData(Qt.ItemDataRole.UserRole,file_size(path.stat().st_size))
+                    except OSError:pass
+                    item.setIcon(thumbnail(path) if path.suffix.lower() in {'.jpg','.jpeg','.png','.webp','.bmp'} else icon('music' if path.suffix.lower() not in {'.lrc','.srt','.vtt'} else 'text'))
+                    item.setSizeHint(QSize(1,46));self.addItem(item);known.add(key);n+=1
+        finally:
+            if not was_blocked:
+                self.blockSignals(False)
+        if n and not was_blocked: self.filesChanged.emit()
         return n
     def remove_selected(self):
         for item in self.selectedItems(): self.takeItem(self.row(item))

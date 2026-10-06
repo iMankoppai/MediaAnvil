@@ -9,7 +9,9 @@ from PySide6.QtWidgets import (QLabel,QLineEdit,QPlainTextEdit,QFileDialog,QChec
     QDialog,QVBoxLayout,QHBoxLayout,QGridLayout,QSpinBox,QDoubleSpinBox,QDialogButtonBox,QWidget,QSizePolicy)
 from .common import Page,button,row,form,combo,OutputPath,table,fill_table,group,Columns,dialog_initial_directory,remember_dialog_selection,dialog_filters,remember_dialog_filter
 from .i18n import apply_language
-from .services import EMBEDDABLE_LYRIC_EXTENSIONS,prepare_lyrics_for_embedding,tagged_destination,write_matches,batch_edit_tags,batch_shift_lyrics,batch_set_cover
+from core.media_matcher import missing_media_check
+from .services import compare_tag_updates,EMBEDDABLE_LYRIC_EXTENSIONS,prepare_lyrics_for_embedding,tagged_destination,write_matches,batch_edit_tags,batch_shift_lyrics,batch_set_cover
+from core.tasks import TaskRecord
 from sub2lrc.audio_metadata import read_metadata,write_metadata,AudioMetadataChanges,export_metadata_cover,export_metadata_lyrics
 from sub2lrc.converter import shift_lrc
 from core.media_matcher import match_audio_file,scan_audio_folder,AUDIO_EXTENSIONS,COVER_EXTENSIONS
@@ -194,8 +196,12 @@ class MetadataPage(Page):
         self.match_content=QWidget();matched=QVBoxLayout(self.match_content);matched.setContentsMargins(0,0,0,0);matched.setSpacing(8);match_body.addWidget(self.match_content)
         note=QLabel('自动查找同目录歌词与封面；多个候选需要手动选择。');note.setObjectName('muted');note.setWordWrap(False);self.match_note=note
         self.scan_button=button('扫描音乐文件夹…',self.scan_folder,symbol='folder')
+        self.check_missing_button=button('检查缺失项…',self.check_missing_folder,symbol='search')
         self.clear_matches_button=button('清空文件',self.clear_matches,symbol='trash');self.clear_matches_button.setProperty('danger',True);self.clear_matches_button.setEnabled(False)
-        matched.addWidget(row(self.scan_button,self.clear_matches_button,note))
+        actions_row=row(self.scan_button,self.check_missing_button,self.clear_matches_button)
+        actions_row.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed)
+        matched.addWidget(actions_row);matched.addWidget(note)
+        note.setMaximumHeight(44)
         self.matches=table(['音频','歌词候选','封面候选']);self.matches.setMinimumHeight(95);self.matches.setMaximumHeight(150);matched.addWidget(self.matches)
         self.lyric_match=combo([('不选择 / 保持原内容',None)]);self.cover_match=combo([('不选择 / 保持原内容',None)])
         matched.addWidget(row(QLabel('当前音频'),self.lyric_match,self.cover_match,button('应用到编辑',self.apply_match)))
@@ -220,6 +226,7 @@ class MetadataPage(Page):
             batch_layout.addWidget(QLabel(self.app.t(label)),grid_row,column*2)
             batch_layout.addWidget(edit,grid_row,column*2+1)
         self.batch_apply=button('批量写入标签',self.apply_batch_tags,True);self.batch_apply.setEnabled(False)
+        self.batch_preview=button('预览修改',self.preview_batch_tags,symbol='convert');self.batch_preview.setEnabled(False)
         # Shifting every lyric at once is the batch form of the per-file offset on
         # the editor card: same direction, same seconds, applied to every scan.
         self.batch_shift_seconds=QDoubleSpinBox();self.batch_shift_seconds.setRange(0.0,3600.0)
@@ -238,7 +245,7 @@ class MetadataPage(Page):
         self.batch_cover_apply.setEnabled(False)
         batch_cover=row(self.batch_cover_choose,self.batch_cover_path,self.batch_cover_apply)
         batch_layout.addWidget(batch_cover,6,0,1,6)
-        batch_actions=row(self.batch_apply,QLabel('歌词偏移'),self.batch_shift_seconds,
+        batch_actions=row(self.batch_preview,self.batch_apply,QLabel('歌词偏移'),self.batch_shift_seconds,
                           self.batch_shift_direction,self.batch_shift)
         batch_layout.addWidget(batch_actions,4,0,1,6)
         batch_layout.setColumnStretch(6,1)
@@ -250,7 +257,7 @@ class MetadataPage(Page):
         self.output=OutputPath(self.output_default())
         self.save_button=button('保存到音频',self.save,True)
         self.footer=row(QLabel('输出目录'),self.output,QLabel('保存方式'),self.mode);self.footer.layout().addWidget(button('取消修改',self.reset));self.footer.layout().addWidget(self.save_button);self.layout.addWidget(self.footer)
-        self.match_rows=[]
+        self.match_rows=[];self.check_rows=[]
     def toggle_matches(self):
         visible=not self.match_content.isVisible();self.match_content.setVisible(visible);self.match_toggle.setText(self.app.t('收起匹配区域' if visible else '展开匹配区域'))
         if visible:self.reveal_match_area()
@@ -408,21 +415,62 @@ class MetadataPage(Page):
     def scan(self,folder):
         recursive=self.app.settings['include_subfolders']
         self.app.run_task(lambda report:scan_audio_folder(folder,include_subfolders=recursive,cancel_check=report.raise_if_cancelled),self.scanned)
+    def check_missing_folder(self):
+        folder=QFileDialog.getExistingDirectory(self,self.app.t('选择要检查的音乐文件夹'),dialog_initial_directory(self,'audio'))
+        if folder:
+            remember_dialog_selection(self,'audio',folder);self.run_missing_check(folder)
+    def run_missing_check(self,folder):
+        recursive=self.app.settings['include_subfolders']
+        self.app.run_task(lambda report:missing_media_check(folder,include_subfolders=recursive,cancel_check=report.raise_if_cancelled),self.missing_checked)
+    def missing_checked(self,rows):
+        self.check_rows=list(rows)
+        lines=[]
+        for record in rows:
+            if not record.has_problems:continue
+            labels={'lyrics':self.app.t('缺歌词'),'cover':self.app.t('缺封面'),'title':self.app.t('缺标题'),'artist':self.app.t('缺歌手'),'album':self.app.t('缺专辑'),'tags':self.app.t('标签不可读')}
+            problems='、'.join(labels.get(problem,problem) for problem in record.problems)
+            lines.append(f'{record.audio.name}：{problems}')
+            if record.tag_error:lines.append(f'  {record.tag_error}')
+        complete=sum(1 for row in rows if not row.has_problems)
+        summary=self.app.t(f'检查完成：{len(rows)} 个文件，{complete} 个完整，{len(rows)-complete} 个存在缺失。')
+        self.app.show_text('媒体检查结果',summary+('\n\n'+'\n'.join(lines) if lines else ''))
+        self.app.statusBar().showMessage(summary)
     def scanned(self,matches):
         self.match_rows=list(matches);fill_table(self.matches,[(str(m.audio),'','') for m in matches])
         for i,m in enumerate(matches):
             for j,paths in ((1,m.lyric_candidates),(2,m.cover_candidates)):
                 box=combo([]);self.candidates(box,paths);self.matches.setCellWidget(i,j,box)
-        self.match_content.show();self.match_toggle.setText(self.app.t('收起匹配区域'));self.matches.show();self.write_all.setEnabled(bool(matches));self.batch_apply.setEnabled(bool(matches));self.batch_shift.setEnabled(bool(matches));self.batch_cover_apply.setEnabled(bool(matches));self.clear_matches_button.setEnabled(bool(matches));self.app.statusBar().showMessage(self.app.t(f'扫描完成：{len(matches)} 首音频'))
+        self.match_content.show();self.match_toggle.setText(self.app.t('收起匹配区域'));self.matches.show();self.write_all.setEnabled(bool(matches));self.batch_apply.setEnabled(bool(matches));self.batch_preview.setEnabled(bool(matches));self.batch_shift.setEnabled(bool(matches));self.batch_cover_apply.setEnabled(bool(matches));self.clear_matches_button.setEnabled(bool(matches));self.app.statusBar().showMessage(self.app.t(f'扫描完成：{len(matches)} 首音频'))
     def clear_matches(self):
         self.match_rows=[];self.matches.clearContents();self.matches.setRowCount(0)
-        self.write_all.setEnabled(False);self.batch_apply.setEnabled(False);self.batch_shift.setEnabled(False);self.batch_cover_apply.setEnabled(False);self.clear_matches_button.setEnabled(False)
+        self.write_all.setEnabled(False);self.batch_apply.setEnabled(False);self.batch_preview.setEnabled(False);self.batch_shift.setEnabled(False);self.batch_cover_apply.setEnabled(False);self.clear_matches_button.setEnabled(False)
         self.app.statusBar().showMessage(self.app.t('已清空匹配文件列表'))
     def batch_write(self,kind=None):
         rows=tuple((m.audio,self.matches.cellWidget(i,1).currentData() if kind!='cover' else None,self.matches.cellWidget(i,2).currentData() if kind!='lyrics' else None) for i,m in enumerate(self.match_rows))
         if not rows:return
         overwrite=self.mode.currentData()=='overwrite';directory=self.output.text()
         self.app.run_task(lambda report:write_matches(rows,overwrite,directory,report),lambda lines:self.app.show_text('批量写入结果','\n'.join(lines)))
+    def preview_batch_tags(self):
+        """Show a before/after comparison before writing batch tag values."""
+        if not self.match_rows:return self.app.inform(self.app.t('请先扫描音乐文件夹。'))
+        values={key:edit.text() for key,edit in self.batch_values.items()}
+        if not any(text.strip() for text in values.values()):
+            return self.app.inform(self.app.t('请至少填写一个要批量写入的标签。'))
+        paths=[m.audio for m in self.match_rows]
+        self.app.run_task(lambda report:compare_tag_updates(paths,values),self.batch_comparison_ready)
+    def batch_comparison_ready(self,rows):
+        self.app.record_task_history('preview',[TaskRecord(row[0],'已完成' if row[2]=='' else '失败',row[2]) for row in rows])
+        labels={'title':self.app.t('标题'),'artist':self.app.t('歌手'),'album':self.app.t('专辑'),'track':self.app.t('曲目号'),'year':self.app.t('年份'),'genre':self.app.t('流派')}
+        def field_text(change):
+            field,before,after=change
+            return f'{labels.get(field,field)}：{before or "（空）"} → {after}'
+        lines=[]
+        for audio,changes,error in rows:
+            if error:lines.append(f'失败：{audio.name} — {error}');continue
+            if not changes:lines.append(f'无需修改：{audio.name}');continue
+            lines.append(f'{audio.name}：')
+            lines.extend('  '+field_text(change) for change in changes)
+        self.app.show_text('批量标签修改预览','\n'.join(lines))
     def apply_batch_tags(self):
         """Write the filled tag boxes to every scanned file."""
         if not self.match_rows:return self.app.inform(self.app.t('请先扫描音乐文件夹。'))

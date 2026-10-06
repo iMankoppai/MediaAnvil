@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core.media_matcher import MatchPriority, find_associated_files, scan_audio_folder
 
@@ -111,6 +112,44 @@ class MediaMatcherTests(unittest.TestCase):
         self.assertEqual(results[0].audio, audio)
         self.assertEqual(results[0].lyric, lyric)
 
+
+    def test_missing_media_check_reports_lyrics_cover_and_tags(self) -> None:
+        from core.media_matcher import missing_media_check
+        self.touch("complete.mp3")
+        self.touch("complete.lrc").write_bytes(b"[00:01]a")
+        self.touch("complete.jpg").write_bytes(b"cover")
+        self.touch("partial.mp3")
+        self.touch("partial.lrc").write_bytes(b"[00:01]a")
+        self.touch("empty.mp3")
+        def fake_metadata(path):
+            from types import SimpleNamespace
+            name = Path(path).stem
+            if name == "complete": return SimpleNamespace(title="T", artist="A", album="L")
+            if name == "partial": return SimpleNamespace(title="T", artist="", album="L")
+            return SimpleNamespace(title="", artist="", album="")
+        with patch("sub2lrc.audio_metadata.read_metadata", side_effect=fake_metadata):
+            rows = missing_media_check(self.root)
+        report = {row.audio.name: row for row in rows}
+        self.assertEqual(report["complete.mp3"].problems, ())
+        self.assertEqual(report["partial.mp3"].problems, ("cover", "artist"))
+        self.assertEqual(report["empty.mp3"].problems, ("lyrics", "cover", "title", "artist", "album"))
+        self.assertFalse(report["complete.mp3"].has_problems)
+        self.assertTrue(report["empty.mp3"].has_problems)
+
+    def test_missing_media_check_ignores_ambiguous_matches(self) -> None:
+        """A file with multiple candidate lyrics is not 'missing', but is also not auto-fillable."""
+        from core.media_matcher import missing_media_check
+        self.touch("ambiguous.mp3")
+        self.touch("ambiguous.lrc").write_bytes(b"[00:01]a")
+        self.touch("ambiguous - 副本.lrc").write_bytes(b"[00:01]b")
+        def fake_metadata(path):
+            from types import SimpleNamespace
+            return SimpleNamespace(title="T", artist="A", album="L")
+        with patch("sub2lrc.audio_metadata.read_metadata", side_effect=fake_metadata):
+            rows = missing_media_check(self.root)
+        report = {row.audio.name: row for row in rows}
+        # Ambiguous lyrics: candidates exist, so it is not reported as missing lyrics.
+        self.assertEqual(report["ambiguous.mp3"].problems, ("cover",))
 
 if __name__ == "__main__":
     unittest.main()

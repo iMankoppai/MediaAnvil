@@ -2,14 +2,17 @@
 from __future__ import annotations
 import sys
 from pathlib import Path
-from PySide6.QtCore import Qt,QUrl,Slot,QSize
+from PySide6.QtCore import Qt,QUrl,Slot,QSize,QTimer
 from PySide6.QtGui import QIcon,QDesktopServices
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QHBoxLayout,QVBoxLayout,QLabel,
     QStackedWidget,QScrollArea,QProgressBar,QMessageBox,QDialog,QPlainTextEdit,
-    QDialogButtonBox,QFileDialog)
+    QDialogButtonBox,QFileDialog,QHeaderView)
 from core.settings import load_settings,settings_path,save_settings,last_load_warning
 from core.media_matcher import AUDIO_EXTENSIONS,LYRIC_EXTENSIONS,COVER_EXTENSIONS
-from .common import resource,Worker,Page,button,group,dialog_category,dialog_initial_directory,remember_dialog_selection
+from core.tasks import TaskHistory
+from datetime import datetime
+from .common import resource,Worker,Page,button,group,table,fill_table,combo,dialog_category,dialog_initial_directory,remember_dialog_selection
 from .design import Navigation, STYLE
 from .documents import DocumentViewer
 from .conversion import ConversionPage
@@ -59,7 +62,7 @@ class MainWindow(QMainWindow):
         # caller no longer rebuilds the path from its parts.
         self.settings_file=Path(config_path) if config_path else settings_path()
         self.settings=load_settings(self.settings_file);warning=last_load_warning()
-        self._worker=None;self._task_outcome=None;self._done=None
+        self._worker=None;self._task_outcome=None;self._done=None;self.task_history:TaskHistory|None=None
         central=QWidget();central.setObjectName('shell');layout=QHBoxLayout(central);layout.setContentsMargins(0,0,0,0);layout.setSpacing(0);self.setCentralWidget(central)
         sidebar=QWidget();self.sidebar=sidebar;sidebar.setObjectName('sidebar');sidebar.setFixedWidth(204);left=QVBoxLayout(sidebar);left.setContentsMargins(14,10,8,14);left.setSpacing(20)
         brand_row=QHBoxLayout();brand_row.setContentsMargins(8,0,0,6);brand_row.setSpacing(10)
@@ -76,13 +79,24 @@ class MainWindow(QMainWindow):
             'image':ConversionPage(self,'image'), 'join':JoinPage(self),
             'renamer':RenamePage(self), 'settings':SettingsPage(self),
         }
+        task_page=Page(self,'任务中心','查看批量任务状态，失败项可单独重试')
+        task_card,task_body=group('最近任务')
+        self.task_kind=QLabel('暂无批量任务');self.task_kind.setObjectName('sectionTitle');task_body.addWidget(self.task_kind)
+        self.task_summary=QLabel('转换和重命名完成后，这里会显示每个文件的状态。');self.task_summary.setObjectName('muted');self.task_summary.setWordWrap(True);task_body.addWidget(self.task_summary)
+        self.task_retry=button('重试失败项',self.retry_failed,'task');self.task_retry.setEnabled(False);task_body.addWidget(self.task_retry,0,Qt.AlignmentFlag.AlignLeft)
+        self.task_table=table(['文件','状态','说明']);self.task_table.setMinimumHeight(320)
+        self.task_table.horizontalHeader().setSectionResizeMode(0,QHeaderView.ResizeMode.Stretch)
+        for col in (1,2):self.task_table.horizontalHeader().setSectionResizeMode(col,QHeaderView.ResizeMode.ResizeToContents)
+        task_body.addWidget(self.task_table,1)
+        task_page.layout.addWidget(task_card);task_page.layout.addStretch()
+        self.pages['tasks']=task_page
         about=Page(self,'关于 MediaAnvil','让日常媒体整理更轻松')
         card,body=group(f'MediaAnvil  ·  v{__version__}');about.layout.addWidget(card)
         artwork=QLabel();artwork.setPixmap(self.windowIcon().pixmap(76,76));body.addWidget(artwork)
         text=QLabel('一个简洁、离线的多媒体工具箱。\n\n播放音频、同步歌词，编辑标签与封面，整理文件名，\n以及完成音频、图片和歌词字幕的格式转换。\n\n媒体文件始终在本机处理，默认保留原文件。');text.setWordWrap(True);body.addWidget(text)
         body.addWidget(button('使用说明',lambda:self.show_document('使用说明','USER_GUIDE.md','USER_GUIDE.en.md')),0,Qt.AlignmentFlag.AlignLeft)
         body.addWidget(button('第三方组件说明',lambda:self.show_document('第三方组件说明','THIRD_PARTY_NOTICES.md')),0,Qt.AlignmentFlag.AlignLeft);about.layout.addStretch();self.pages['about']=about
-        labels=['音频预览','音频标签编辑','歌词 / 字幕转换','音频格式转换','图片格式转换','音频合并 / 分割','批量重命名','设置','关于']
+        labels=['音频预览','音频标签编辑','歌词 / 字幕转换','音频格式转换','图片格式转换','音频合并 / 分割','批量重命名','任务中心','设置','关于']
         self.keys=list(self.pages)
         for key,label in zip(self.keys,labels):
             page=self.pages[key];self.navigation.addItem(label)
@@ -97,18 +111,19 @@ class MainWindow(QMainWindow):
         self.navigation.currentRowChanged.connect(self.show_page)
         self.navigation.setCurrentRow(self.keys.index('preview'))
         self.cancel_button=button('取消任务',self.cancel_task);self.cancel_button.hide();self.statusBar().addPermanentWidget(self.cancel_button)
+        self.preset_bar=QWidget();preset_layout=QHBoxLayout(self.preset_bar);preset_layout.setContentsMargins(12,0,12,0);preset_layout.setSpacing(8)
+        self.preset_combo=combo([]);self.preset_combo.currentIndexChanged.connect(self.apply_selected_preset)
+        self.preset_save=button('保存预设',self.save_current_preset,symbol='save')
+        self.preset_delete=button('删除',self.delete_selected_preset,symbol='trash')
+        self.preset_bar.layout().addWidget(QLabel('预设'),0,Qt.AlignmentFlag.AlignLeft);self.preset_bar.layout().addWidget(self.preset_combo,1);self.preset_bar.layout().addWidget(self.preset_save,0,Qt.AlignmentFlag.AlignLeft);self.preset_bar.layout().addWidget(self.preset_delete,0,Qt.AlignmentFlag.AlignLeft)
+        self.preset_bar.hide();self.statusBar().addPermanentWidget(self.preset_bar)
         self.progress=QProgressBar();self.progress.setFixedWidth(230);self.progress.hide();self.statusBar().addPermanentWidget(self.progress)
         self.statusBar().showMessage(warning or '就绪 · 可直接拖入文件或文件夹')
-        self.setAcceptDrops(True);self.setStyleSheet(STYLE);self.apply_defaults();self.center_on_screen();self.set_language(self.settings['language'])
+        self.setAcceptDrops(True);self.setStyleSheet(STYLE);self.apply_defaults();self.center_on_screen();self.set_language(self.settings['language']);QTimer.singleShot(0,self.refresh_preset_bar)
     def center_on_screen(self):
         screen=QApplication.primaryScreen()
         if screen is None:return
         frame=self.frameGeometry();frame.moveCenter(screen.availableGeometry().center());self.move(frame.topLeft())
-    def show_page(self,index):
-        self.stack.setCurrentIndex(index)
-        page=self.pages[self.keys[index]]
-        if hasattr(page,'_update_responsive_layout'):page._update_responsive_layout()
-        self.reset_scroll(page)
     def reset_scroll(self,page):
         """Entering a page starts at the top so navigation stays predictable."""
         scroll=getattr(page,'scroll',None)
@@ -119,10 +134,64 @@ class MainWindow(QMainWindow):
     def set_language(self,language):
         self.settings['language']=language;self.sidebar.setFixedWidth(204);apply_language(self,language)
         if language=='en_US':
-            labels=('Audio Preview','Tag Editor','Lyrics / Subtitles','Audio Converter','Image Converter','Join / Split','Batch Rename','Settings','About')
+            labels=('Audio Preview','Tag Editor','Lyrics / Subtitles','Audio Converter','Image Converter','Join / Split','Batch Rename','Task Center','Settings','About')
             for item,label in zip(self.navigation.buttons,labels):item.setText(label)
         for item in self.navigation.buttons:item.setStyleSheet('font-size:13px;' if language=='en_US' else '')
         self.statusBar().showMessage(self.t('就绪 · 可直接拖入文件或文件夹'))
+    def preset_target_page(self):
+        page=self.current_page
+        return page if getattr(page,'kind',None) in ('audio','image','subtitle') or type(page).__name__=='RenamePage' else None
+    def current_preset_state(self):
+        page=self.preset_target_page()
+        if type(page).__name__=='RenamePage':
+            return {'kind':'rename','template':page.template.currentText(),'fallback_missing':page.fallback.isChecked()}
+        return page.current_preset_state()
+    def refresh_preset_bar(self):
+        if not hasattr(self,'preset_combo'):return
+        page=self.preset_target_page()
+        self.preset_combo.blockSignals(True);self.preset_combo.clear()
+        presets=self.settings.get('task_presets',{})
+        matching={name:fields for name,fields in presets.items() if self.preset_kind_matches(page,fields)}
+        for name in sorted(matching):self.preset_combo.addItem(name,matching[name])
+        self.preset_combo.setCurrentIndex(-1);self.preset_combo.blockSignals(False)
+        self.preset_bar.setVisible(page is not None)
+    @staticmethod
+    def preset_kind_matches(page,fields):
+        if type(page).__name__=='RenamePage':return fields.get('kind')=='rename'
+        return fields.get('kind')==page.kind
+    def apply_selected_preset(self,index):
+        fields=self.preset_combo.itemData(index)
+        page=self.preset_target_page()
+        if not fields or not page:return
+        if fields.get('kind')=='rename':
+            if fields.get('template'):page.template.setCurrentText(fields['template'])
+            page.fallback.setChecked(bool(fields.get('fallback_missing')))
+            return
+        page.apply_preset(fields)
+    def save_current_preset(self):
+        page=self.preset_target_page()
+        if not page:return self.inform(self.t('当前页面不支持预设。'))
+        from PySide6.QtWidgets import QInputDialog
+        name,ok=QInputDialog.getText(self,self.t('保存预设'),self.t('预设名称'),text=self.preset_combo.currentText())
+        if not ok or not name.strip():return
+        presets=dict(self.settings.get('task_presets',{}));presets[name.strip()]=self.current_preset_state()
+        self.settings['task_presets']=presets
+        try:save_settings(self.settings,self.app.settings_file)
+        except Exception as exc:return self.inform(self.t('预设保存失败：')+str(exc))
+        self.refresh_preset_bar();self.statusBar().showMessage(self.t('预设已保存'))
+    def delete_selected_preset(self):
+        name=self.preset_combo.currentData() and self.preset_combo.currentText()
+        if not name:return self.inform(self.t('请先选择要删除的预设。'))
+        presets=dict(self.settings.get('task_presets',{}));presets.pop(name,None)
+        self.settings['task_presets']=presets
+        try:save_settings(self.settings,self.app.settings_file)
+        except Exception as exc:return self.inform(self.t('预设删除失败：')+str(exc))
+        self.refresh_preset_bar();self.statusBar().showMessage(self.t('预设已删除'))
+    def show_page(self,index):
+        self.stack.setCurrentIndex(index)
+        page=self.pages[self.keys[index]]
+        if hasattr(page,'_update_responsive_layout'):page._update_responsive_layout()
+        self.reset_scroll(page);self.refresh_preset_bar()
     def apply_defaults(self):
         s=self.settings
         for name in ('audio','image','subtitle'):
@@ -137,7 +206,7 @@ class MainWindow(QMainWindow):
     def run_task(self,work,done):
         if self._worker:return self.inform(self.t('当前任务仍在处理，请等待完成。'))
         self._done=done;self._task_outcome=None;self._worker=Worker(work,self)
-        self.centralWidget().setEnabled(False);self.progress.setRange(0,100);self.progress.setValue(0);self.progress.show();self.cancel_button.setEnabled(True);self.cancel_button.show();self.statusBar().showMessage(self.t('正在处理…'))
+        self.progress.setRange(0,100);self.progress.setValue(0);self.progress.show();self.cancel_button.setEnabled(True);self.cancel_button.show();self.statusBar().showMessage(self.t('正在处理…'))
         self._worker.result.connect(self._result);self._worker.error.connect(self._error);self._worker.cancelled.connect(self._cancelled);self._worker.progress.connect(self._progress);self._worker.finished.connect(self._finished);self._worker.start()
     def cancel_task(self):
         if not self._worker:return
@@ -153,12 +222,36 @@ class MainWindow(QMainWindow):
     @Slot()
     def _finished(self):
         worker=self._worker;done=self._done;outcome=self._task_outcome
-        self._worker=None;self._done=None;worker.deleteLater();self.centralWidget().setEnabled(True);self.progress.hide();self.cancel_button.hide();self.statusBar().showMessage(self.t('任务已取消') if outcome and outcome[0] is None else self.t('就绪'))
+        self._worker=None;self._done=None;worker.deleteLater();self.progress.hide();self.cancel_button.hide();self.statusBar().showMessage(self.t('任务已取消') if outcome and outcome[0] is None else self.t('就绪'))
         if outcome:
             if outcome[0] is True:
                 try:done(outcome[1])
                 except Exception as exc:self.inform(self.t('结果显示失败：')+str(exc))
             elif outcome[0] is False:self.inform(self.t('处理失败：')+outcome[1])
+    def record_task_history(self,kind,records):
+        self.task_history=TaskHistory(kind,tuple(records));self.update_task_page()
+    def update_task_page(self):
+        history=self.task_history
+        if not history:
+            self.task_kind.setText(self.t('暂无批量任务'));self.task_summary.setText(self.t('转换和重命名完成后，这里会显示每个文件的状态。'))
+            self.task_table.setRowCount(0);self.task_retry.setEnabled(False);return
+        kind={'audio':self.t('音频转换'),'image':self.t('图片转换'),'subtitle':self.t('歌词 / 字幕转换'),'rename':self.t('批量重命名')}.get(history.kind,history.kind)
+        self.task_kind.setText(self.t('最近任务：')+kind)
+        failed=len(history.failures)
+        self.task_summary.setText(self.t(f'成功 {len(history.succeeded)} 个 · 失败 {failed} 个 · 时间 {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'))
+        fill_table(self.task_table,[(r.source.name,self.t(r.state),self.t(r.message or '—')) for r in history.records])
+        for row,record in enumerate(history.records):
+            item=self.task_table.item(row,1)
+            item.setForeground(QColor('#178858' if not record.failed else '#df5265'))
+            item.setToolTip(self.t(record.message))
+        self.task_retry.setEnabled(bool(history.failures))
+    def retry_failed(self):
+        history=self.task_history
+        if not history or not history.failures:return self.inform(self.t('没有可重试的失败项。'))
+        sources=[record.source for record in history.failures]
+        if history.kind in ('audio','image','subtitle'):self.pages[history.kind].convert_paths(sources)
+        elif history.kind=='rename':self.pages['renamer'].files.clear();self.pages['renamer'].files.add_paths(sources);self.pages['renamer'].preview()
+        else:return self.inform(self.t('当前任务类型不支持重试。'))
     def inform(self,text):self.show_message('MediaAnvil Qt',self.t(str(text)))
     def show_message(self,title,text,copy_allowed=True):
         """Message box whose details can be copied for a support report."""
@@ -252,10 +345,9 @@ class MainWindow(QMainWindow):
             return self.t('没有找到当前页面支持的文件。')+'\n'+self.t('不支持的格式：')+unsupported+'\n'+self.t('当前支持：')+supported
         return self.t('没有找到当前页面支持的文件。')
     def dragEnterEvent(self,event):
-        if self._worker is None and event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):event.acceptProposedAction()
+        if event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):event.acceptProposedAction()
         else:event.ignore()
     def dropEvent(self,event):
-        if self._worker:return event.ignore()
         paths=[Path(url.toLocalFile()) for url in event.mimeData().urls() if url.isLocalFile()]
         self.import_paths(paths);event.acceptProposedAction()
     def closeEvent(self,event):

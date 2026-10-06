@@ -42,6 +42,27 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(loaded["default_output_directory"], "C:/音乐/转换后")
             self.assertEqual(loaded["default_volume"], 35)
 
+    def test_task_presets_survive_save_and_load_with_field_whitelist(self) -> None:
+        values = default_settings()
+        values["task_presets"] = {
+            "随身听": {
+                "kind": "audio", "format": "mp3", "parameter": 128, "rate": None,
+                "channels": None, "preserve": True, "output_directory": "",
+                "dangerous": {"command": "rm"},
+            },
+            "损坏": "not-a-dict",
+            "": {"kind": "audio"},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings.json"
+            save_settings(values, path)
+            loaded = load_settings(path)
+        presets = loaded["task_presets"]
+        self.assertEqual(set(presets), {"随身听"})
+        self.assertEqual(presets["随身听"]["kind"], "audio")
+        self.assertEqual(presets["随身听"]["format"], "mp3")
+        self.assertNotIn("dangerous", presets["随身听"])
+
     def test_recent_dialog_directories_are_persisted_as_known_settings(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "settings.json"

@@ -52,15 +52,18 @@ def output_directory_problem(directory):
 
 
 def collect_paths(paths, extensions, recursive=False, cancel_check=None):
-    result = []; seen = set()
+    result = []
+    seen: set[str] = set()
     for raw in paths:
         if cancel_check: cancel_check()
         path = Path(raw)
         candidates = path.rglob('*') if path.is_dir() and recursive else path.iterdir() if path.is_dir() else (path,)
         for p in candidates:
             if cancel_check: cancel_check()
-            key = str(p.resolve()).casefold()
-            if p.is_file() and p.suffix.lower() in extensions and key not in seen:
+            if p.suffix.lower() not in extensions:
+                continue
+            key = str(p).casefold()
+            if key not in seen:
                 seen.add(key); result.append(p)
     return tuple(result)
 
@@ -127,6 +130,32 @@ def convert_files(kind, paths, directory, settings, progress, cancel_check=None,
 
 
 BATCH_EDITABLE_FIELDS = ('title', 'artist', 'album', 'track', 'year', 'genre')
+
+
+def compare_tag_updates(audio_paths, values):
+    """Read current tags and return a table showing what a batch write would do.
+
+    Values are either 'keep' (blank box), a replacement string, or 'clear' for a
+    future explicit clearing action. The result is a tuple of per-file rows:
+    ``(audio, ((field, before, after), ...))`` with only changed fields.
+    """
+    planned = {name: text.strip() for name, text in values.items()
+               if name in BATCH_EDITABLE_FIELDS and text and text.strip()}
+    if not planned:
+        return ()
+    rows = []
+    for audio in audio_paths:
+        try: state = read_metadata(audio)
+        except Exception as exc:
+            rows.append((audio, (), str(exc))); continue
+        changes = []
+        for field in BATCH_EDITABLE_FIELDS:
+            if field not in planned: continue
+            before = str(getattr(state, field, '') or '')
+            after = planned[field]
+            if before != after: changes.append((field, before, after))
+        rows.append((audio, tuple(changes), ''))
+    return tuple(rows)
 
 
 def batch_edit_tags(audio_paths, values, overwrite, directory, progress):

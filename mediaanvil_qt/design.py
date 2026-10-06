@@ -33,7 +33,7 @@ ICONS = {
     'save':'<path d="M4 3h13l3 3v15H4Z"/><path d="M8 3v6h8V3M8 21v-7h8v7"/>',
     'crop':'<path d="M7 3v14a4 4 0 0 0 4 4h10M3 7h14a4 4 0 0 1 4 4v10"/>',
 }
-PAGE_ICONS = ['music', 'tag', 'text', 'convert', 'image', 'shuffle', 'rename', 'settings', 'info']
+PAGE_ICONS = ['music', 'tag', 'text', 'convert', 'image', 'shuffle', 'rename', 'task', 'settings', 'info']
 # The stretch sits above this entry so the navigation keeps its footer group.
 NAVIGATION_STRETCH_INDEX = 7
 

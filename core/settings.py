@@ -32,6 +32,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "default_volume": 80,
     "include_subfolders": False,
     "language": "zh_CN",
+    # User-defined task presets stay entirely local. Only the known fields are
+    # restored, so a damaged or hand-edited file cannot inject unsafe values.
+    "task_presets": {},
     # Remember where each audio file was left off, keyed by normalised path.
     # Off means the preview page always starts from the beginning.
     "remember_playback_position": True,
@@ -78,6 +81,51 @@ def default_settings() -> dict[str, Any]:
     return deepcopy(DEFAULT_SETTINGS)
 
 
+TASK_PRESET_KEYS = {
+    "kind": ("audio", "image", "subtitle", "rename"),
+    "format": str,
+    "parameter": (str, int, float, type(None)),
+    "rate": (str, int, float, type(None)),
+    "channels": (str, int, float, type(None)),
+    "preserve": bool,
+    "quality": (int, float, type(None)),
+    "duration": (int, float, type(None)),
+    "template": str,
+    "fallback_missing": bool,
+    "output_directory": str,
+}
+
+
+def normalise_task_presets(value: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Keep only simple preset fields; unknown or unsafe values are dropped."""
+    presets: dict[str, dict[str, Any]] = {}
+    for name, fields in value.items():
+        if not isinstance(fields, dict):
+            continue
+        label = str(name).strip()[:80]
+        if not label:
+            continue
+        preset: dict[str, Any] = {}
+        for key, expected in TASK_PRESET_KEYS.items():
+            item = fields.get(key)
+            if key == "kind":
+                if item in expected:
+                    preset[key] = item
+                continue
+            if expected is str:
+                if isinstance(item, str):
+                    preset[key] = item[:500]
+            elif expected is bool:
+                if isinstance(item, bool):
+                    preset[key] = item
+            else:
+                if item is None or (isinstance(item, (int, float)) and not isinstance(item, bool)):
+                    preset[key] = item
+        if preset.get("kind"):
+            presets[label] = preset
+    return presets
+
+
 def _normalise(data: object) -> dict[str, Any]:
     result = default_settings()
     if not isinstance(data, dict):
@@ -106,12 +154,14 @@ def _normalise(data: object) -> dict[str, Any]:
             # Recording dictionaries such as playback_positions. Only string keys
             # with numeric values survive, so a hand-edited or damaged file cannot
             # inject a value the rest of the program would trip over.
-            if isinstance(value, dict):
+            if key == "playback_positions" and isinstance(value, dict):
                 result[key] = {
                     str(name): float(position)
                     for name, position in value.items()
                     if isinstance(position, (int, float)) and not isinstance(position, bool)
                 }
+            elif key == "task_presets" and isinstance(value, dict):
+                result[key] = normalise_task_presets(value)
     return result
 
 
@@ -180,6 +230,8 @@ def reset_settings(config_path: str | Path | None = None) -> dict[str, Any]:
 
 __all__ = [
     "DEFAULT_SETTINGS",
+    "TASK_PRESET_KEYS",
+    "normalise_task_presets",
     "PRODUCT_NAME",
     "SETTINGS_DIRECTORY",
     "default_settings",
