@@ -22,7 +22,7 @@ from mediaanvil_qt.documents import DocumentViewer
 from mediaanvil_qt.i18n import localize_dialog_buttons
 from mediaanvil_qt import __version__ as qt_version
 from mediaanvil_qt.design import STYLE
-from mediaanvil_qt.services import collect_paths,convert_files,write_matches
+from mediaanvil_qt.services import collect_paths,convert_files,write_matches,compare_tag_updates
 from mediaanvil_qt.metadata import CropDialog
 from core.settings import save_settings
 from sub2lrc.audio_converter import AudioConversionSettings
@@ -75,7 +75,7 @@ class QtRewriteTests(unittest.TestCase):
     def test_pages_preserve_native_window_and_data(self):
         self.assertEqual(qt_version,'1.4.0')
         self.assertIn('v1.4.0',[label.text() for label in self.window.findChildren(QLabel)])
-        self.assertEqual(len(self.window.pages),9)
+        self.assertEqual(len(self.window.pages),10)
         actual_size=(self.window.width(),self.window.height());expected_size=default_window_size()
         for actual,expected in zip(actual_size,expected_size):self.assertAlmostEqual(actual,expected,delta=1)
         self.assertFalse(self.window.windowFlags() & Qt.WindowType.FramelessWindowHint)
@@ -536,6 +536,50 @@ class QtRewriteTests(unittest.TestCase):
         with Image.open(outputs[0]) as image:
             self.assertEqual(image.size,(15,21));self.assertGreater(image.getpixel((0,0))[0],245)
         self.assertEqual(source.read_bytes(),original);self.assertIn('透明区域已填白',lines[0])
+    def test_crop_mode_selects_range_and_exports_only_that_part(self):
+        import wave as wave_module
+        page=self.window.pages['join']
+        self.window.navigation.setCurrentRow(self.window.keys.index('join'));self.qt.processEvents()
+        source=self.base/'crop-source.wav'
+        with wave_module.open(str(source),'wb') as stream:
+            stream.setnchannels(1);stream.setsampwidth(2);stream.setframerate(8000);stream.writeframes(b'\0\0'*24000)
+        page.receive([source]);page.mode_buttons['crop'].setChecked(True);self.qt.processEvents()
+        deadline=time.monotonic()+20
+        while self.window._worker and time.monotonic()<deadline:self.qt.processEvents();time.sleep(.01)
+        self.assertIsNone(self.window._worker)
+        self.assertTrue(page.waveform.peaks);self.assertAlmostEqual(page.waveform.duration,3.0,delta=0.2)
+        page.waveform.set_selection(1.0,2.0)
+        self.assertEqual(page.waveform.selection_start,1.0);self.assertEqual(page.waveform.selection_end,2.0)
+        page.output.edit.setText(str(self.base/'out'));self.base.joinpath('out').mkdir()
+        page.format.setCurrentIndex(max(0,page.format.findData('wav')))
+        page.start_button.click();self.wait()
+        self.assertEqual(len(page.last_outputs),1)
+        output=page.last_outputs[0]
+        self.assertEqual(output.suffix,'.wav')
+        with wave_module.open(str(output),'rb') as stream:
+            frames=stream.getnframes();rate=stream.getframerate()
+        self.assertAlmostEqual(frames/rate,1.0,delta=0.1)
+    def test_missing_media_check_reports_files_with_gaps(self):
+        page=self.window.pages['editor']
+        audio=self.base/'missing-items.mp3';audio.write_bytes(b'x')
+        from types import SimpleNamespace
+        with patch('sub2lrc.audio_metadata.read_metadata',return_value=SimpleNamespace(title='T',artist='A',album='')):
+            page.run_missing_check(self.base);self.wait()
+        message=self.messages[-1]
+        self.assertIn('missing-items.mp3',message)
+        self.assertIn('缺封面',message)
+        self.assertIn('缺专辑',message)
+    def test_batch_tag_preview_shows_before_and_after_without_writing(self):
+        audio=self.base/'preview-tags.mp3';audio.write_bytes(b'x')
+        with patch('mediaanvil_qt.services.read_metadata') as reader:
+            reader.return_value=MagicMock(title='旧标题',artist='旧歌手',album='',track='',year='',genre='')
+            values={'title':'新标题','artist':'','album':'','track':'','year':'','genre':''}
+            rows=compare_tag_updates([audio],values)
+        self.assertEqual(len(rows),1)
+        audio_path,changes,error=rows[0]
+        self.assertEqual(changes,(('title','旧标题','新标题'),))
+        # Empty boxes mean "keep"; they must never be reported as clearing a tag.
+        self.assertTrue((self.base/'preview-tags.mp3').exists())
     def test_folder_import_honours_recursion_and_deduplication(self):
         (self.base/'a.lrc').write_text('[00:01]a');(self.base/'child').mkdir();(self.base/'child'/'b.lrc').write_text('[00:01]b')
         self.assertEqual(len(collect_paths([self.base,self.base/'a.lrc'],{'.lrc'},False)),1)
@@ -545,6 +589,7 @@ class QtRewriteTests(unittest.TestCase):
         page.candidates(page.lyric_match,paths);self.assertIsNone(page.lyric_match.currentData())
     def test_metadata_media_actions_align_without_a_separate_crop_button(self):
         page=self.window.pages['editor'];self.window.navigation.setCurrentRow(self.window.keys.index('editor'));self.qt.processEvents()
+        assert page is not None
         self.assertFalse(page.match_content.isVisible());self.assertEqual(page.match_toggle.text(),'展开匹配区域')
         self.assertFalse(page.match_note.wordWrap())
         actions=(page.import_lyrics_button,page.export_lyrics_button,page.import_cover_button,page.export_cover_button)
@@ -916,7 +961,8 @@ class QtRewriteTests(unittest.TestCase):
         self.assertEqual(self.window.settings['language'],'en_US')
         self.assertEqual(self.window.windowTitle(),'MediaAnvil Qt — Multimedia Toolbox')
         self.assertEqual(self.window.navigation.buttons[0].text(),'Audio Preview')
-        self.assertEqual(self.window.navigation.buttons[7].text(),'Settings')
+        self.assertEqual(self.window.navigation.buttons[7].text(),'Task Center')
+        self.assertEqual(self.window.navigation.buttons[8].text(),'Settings')
         self.assertEqual(page.language.currentText(),'English')
         self.assertEqual(self.window.pages['preview'].lyrics.item(0).text(),'Synced lyrics will appear here after selecting audio')
         self.assertEqual(self.window.pages['subtitle'].files.empty_hint,'Supports .lrc, .srt and .vtt subtitle files')

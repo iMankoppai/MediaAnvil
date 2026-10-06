@@ -3,24 +3,146 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (QCheckBox, QDoubleSpinBox, QHBoxLayout, QLabel,
-    QRadioButton, QButtonGroup, QSpinBox, QVBoxLayout, QWidget, QSizePolicy)
+    QRadioButton, QButtonGroup, QSpinBox, QVBoxLayout, QWidget, QSizePolicy,
+    )
 
 from .common import (Page, FileList, OutputPath, button, row, combo, Columns, table,
     fill_table)
 from .conversion import step_group
 from sub2lrc.audio_converter import FORMAT_SPECS, SUPPORTED_INPUT_EXTENSIONS
-from sub2lrc.audio_join import (AudioPolish, MAX_FADE_SECONDS, audio_duration, merge_audio,
-    plan_equal_parts, plan_fixed_length, split_audio)
+from sub2lrc.audio_join import (AudioPolish, MAX_FADE_SECONDS, SplitPlan, audio_duration,
+    audio_peaks, merge_audio, plan_equal_parts, plan_fixed_length, split_audio)
+
+
+class WaveformView(QWidget):
+    """Interactive waveform with a draggable selection range.
+
+    The widget owns no audio state: callers set peaks/duration and read back
+    ``selection_start``/``selection_end`` in seconds. Painting is cheap because
+    only the cached peak list is redrawn.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumHeight(140)
+        self.peaks: tuple[float, ...] = ()
+        self.duration: float = 0.0
+        self.selection_start = 0.0
+        self.selection_end = 0.0
+        self._drag_side = None  # None, 'start', 'end', 'move'
+        self._press_time = 0.0
+        self._press_start = 0.0
+        self._press_end = 0.0
+        self.selectionChanged = None  # optional callback(seconds_start, seconds_end)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    # -- data ------------------------------------------------------------
+    def set_audio(self, duration: float, peaks: tuple[float, ...]):
+        self.duration = float(duration or 0.0)
+        self.peaks = tuple(peaks)
+        self.selection_start = 0.0
+        self.selection_end = self.duration
+        self.update()
+        self._emit()
+
+    def clear_audio(self):
+        self.duration = 0.0; self.peaks = ()
+        self.selection_start = 0.0; self.selection_end = 0.0
+        self.update(); self._emit()
+
+    def set_selection(self, start: float, end: float):
+        self.selection_start = max(0.0, min(start, self.duration))
+        self.selection_end = max(self.selection_start, min(end, self.duration))
+        self.update(); self._emit()
+
+    def _emit(self):
+        if callable(self.selectionChanged):
+            self.selectionChanged(self.selection_start, self.selection_end)
+
+    # -- geometry --------------------------------------------------------
+    def _time_at(self, x: float) -> float:
+        width = max(1.0, self.width())
+        return max(0.0, min(1.0, x / width)) * self.duration
+
+    def _x_at(self, seconds: float) -> float:
+        if self.duration <= 0: return 0.0
+        return (seconds / self.duration) * self.width()
+
+    # -- interaction -----------------------------------------------------
+    def mousePressEvent(self, event):
+        if self.duration <= 0: return
+        position = event.position().x()
+        time = self._time_at(position)
+        start_x, end_x = self._x_at(self.selection_start), self._x_at(self.selection_end)
+        edge = max(12, int(self.width() * 0.02))
+        if abs(position - start_x) <= edge:
+            self._drag_side = 'start'
+        elif abs(position - end_x) <= edge:
+            self._drag_side = 'end'
+        elif start_x <= position <= end_x:
+            self._drag_side = 'move'
+            self._press_time = time
+            self._press_start, self._press_end = self.selection_start, self.selection_end
+        else:
+            self._drag_side = 'start' if position < width_start(end_x, start_x) else 'end'
+            self.set_selection(time, self.selection_end if self._drag_side == 'start' else time)
+        self._press_time = time
+
+    def mouseMoveEvent(self, event):
+        if not self._drag_side or self.duration <= 0: return
+        time = self._time_at(event.position().x())
+        if self._drag_side == 'start':
+            self.set_selection(min(time, self.selection_end), self.selection_end)
+        elif self._drag_side == 'end':
+            self.set_selection(self.selection_start, max(time, self.selection_start))
+        else:
+            delta = time - self._press_time
+            span = self._press_end - self._press_start
+            start = max(0.0, min(self._press_start + delta, self.duration - span))
+            self.set_selection(start, start + span)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_side = None
+
+    # -- painting --------------------------------------------------------
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = QRectF(self.rect()).adjusted(0.5, 4.5, -0.5, -4.5)
+        painter.setPen(QPen(QColor('#c8daf7'), 1))
+        painter.setBrush(QColor('#f4f8ff'))
+        painter.drawRoundedRect(rect, 8, 8)
+        if not self.peaks or self.duration <= 0: return
+        middle = rect.center().y()
+        amplitude = rect.height() / 2 - 6
+        bucket_width = rect.width() / len(self.peaks)
+        start_x, end_x = self._x_at(self.selection_start), self._x_at(self.selection_end)
+        for index, peak in enumerate(self.peaks):
+            x = rect.left() + index * bucket_width
+            height = max(1.0, peak * amplitude)
+            inside = start_x <= x <= end_x
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor('#2b70f3' if inside else '#9fb7db'))
+            painter.drawRect(QRectF(x, middle - height, max(1.0, bucket_width - 0.5), height * 2))
+        painter.setPen(QPen(QColor('#246ef0'), 1, Qt.PenStyle.DashLine))
+        painter.drawLine(QPointF(start_x, rect.top()), QPointF(start_x, rect.bottom()))
+        painter.drawLine(QPointF(end_x, rect.top()), QPointF(end_x, rect.bottom()))
+
+
+def width_start(end_x: float, start_x: float) -> float:
+    """Helper kept tiny: clicking left of the selection midpoint extends start."""
+    return (start_x + end_x) / 2
 
 
 class JoinPage(Page):
-    """Two modes on one page: join many files, or split one file."""
+    """Three modes: join many files, split one file, or crop a selected range."""
 
     def __init__(self, app):
-        super().__init__(app, '音频合并 / 分割', '把多段音频接成一条，或把一条音频切成多段；输出为新文件，不改动源文件。')
-        self.tagline = QLabel('批量处理 · 让音频拼接与切分更省事  —')
+        super().__init__(app, '音频合并 / 分割 / 裁剪', '把多段音频接成一条、切成多段，或按波形裁剪出一段；输出为新文件，不改动源文件。')
+        self.tagline = QLabel('批量处理 · 拼接、切分与波形裁剪  —')
         self.tagline.setObjectName('muted')
         self.tagline.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.header_layout.addWidget(self.tagline)
@@ -54,19 +176,40 @@ class JoinPage(Page):
         selection.addStretch(1)
         selection.addWidget(self.toolbar.count_label); body.addWidget(self.selection_row)
 
-        mode_card, mode_body, self.mode_detail = step_group(2, '处理方式', '选择合并多段音频，或把一段音频切成多段')
+        mode_card, mode_body, self.mode_detail = step_group(2, '处理方式', '合并多段音频、把一段切成多段，或按波形裁剪出一段')
         self.mode_card = mode_card
         left_layout.addWidget(mode_card)
         self.mode_buttons = {}
         mode_row = QWidget(); mode_layout = QHBoxLayout(mode_row)
         mode_layout.setContentsMargins(0, 0, 0, 0); mode_layout.setSpacing(16)
         self.mode_group = QButtonGroup(self)
-        for index, (key, label) in enumerate((('merge', '合并为一个文件'), ('split', '分割为多个文件'))):
+        for index, (key, label) in enumerate((('merge', '合并为一个文件'), ('split', '分割为多个文件'), ('crop', '裁剪选中片段'))):
             option = QRadioButton(label); option.setChecked(index == 0)
             self.mode_group.addButton(option, index)
             self.mode_buttons[key] = option; mode_layout.addWidget(option)
         mode_layout.addStretch(1); mode_body.addWidget(mode_row)
         self.mode_group.idToggled.connect(self.mode_changed)
+
+        # Crop mode shows a waveform for the first checked file. Peaks are
+        # decoded once per file in the background and cached until it changes.
+        self.crop_start_edit = QDoubleSpinBox(); self.crop_start_edit.setRange(0.0, 36000.0)
+        self.crop_start_edit.setDecimals(2); self.crop_start_edit.setSuffix(' 秒'); self.crop_start_edit.setFixedWidth(110)
+        self.crop_end_edit = QDoubleSpinBox(); self.crop_end_edit.setRange(0.0, 36000.0)
+        self.crop_end_edit.setDecimals(2); self.crop_end_edit.setSuffix(' 秒'); self.crop_end_edit.setFixedWidth(110)
+        crop_options = QWidget(); crop_layout = QVBoxLayout(crop_options)
+        crop_layout.setContentsMargins(0, 0, 0, 0); crop_layout.setSpacing(8)
+        self.waveform = WaveformView()
+        self.waveform.selectionChanged = self.crop_selection_changed
+        crop_layout.addWidget(self.waveform)
+        crop_row = row(QLabel('开始'), self.crop_start_edit, QLabel('结束'), self.crop_end_edit,
+                       button('试听选区', self.preview_crop, symbol='play'),
+                       button('清除选区', self.clear_crop_selection, symbol='undo'))
+        crop_layout.addWidget(crop_row)
+        self.crop_note = QLabel('拖动波形上的虚线选择起止时间；导出时写入新文件。')
+        self.crop_note.setObjectName('muted')
+        crop_layout.addWidget(self.crop_note)
+        self.crop_options = crop_options
+        mode_body.addWidget(crop_options)
 
         self.split_options = QWidget(); split_layout = QVBoxLayout(self.split_options)
         split_layout.setContentsMargins(0, 0, 0, 0); split_layout.setSpacing(8)
@@ -129,19 +272,65 @@ class JoinPage(Page):
         self.footer = row(self.start_button)
         self.layout.addWidget(self.footer)
         # The default-checked button emits no toggle signal, so the initial
-        # label and split-option visibility are applied explicitly here.
+        # label and option visibility are applied explicitly here.
         self.mode_changed()
+        self.files.filesChanged.connect(self.refresh_waveform_source)
+        self._wave_source = None
         self._layout_ready = True
 
     # ---- state ---------------------------------------------------------
     def current_mode(self):
-        return 'split' if self.mode_group.checkedId() == 1 else 'merge'
+        return {0: 'merge', 1: 'split', 2: 'crop'}.get(self.mode_group.checkedId(), 'merge')
 
     def mode_changed(self, *_args):
-        splitting = self.current_mode() == 'split'
-        self.split_options.setVisible(splitting)
-        self.start_button.setText(self.app.t('开始分割' if splitting else '开始合并'))
+        mode = self.current_mode()
+        self.split_options.setVisible(mode == 'split')
+        self.crop_options.setVisible(mode == 'crop')
+        self.start_button.setText(self.app.t({'merge': '开始合并', 'split': '开始分割', 'crop': '导出选区'}[mode]))
+        if mode == 'crop':
+            self.refresh_waveform_source()
         self.update_duration_note()
+
+    def refresh_waveform_source(self, *_args):
+        """Load peaks for the first checked file when crop mode is active."""
+        if self.current_mode() != 'crop': return
+        paths = self.files.checked_paths()
+        source = paths[0] if paths else None
+        if source == self._wave_source: return
+        self._wave_source = source
+        if source is None:
+            self.waveform.clear_audio(); self.crop_note.setText(self.app.t('选择一个音频文件后显示波形。')); return
+        self.crop_note.setText(self.app.t('正在生成波形…'))
+        def work(report):
+            return audio_peaks(source)
+        def done(result):
+            if self._wave_source != source: return
+            duration, peaks = result
+            self.waveform.set_audio(duration, peaks)
+            self.crop_start_edit.setMaximum(max(0.0, duration))
+            self.crop_end_edit.setMaximum(max(0.0, duration))
+            self.crop_note.setText(self.app.t('拖动波形上的虚线选择起止时间；导出时写入新文件。'))
+        self.app.run_task(work, done)
+
+    def crop_selection_changed(self, start, end):
+        self.crop_start_edit.blockSignals(True); self.crop_start_edit.setValue(start); self.crop_start_edit.blockSignals(False)
+        self.crop_end_edit.blockSignals(True); self.crop_end_edit.setValue(end); self.crop_end_edit.blockSignals(False)
+
+    def clear_crop_selection(self):
+        self.waveform.set_selection(0.0, self.waveform.duration)
+
+    def preview_crop(self):
+        """Audition the current selection with FFplay; never touches files."""
+        if self.waveform.duration <= 0: return self.app.inform(self.app.t('请先选择音频文件。'))
+        start, end = self.waveform.selection_start, self.waveform.selection_end
+        if end - start < 0.05: return self.app.inform(self.app.t('选区太短，请先拖宽选区。'))
+        from sub2lrc.audio_preview import find_ffplay
+        from sub2lrc.audio_converter import _creation_flags
+        import subprocess
+        command = [str(find_ffplay()), '-nodisp', '-autoexit', '-hide_banner', '-loglevel', 'error',
+                   '-ss', f'{start:.3f}', '-t', f'{end - start:.3f}', str(self._wave_source)]
+        subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, creationflags=_creation_flags())
 
     def split_mode_changed(self, *_args):
         by_parts = self.split_mode.currentData() == 'parts'
@@ -150,11 +339,14 @@ class JoinPage(Page):
 
     def update_duration_note(self):
         paths = self.files.checked_paths()
+        mode = self.current_mode()
         if not paths:
             self.duration_note.setText(self.app.t('选择文件后显示时长'))
             return
-        if self.current_mode() == 'merge':
+        if mode == 'merge':
             self.duration_note.setText(self.app.t(f'将合并 {len(paths)} 个文件，按列表顺序拼接（可拖动或上移/下移调整）'))
+        elif mode == 'crop':
+            self.duration_note.setText(self.app.t('裁剪只处理列表中的第一个文件'))
         else:
             self.duration_note.setText(self.app.t('分割只处理列表中的第一个文件'))
 
@@ -206,18 +398,32 @@ class JoinPage(Page):
                 self.finished)
             return
         source = paths[0]
-        by_parts = self.split_mode.currentData() == 'parts'
-        parts = self.split_parts.value()
-        length = self.split_length.value()
-        def work(report):
+        if self.current_mode() == 'crop':
+            start, end = self.waveform.selection_start, self.waveform.selection_end
+            if end - start < 0.05:
+                return self.app.inform(self.app.t('选区太短，请先拖宽选区。'))
+            plans = (SplitPlan(start, end - start),)
+        else:
+            by_parts = self.split_mode.currentData() == 'parts'
+            parts = self.split_parts.value()
+            length = self.split_length.value()
+            def work(report):
+                report(0, source.name)
+                total = audio_duration(source)
+                plan_list = plan_equal_parts(total, parts) if by_parts else plan_fixed_length(total, length)
+                return list(split_audio(source, plan_list, output_format, directory, report,
+                                        polish=polish,
+                                        cancel_check=report.raise_if_cancelled,
+                                        process_callback=report.register_process))
+            self.app.run_task(work, self.finished)
+            return
+        def crop_work(report):
             report(0, source.name)
-            total = audio_duration(source)
-            plans = plan_equal_parts(total, parts) if by_parts else plan_fixed_length(total, length)
             return list(split_audio(source, plans, output_format, directory, report,
                                     polish=polish,
                                     cancel_check=report.raise_if_cancelled,
                                     process_callback=report.register_process))
-        self.app.run_task(work, self.finished)
+        self.app.run_task(crop_work, self.finished)
 
     def finished(self, outputs):
         outputs = [Path(path) for path in outputs]

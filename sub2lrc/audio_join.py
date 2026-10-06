@@ -89,6 +89,55 @@ def _fade_filters(fade_seconds: float, duration_seconds: float | None) -> list[s
     return filters
 
 
+def audio_peaks(source: str | Path, buckets: int = 900,
+                ffmpeg_path: str | Path | None = None) -> tuple[float, tuple[float, ...]]:
+    """Decode a file and return ``(duration_seconds, peak_amplitudes)``.
+
+    One peak per bucket keeps the data small enough to hand to the GUI while
+    still showing the shape of the whole file. Amplitudes are normalised to
+    0..1 so the widget can draw without knowing the sample format.
+    """
+    import array
+    import subprocess
+    path = Path(source)
+    if not path.is_file():
+        raise AudioConversionError("音频文件不存在或无法访问。")
+    buckets = max(1, int(buckets))
+    ffmpeg = find_ffmpeg(ffmpeg_path)
+    command = [
+        str(ffmpeg), "-nostdin", "-hide_banner", "-loglevel", "error",
+        "-i", str(path), "-map", "0:a:0", "-vn",
+        "-ac", "1", "-ar", "8000", "-f", "s16le", "pipe:1",
+    ]
+    try:
+        result = subprocess.run(
+            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            creationflags=_creation_flags(), timeout=DEFAULT_FFMPEG_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise AudioConversionError(f"无法解码音频生成波形：{exc}") from exc
+    if result.returncode != 0:
+        reason = result.stderr.decode("utf-8", "replace").strip() or "未知错误"
+        raise AudioConversionError(f"无法解码音频生成波形：{reason}")
+    samples = array.array("h")
+    samples.frombytes(result.stdout[:len(result.stdout) - len(result.stdout) % 2])
+    duration = _duration_seconds(ffmpeg, path) or 0.0
+    if not samples or buckets <= 0:
+        return duration, ()
+    peaks: list[float] = []
+    step = len(samples) / buckets
+    for index in range(buckets):
+        start = int(index * step)
+        end = min(len(samples), int((index + 1) * step))
+        chunk = samples[start:end]
+        peaks.append(max((abs(value) for value in chunk), default=0) / 32768.0)
+    highest = max(peaks, default=0.0) or 1.0
+    # Normalise quietly: a very quiet file still shows a visible shape, but a
+    # normal file is not amplified into clipping-looking blocks.
+    scale = min(1.0, 0.85 / highest) if highest > 0 else 1.0
+    return duration, tuple(value * scale for value in peaks)
+
+
 def audio_duration(source: str | Path, ffmpeg_path: str | Path | None = None) -> float:
     """Return the duration in seconds, raising when it cannot be determined.
 
@@ -351,6 +400,7 @@ def split_audio(source: str | Path, plans: Iterable[SplitPlan], output_format: s
 
 __all__ = [
     "AudioPolish",
+    "audio_peaks",
     "MAX_FADE_SECONDS",
     "SplitPlan",
     "audio_duration",
