@@ -1,7 +1,8 @@
 from __future__ import annotations
 from pathlib import Path
+from functools import lru_cache
 import sys
-from PySide6.QtCore import Qt, Signal, QThread, QRect, QSize, QStandardPaths, QEvent
+from PySide6.QtCore import Qt, Signal, QThread, QRect, QSize, QStandardPaths, QEvent, QTimer
 from PySide6.QtGui import QPixmap, QPainter, QColor, QImageReader, QIcon
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QFileDialog, QComboBox, QFormLayout, QListWidget,
@@ -243,6 +244,14 @@ class OutputPath(QWidget):
 
 
 def thumbnail(path, size=36):
+    path=Path(path)
+    try:stamp=(path.stat().st_mtime_ns,path.stat().st_size)
+    except OSError:return icon('image')
+    return _thumbnail(str(path),size,stamp)
+
+
+@lru_cache(maxsize=256)
+def _thumbnail(path,size,stamp):
     reader=QImageReader(str(path));reader.setAutoTransform(True)
     dimensions=reader.size()
     if dimensions.isValid():reader.setScaledSize(dimensions.scaled(size,size,Qt.AspectRatioMode.KeepAspectRatio))
@@ -272,6 +281,14 @@ class FileDelegate(QStyledItemDelegate):
         path=Path(index.data())
         size=index.data(Qt.ItemDataRole.UserRole) or ''
         option.text=f'{path.name}    {size}    {path.suffix[1:].upper()}'
+        if path.suffix.lower() in {'.jpg','.jpeg','.png','.webp','.bmp'}:option.icon=thumbnail(path)
+
+
+class ThumbnailDelegate(QStyledItemDelegate):
+    def initStyleOption(self,option,index):
+        super().initStyleOption(option,index)
+        path=index.data(Qt.ItemDataRole.UserRole)
+        if path:option.icon=thumbnail(path)
 
 
 class FileList(QListWidget):
@@ -421,9 +438,12 @@ class FileList(QListWidget):
         painter.drawText(QRect(8, top+64, width-16, 20), Qt.AlignmentFlag.AlignCenter, tr('或使用上方按钮添加文件与文件夹'))
     def paths(self): return tuple(Path(self.item(i).text()) for i in range(self.count()))
     def add_paths(self, paths):
-        known = {str(p).casefold() for p in self.paths()}; n = 0
+        return self._insert_paths(paths,{str(p).casefold() for p in self.paths()})
+    def _insert_paths(self,paths,known):
+        n = 0
         was_blocked = self.signalsBlocked()
-        self.blockSignals(True)
+        self.blockSignals(True);self.setUpdatesEnabled(False)
+        music_icon=icon('music');text_icon=icon('text')
         try:
             for path in map(Path, paths):
                 key = str(path).casefold()
@@ -431,13 +451,27 @@ class FileList(QListWidget):
                     item=QListWidgetItem(str(path));item.setToolTip(str(path));item.setCheckState(Qt.CheckState.Checked)
                     try:item.setData(Qt.ItemDataRole.UserRole,file_size(path.stat().st_size))
                     except OSError:pass
-                    item.setIcon(thumbnail(path) if path.suffix.lower() in {'.jpg','.jpeg','.png','.webp','.bmp'} else icon('music' if path.suffix.lower() not in {'.lrc','.srt','.vtt'} else 'text'))
+                    if path.suffix.lower() not in {'.jpg','.jpeg','.png','.webp','.bmp'}:item.setIcon(text_icon if path.suffix.lower() in {'.lrc','.srt','.vtt'} else music_icon)
                     item.setSizeHint(QSize(1,46));self.addItem(item);known.add(key);n+=1
         finally:
+            self.setUpdatesEnabled(True)
             if not was_blocked:
                 self.blockSignals(False)
         if n and not was_blocked: self.filesChanged.emit()
         return n
+    def add_paths_batched(self,paths,done):
+        paths=tuple(paths);known={str(p).casefold() for p in self.paths()};position=0;count=0
+        def batch():
+            nonlocal position,count
+            blocked=self.signalsBlocked();self.blockSignals(True)
+            try:count+=self._insert_paths(paths[position:position+200],known)
+            finally:self.blockSignals(blocked)
+            position+=200
+            if position<len(paths):QTimer.singleShot(0,self,batch)
+            else:
+                if count and not blocked:self.filesChanged.emit()
+                done(count)
+        QTimer.singleShot(0,self,batch)
     def remove_selected(self):
         for item in self.selectedItems(): self.takeItem(self.row(item))
         self.filesChanged.emit()
@@ -486,8 +520,8 @@ class Page(QWidget):
 
 class TaskReporter:
     """Callable progress reporter exposed to background jobs."""
-    def __init__(self, signal, token):
-        self._signal = signal; self._token = token
+    def __init__(self, signal, token, checkpoint=None):
+        self._signal = signal; self._token = token; self._checkpoint = checkpoint
     @property
     def cancelled(self): return self._token.cancelled
     def __call__(self, percent, text=''):
@@ -495,6 +529,8 @@ class TaskReporter:
     def raise_if_cancelled(self): self._token.raise_if_cancelled()
     def register_process(self, process): self._token.register_process(process)
     def unregister_process(self, process): self._token.unregister_process(process)
+    def checkpoint(self, record):
+        if self._checkpoint is not None:self._checkpoint.emit(record)
 
 
 class Worker(QThread):
@@ -502,13 +538,14 @@ class Worker(QThread):
     error = Signal(str)
     cancelled = Signal()
     progress = Signal(float, str)
+    checkpoint = Signal(object)
     def __init__(self, work, parent=None):
         from core.tasks import CancellationToken
         super().__init__(parent); self.work = work; self.token = CancellationToken()
     def request_cancel(self): self.token.cancel()
     def run(self):
         from core.tasks import TaskCancelled
-        try: self.result.emit(self.work(TaskReporter(self.progress, self.token)))
+        try: self.result.emit(self.work(TaskReporter(self.progress, self.token, self.checkpoint)))
         except TaskCancelled: self.cancelled.emit()
         except Exception as exc: self.error.emit(str(exc))
 
@@ -543,7 +580,10 @@ def table(headers):
 
 
 def fill_table(t, rows):
-    t.setRowCount(len(rows))
-    for i, values in enumerate(rows):
-        for j, value in enumerate(values):
-            item = QTableWidgetItem(str(value)); item.setToolTip(str(value)); t.setItem(i, j, item)
+    blocked=t.signalsBlocked();t.blockSignals(True);t.setUpdatesEnabled(False)
+    try:
+        t.setRowCount(len(rows))
+        for i, values in enumerate(rows):
+            for j, value in enumerate(values):
+                item = QTableWidgetItem(str(value)); item.setToolTip(str(value)); t.setItem(i, j, item)
+    finally:t.blockSignals(blocked);t.setUpdatesEnabled(True)

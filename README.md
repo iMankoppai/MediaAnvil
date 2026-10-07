@@ -1,4 +1,4 @@
-# MediaAnvil 1.5.0
+# MediaAnvil 1.5.1
 
 [![Release](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?label=release)](https://github.com/iMankoppai/MediaAnvil/releases)
 [![License](https://img.shields.io/github/license/iMankoppai/MediaAnvil)](LICENSE)
@@ -78,7 +78,8 @@ MediaAnvil 是一款面向 Windows 的本地多媒体工具箱。它使用 Qt �
 
 | 版本 | 平台 | 说明 |
 | --- | --- | --- |
-| [v1.5.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.5.0) | Windows x64 | **最新版**：任务中心、媒体检查、波形裁剪、关联文件同步改名 |
+| [v1.5.1](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.5.1) | Windows x64 | **最新版**：任务恢复、波形性能优化、媒体检查修复入口、持久化撤销 |
+| [v1.5.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.5.0) | Windows x64 | 任务中心、媒体检查、波形裁剪、关联文件同步改名 |
 | [v1.4.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.4.0) | Windows x64 | 上一版本：播放队列、倍速、断点续播、批量歌词偏移 |
 | [v1.2.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.2.0) | Windows x64 | 音频合并与分段、批量标签修改 |
 
@@ -96,13 +97,12 @@ MediaAnvilQt.exe
 
 ## 从源码运行
 
-使用官方 Windows Python 3.10 或更高版本：
+使用官方 Windows Python 3.12（与 CI 验证环境一致）：
 
 ```powershell
 python -m venv .build-venv-windows
 .build-venv-windows\Scripts\python.exe -m pip install -r requirements-qt.txt
 .\tools\download_ffmpeg.ps1
-.\tools\download_icu.ps1
 .build-venv-windows\Scripts\python.exe main_qt.py
 ```
 
@@ -119,7 +119,7 @@ python -m venv .build-venv-windows
 .\build-qt.ps1
 ```
 
-构建脚本会在需要时下载并校验固定版本的 FFmpeg 与 ICU，生成 `dist\MediaAnvilQt`，并自动验证冻结版程序启动、FFmpeg 实际转换和 FFplay 可用性。
+构建脚本会在需要时下载并校验固定版本的 FFmpeg/FFplay；ICU 使用 Windows 系统运行时，生成 `dist\MediaAnvilQt`，并自动验证冻结版程序启动、FFmpeg 实际转换和 FFplay 可用性。
 
 ## 支持范围
 

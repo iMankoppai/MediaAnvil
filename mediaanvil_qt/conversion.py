@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QLabel, QSpinBox, QDoubleSpinBox, QCheckBox, QPlainTextEdit, QFileDialog, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QHeaderView, QSizePolicy, QPushButton, QFrame
 from .design import icon
-from .common import Page, FileList, OutputPath, button, row, combo, Columns, table, fill_table, thumbnail, StatusDelegate, dialog_initial_directory, remember_dialog_selection
+from .common import Page, FileList, OutputPath, button, row, combo, Columns, table, fill_table, thumbnail, StatusDelegate, ThumbnailDelegate, dialog_initial_directory, remember_dialog_selection
 from .services import convert_files, output_directory_problem
 from sub2lrc.audio_converter import FORMAT_SPECS, SUPPORTED_INPUT_EXTENSIONS, AudioConversionSettings
 from sub2lrc.image_converter import IMAGE_FORMAT_SPECS, SUPPORTED_IMAGE_EXTENSIONS, ImageConversionSettings
@@ -110,6 +110,7 @@ class ConversionPage(Page):
         result_controls=row(self.result_picker,button('结果另存为…',self.save_result,symbol='upload'))
         result_controls.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed);result_body.addWidget(result_controls)
         self.result_table=table(['文件名','格式','大小','状态'])
+        if kind=='image':self.result_table.setItemDelegateForColumn(0,ThumbnailDelegate(self.result_table))
         self.result_table.setItemDelegateForColumn(3,StatusDelegate(self.result_table))
         self.result_table.horizontalHeader().setSectionResizeMode(0,QHeaderView.ResizeMode.Stretch)
         for col in (1,2,3):self.result_table.horizontalHeader().setSectionResizeMode(col,QHeaderView.ResizeMode.ResizeToContents)
@@ -173,14 +174,23 @@ class ConversionPage(Page):
         paths=self.files.checked_paths()
         if not paths:return self.app.inform(self.app.t('请先添加并勾选要转换的文件。'))
         self.convert_paths(paths)
-    def convert_paths(self,paths):
-        fmt=self.format.currentData()
-        if self.kind=='audio':settings=AudioConversionSettings(fmt,self.parameter.currentData(),self.rate.currentData(),self.channels.currentData(),self.preserve.isChecked())
-        elif self.kind=='image':settings=ImageConversionSettings(fmt,self.quality.value() if IMAGE_FORMAT_SPECS[fmt].supports_quality else None)
-        else:settings=(fmt,self.duration.value())
-        directory=self.output.text();kind=self.kind;self.started=time.monotonic()
+    def convert_paths(self,paths,parameters=None):
+        if self.app._worker or self.app._importing:return self.app.inform(self.app.t('当前任务仍在处理，请等待完成。'))
+        parameters=dict(parameters if parameters is not None else self.current_preset_state())
+        paths=tuple(Path(p) for p in paths)
+        if not paths:return
+        fmt=str(parameters.get('format','')).lower();parameters['format']=fmt
+        try:
+            if self.kind=='audio':settings=AudioConversionSettings(fmt,parameters.get('parameter'),parameters.get('rate'),parameters.get('channels'),parameters.get('preserve',True))
+            elif self.kind=='image':settings=ImageConversionSettings(fmt,parameters.get('quality'))
+            else:
+                if fmt not in ('lrc','srt','vtt'):raise ValueError('无效的字幕格式')
+                settings=(fmt,float(parameters.get('duration',5)))
+        except (ValueError,TypeError,KeyError) as exc:return self.app.inform(self.app.t('处理失败：')+str(exc))
+        directory=parameters.get('output_directory','');kind=self.kind;self.started=time.monotonic()
         problem=output_directory_problem(directory)
         if problem:return self.app.inform(self.app.t(problem))
+        task_id=self.app.begin_task_history(kind,paths,parameters)
         def work(report):
             records=[]
             for i,source in enumerate(paths):
@@ -195,11 +205,12 @@ class ConversionPage(Page):
                     from PIL import Image
                     with Image.open(target) as picture:record['dimensions']=f'{picture.width} × {picture.height}'
                 records.append(record)
+                report.checkpoint(TaskRecord(source,'已完成' if target else '失败',record['message'],target))
             return records
-        self.app.run_task(work,self.completed)
-    def completed(self,records):
+        self.app.run_task(work,lambda records:self.completed(records,parameters,task_id))
+    def completed(self,records,parameters=None,task_id=None):
         self.records=records;self.last_outputs=[r['path'] for r in records if r['path']]
-        self.app.record_task_history(self.kind,[TaskRecord(r['source'],'失败' if not r['path'] else '已完成',r['message'],r['path']) for r in records])
+        self.app.record_task_history(self.kind,[TaskRecord(r['source'],'失败' if not r['path'] else '已完成',r['message'],r['path']) for r in records],parameters,task_id)
         self.empty.hide();self.summary.show();self.result_picker.setEnabled(bool(records))
         if self.kind=='subtitle':self.results.show()
         else:self.result_table.show();self.results.show()
@@ -211,7 +222,7 @@ class ConversionPage(Page):
         for i,r in enumerate(records):
             self.result_table.item(i,3).setForeground(QColor('#169763' if r['path'] else '#df5265'))
             self.result_table.item(i,0).setToolTip(r['message'])
-            if self.kind=='image' and r['path']:self.result_table.item(i,0).setIcon(thumbnail(r['path']))
+            if self.kind=='image' and r['path']:self.result_table.item(i,0).setData(Qt.ItemDataRole.UserRole,str(r['path']))
         self.summary.setObjectName('success' if len(self.last_outputs)==len(records) else 'notice')
         self.summary.setStyleSheet('');self.summary.style().unpolish(self.summary);self.summary.style().polish(self.summary)
         self.summary.setText(self.app.t(f'转换完成：成功 {len(self.last_outputs)} 个，失败 {len(records)-len(self.last_outputs)} 个 · 耗时 {time.monotonic()-self.started:.1f} 秒'))

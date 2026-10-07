@@ -7,11 +7,11 @@ from PySide6.QtGui import QIcon,QDesktopServices
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QHBoxLayout,QVBoxLayout,QLabel,
     QStackedWidget,QScrollArea,QProgressBar,QMessageBox,QDialog,QPlainTextEdit,
-    QDialogButtonBox,QFileDialog,QHeaderView)
+    QDialogButtonBox,QFileDialog,QHeaderView,QSpinBox)
 from core.settings import load_settings,settings_path,save_settings,last_load_warning
 from core.media_matcher import AUDIO_EXTENSIONS,LYRIC_EXTENSIONS,COVER_EXTENSIONS
-from core.tasks import TaskHistory
-from datetime import datetime
+from core.tasks import TaskHistory,TaskRecord,load_task_histories,save_task_histories
+from dataclasses import replace
 from .common import resource,Worker,Page,button,group,table,fill_table,combo,dialog_category,dialog_initial_directory,remember_dialog_selection
 from .design import Navigation, STYLE
 from .documents import DocumentViewer
@@ -62,7 +62,12 @@ class MainWindow(QMainWindow):
         # caller no longer rebuilds the path from its parts.
         self.settings_file=Path(config_path) if config_path else settings_path()
         self.settings=load_settings(self.settings_file);warning=last_load_warning()
-        self._worker=None;self._task_outcome=None;self._done=None;self.task_history:TaskHistory|None=None
+        self._worker=None;self._task_outcome=None;self._done=None;self._active_task_id=None;self._importing=False
+        self.task_history_file=self.settings_file.parent/'task-history.json'
+        self.task_histories=load_task_histories(self.task_history_file)
+        self.task_history:TaskHistory|None=self.task_histories[-1] if self.task_histories else None
+        self.task_flush_timer=QTimer(self);self.task_flush_timer.setSingleShot(True);self.task_flush_timer.setInterval(500)
+        self.task_flush_timer.timeout.connect(self.flush_task_updates)
         central=QWidget();central.setObjectName('shell');layout=QHBoxLayout(central);layout.setContentsMargins(0,0,0,0);layout.setSpacing(0);self.setCentralWidget(central)
         sidebar=QWidget();self.sidebar=sidebar;sidebar.setObjectName('sidebar');sidebar.setFixedWidth(204);left=QVBoxLayout(sidebar);left.setContentsMargins(14,10,8,14);left.setSpacing(20)
         brand_row=QHBoxLayout();brand_row.setContentsMargins(8,0,0,6);brand_row.setSpacing(10)
@@ -81,15 +86,20 @@ class MainWindow(QMainWindow):
         }
         task_page=Page(self,'任务中心','查看批量任务状态，失败项可单独重试')
         task_card,task_body=group('最近任务')
+        self.task_picker=combo([]);self.task_picker.currentIndexChanged.connect(self.select_task_history);task_body.addWidget(self.task_picker)
         self.task_kind=QLabel('暂无批量任务');self.task_kind.setObjectName('sectionTitle');task_body.addWidget(self.task_kind)
         self.task_summary=QLabel('转换和重命名完成后，这里会显示每个文件的状态。');self.task_summary.setObjectName('muted');self.task_summary.setWordWrap(True);task_body.addWidget(self.task_summary)
-        self.task_retry=button('重试失败项',self.retry_failed,'task');self.task_retry.setEnabled(False);task_body.addWidget(self.task_retry,0,Qt.AlignmentFlag.AlignLeft)
-        self.task_table=table(['文件','状态','说明']);self.task_table.setMinimumHeight(320)
+        self.task_retry=button('重试未完成项',self.retry_failed,'task');self.task_retry.setEnabled(False);task_body.addWidget(self.task_retry,0,Qt.AlignmentFlag.AlignLeft)
+        self.task_table=table(['文件','状态','说明','输出路径']);self.task_table.setMinimumHeight(320)
         self.task_table.horizontalHeader().setSectionResizeMode(0,QHeaderView.ResizeMode.Stretch)
         for col in (1,2):self.task_table.horizontalHeader().setSectionResizeMode(col,QHeaderView.ResizeMode.ResizeToContents)
         task_body.addWidget(self.task_table,1)
+        self.task_page_number=QSpinBox();self.task_page_number.setRange(1,1)
+        task_body.addWidget(self.task_page_number);self.task_page_number.valueChanged.connect(self.update_task_page)
         task_page.layout.addWidget(task_card);task_page.layout.addStretch()
         self.pages['tasks']=task_page
+        self.pages['settings']=self.pages.pop('settings')
+        self.update_task_page()
         about=Page(self,'关于 MediaAnvil','让日常媒体整理更轻松')
         card,body=group(f'MediaAnvil  ·  v{__version__}');about.layout.addWidget(card)
         artwork=QLabel();artwork.setPixmap(self.windowIcon().pixmap(76,76));body.addWidget(artwork)
@@ -137,6 +147,7 @@ class MainWindow(QMainWindow):
             labels=('Audio Preview','Tag Editor','Lyrics / Subtitles','Audio Converter','Image Converter','Join / Split','Batch Rename','Task Center','Settings','About')
             for item,label in zip(self.navigation.buttons,labels):item.setText(label)
         for item in self.navigation.buttons:item.setStyleSheet('font-size:13px;' if language=='en_US' else '')
+        self.update_task_page()
         self.statusBar().showMessage(self.t('就绪 · 可直接拖入文件或文件夹'))
     def preset_target_page(self):
         page=self.current_page
@@ -204,10 +215,10 @@ class MainWindow(QMainWindow):
         self.pages['editor'].mode.setCurrentIndex(1 if s['default_save_mode']=='overwrite' else 0)
         self.pages['editor'].output.edit.setText(s['default_output_directory'] if s['default_output_location']=='custom' else '')
     def run_task(self,work,done):
-        if self._worker:return self.inform(self.t('当前任务仍在处理，请等待完成。'))
+        if self._worker or self._importing:return self.inform(self.t('当前任务仍在处理，请等待完成。'))
         self._done=done;self._task_outcome=None;self._worker=Worker(work,self)
         self.progress.setRange(0,100);self.progress.setValue(0);self.progress.show();self.cancel_button.setEnabled(True);self.cancel_button.show();self.statusBar().showMessage(self.t('正在处理…'))
-        self._worker.result.connect(self._result);self._worker.error.connect(self._error);self._worker.cancelled.connect(self._cancelled);self._worker.progress.connect(self._progress);self._worker.finished.connect(self._finished);self._worker.start()
+        self._worker.result.connect(self._result);self._worker.error.connect(self._error);self._worker.cancelled.connect(self._cancelled);self._worker.progress.connect(self._progress);self._worker.checkpoint.connect(self.checkpoint_task);self._worker.finished.connect(self._finished);self._worker.start()
     def cancel_task(self):
         if not self._worker:return
         self.cancel_button.setEnabled(False);self.statusBar().showMessage(self.t('正在取消…'));self._worker.request_cancel()
@@ -216,7 +227,8 @@ class MainWindow(QMainWindow):
     @Slot(str)
     def _error(self,value):self._task_outcome=(False,value)
     @Slot()
-    def _cancelled(self):self._task_outcome=(None,None)
+    def _cancelled(self):
+        self._task_outcome=(None,None);self.finish_pending_records('已取消')
     @Slot(float,str)
     def _progress(self,percent,text):self.progress.setValue(round(percent));self.statusBar().showMessage(self.t(text))
     @Slot()
@@ -228,29 +240,87 @@ class MainWindow(QMainWindow):
                 try:done(outcome[1])
                 except Exception as exc:self.inform(self.t('结果显示失败：')+str(exc))
             elif outcome[0] is False:self.inform(self.t('处理失败：')+outcome[1])
-    def record_task_history(self,kind,records):
-        self.task_history=TaskHistory(kind,tuple(records));self.update_task_page()
-    def update_task_page(self):
+        self.finish_pending_records('已中断');self._active_task_id=None
+        if outcome and outcome[0] is not True:self.pages['renamer'].restore_recovery()
+    def persist_task_histories(self):
+        try:save_task_histories(self.task_history_file,self.task_histories)
+        except (OSError,ValueError) as exc:self.statusBar().showMessage(self.t('任务记录未能保存：')+str(exc))
+    def flush_task_updates(self):
+        self.persist_task_histories();self.update_task_page()
+    def store_task_history(self,history,immediate=True):
+        self.task_histories=[history if h.task_id==history.task_id else h for h in self.task_histories]
+        if not any(h.task_id==history.task_id for h in self.task_histories):self.task_histories.append(history)
+        self.task_histories=self.task_histories[-20:];self.task_history=history
+        if immediate:
+            self.task_flush_timer.stop();self.flush_task_updates()
+        elif not self.task_flush_timer.isActive():self.task_flush_timer.start()
+    def begin_task_history(self,kind,paths,parameters):
+        history=TaskHistory(kind,tuple(TaskRecord(Path(p),'等待') for p in paths),dict(parameters))
+        self._active_task_id=history.task_id;self.store_task_history(history);return history.task_id
+    @Slot(object)
+    def checkpoint_task(self,record):
+        history=next((h for h in self.task_histories if h.task_id==self._active_task_id),None)
+        if history:
+            records=tuple(record if r.source==record.source else r for r in history.records)
+            if not any(r.source==record.source for r in history.records):records=records+(record,)
+            self.store_task_history(replace(history,records=records),immediate=False)
+    def finish_pending_records(self,state):
+        history=next((h for h in self.task_histories if h.task_id==self._active_task_id),None)
+        if history and any(r.state in ('等待','处理中') for r in history.records):
+            self.store_task_history(replace(history,records=tuple(replace(r,state=state) if r.state in ('等待','处理中') else r for r in history.records)))
+    def record_task_history(self,kind,records,parameters=None,task_id=None):
+        history=next((h for h in self.task_histories if h.task_id==task_id),None)
+        self.store_task_history(replace(history,records=tuple(records)) if history else TaskHistory(kind,tuple(records),dict(parameters or {})))
+    def select_task_history(self,index):
+        task_id=self.task_picker.itemData(index)
+        self.task_history=next((h for h in self.task_histories if h.task_id==task_id),None)
+        self.task_page_number.blockSignals(True);self.task_page_number.setValue(1);self.task_page_number.blockSignals(False);self.update_task_page()
+    def update_task_page(self,*args):
         history=self.task_history
+        self.task_picker.blockSignals(True);self.task_picker.clear()
+        names={'audio':'音频转换','image':'图片转换','subtitle':'歌词 / 字幕转换','rename':'批量重命名','preview':'预览修改'}
+        for h in reversed(self.task_histories):self.task_picker.addItem(h.created_at.replace('T',' ')+' · '+self.t(names.get(h.kind,h.kind)),h.task_id)
+        self.task_picker._i18n_items=[self.task_picker.itemText(i) for i in range(self.task_picker.count())]
+        if history:self.task_picker.setCurrentIndex(self.task_picker.findData(history.task_id))
+        self.task_picker.blockSignals(False)
         if not history:
             self.task_kind.setText(self.t('暂无批量任务'));self.task_summary.setText(self.t('转换和重命名完成后，这里会显示每个文件的状态。'))
             self.task_table.setRowCount(0);self.task_retry.setEnabled(False);return
         kind={'audio':self.t('音频转换'),'image':self.t('图片转换'),'subtitle':self.t('歌词 / 字幕转换'),'rename':self.t('批量重命名')}.get(history.kind,history.kind)
         self.task_kind.setText(self.t('最近任务：')+kind)
         failed=len(history.failures)
-        self.task_summary.setText(self.t(f'成功 {len(history.succeeded)} 个 · 失败 {failed} 个 · 时间 {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'))
-        fill_table(self.task_table,[(r.source.name,self.t(r.state),self.t(r.message or '—')) for r in history.records])
-        for row,record in enumerate(history.records):
+        self.task_summary.setText(self.t(f'成功 {len(history.succeeded)} 个 · 失败 {failed} 个 · 未完成 {len(history.records)-len(history.succeeded)-failed} 个 · 时间 {history.created_at.replace("T"," ")}'))
+        self.task_page_number.blockSignals(True);self.task_page_number.setMaximum(max(1,(len(history.records)+249)//250));self.task_page_number.blockSignals(False)
+        self.task_page_number.setVisible(len(history.records)>250);self.task_page_number.setToolTip(self.t('页码'))
+        start=(self.task_page_number.value()-1)*250;records=history.records[start:start+250]
+        fill_table(self.task_table,[(r.source.name,self.t(r.state),self.t(r.message or '—'),str(r.output or '—')) for r in records])
+        for row,record in enumerate(records):
             item=self.task_table.item(row,1)
-            item.setForeground(QColor('#178858' if not record.failed else '#df5265'))
+            item.setForeground(QColor('#178858' if record.state=='已完成' else '#df5265' if record.failed else '#c77736'))
             item.setToolTip(self.t(record.message))
-        self.task_retry.setEnabled(bool(history.failures))
+        self.task_retry.setEnabled(bool(history.retryable) and history.kind in ('audio','image','subtitle','rename'))
     def retry_failed(self):
+        if self._worker or self._importing:return self.inform(self.t('当前任务仍在处理，请等待完成。'))
         history=self.task_history
-        if not history or not history.failures:return self.inform(self.t('没有可重试的失败项。'))
-        sources=[record.source for record in history.failures]
-        if history.kind in ('audio','image','subtitle'):self.pages[history.kind].convert_paths(sources)
-        elif history.kind=='rename':self.pages['renamer'].files.clear();self.pages['renamer'].files.add_paths(sources);self.pages['renamer'].preview()
+        if not history or not history.retryable:return self.inform(self.t('没有可重试的失败项。'))
+        sources=[record.source for record in history.retryable]
+        if history.kind in ('audio','image','subtitle'):self.pages[history.kind].convert_paths(sources,history.parameters or None)
+        elif history.kind=='rename':
+            page=self.pages['renamer'];page.apply_preset(history.parameters)
+            if all(r.output for r in history.retryable):
+                from core.audio_renamer import RenamePlan,RenamePlanItem,RenameRecord
+                retry={r.source:r for r in history.retryable};related={};children=set()
+                for entry in history.parameters.get('rename_plan',[]):
+                    try:
+                        source=Path(entry['source'])
+                        if source not in retry:continue
+                        companions=tuple(RenameRecord(Path(old),Path(new)) for old,new in entry.get('related',[]) if Path(old) in retry)
+                        related[source]=companions;children.update(r.old_path for r in companions)
+                    except (TypeError,ValueError,KeyError):continue
+                plan=RenamePlan(tuple(RenamePlanItem(r.source,r.source.name,r.output,r.output.name,'可重命名',related=related.get(r.source,())) for r in history.retryable if r.source not in children),page.template.currentText(),page.fallback.isChecked())
+                page.previewed(plan)
+            else:page.files.clear();page.files.add_paths(sources);page.preview()
+            self.navigation.setCurrentRow(self.keys.index('renamer'))
         else:return self.inform(self.t('当前任务类型不支持重试。'))
     def inform(self,text):self.show_message('MediaAnvil Qt',self.t(str(text)))
     def show_message(self,title,text,copy_allowed=True):
@@ -328,6 +398,12 @@ class MainWindow(QMainWindow):
         extensions=page.files.extensions if hasattr(page,'files') else AUDIO_EXTENSIONS|LYRIC_EXTENSIONS|COVER_EXTENSIONS
         recursive=page.include_subfolders.isChecked() if hasattr(page,'include_subfolders') else self.settings['include_subfolders']
         def done(found):
+            if hasattr(page,'files') and len(found)>500:
+                self._importing=True;page.setEnabled(False)
+                def loaded(count):
+                    self._importing=False;page.setEnabled(True)
+                    self.statusBar().showMessage(self.t(f'已导入 {count} 个文件'))
+                page.files.add_paths_batched(found,loaded);return
             count=page.receive(found)
             if not count:self.inform(self.import_failure_reason(paths,extensions,recursive))
             elif self._worker is None:self.statusBar().showMessage(self.t(f'已导入 {count} 个文件'))
@@ -351,9 +427,10 @@ class MainWindow(QMainWindow):
         paths=[Path(url.toLocalFile()) for url in event.mimeData().urls() if url.isLocalFile()]
         self.import_paths(paths);event.acceptProposedAction()
     def closeEvent(self,event):
-        if self._worker:
+        if self._worker or self._importing:
             event.ignore();self.inform(self.t('后台任务尚未完成，请完成后再关闭窗口。'));return
         self.pages['preview'].close_player()
+        self.task_flush_timer.stop();self.persist_task_histories()
         try:save_settings(self.settings,self.settings_file)
         except Exception as exc:self.inform('设置未能保存：'+str(exc))
         self.pages['editor'].temp.cleanup();super().closeEvent(event)

@@ -99,6 +99,23 @@ class MediaMatcherTests(unittest.TestCase):
         self.assertEqual(result.lyric_candidates, ())
         self.assertEqual(result.cover_candidates, ())
 
+    def test_index_preserves_scoring_for_collisions_spaces_and_double_suffixes(self):
+        from core.media_matcher import DirectoryMatchIndex,_match_from_files
+        names=['song','song.mp3','song copy','song - copy','song(1)','晴 天','晴天','mix.flac','mix','mix(2)']
+        files=tuple(Path(stem+suffix) for stem in names for suffix in ('.lrc','.vtt','.png'))
+        index=DirectoryMatchIndex(files)
+        for stem in names:
+            for suffix in ('.mp3','.flac','.wav'):
+                audio=Path(stem+suffix)
+                self.assertEqual(index.match(audio),_match_from_files(audio,files))
+
+    def test_embedded_lyrics_and_cover_are_not_reported_missing(self):
+        from core.media_matcher import missing_media_check
+        from types import SimpleNamespace
+        self.touch('embedded.mp3')
+        with patch('sub2lrc.audio_metadata.read_metadata',return_value=SimpleNamespace(title='T',artist='A',album='B',has_lyrics=True,has_cover=True)):
+            self.assertEqual(missing_media_check(self.root)[0].problems,())
+
     def test_folder_scan_can_include_subfolders_when_enabled(self) -> None:
         nested = self.root / "子文件夹"
         nested.mkdir()

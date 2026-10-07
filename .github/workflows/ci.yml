@@ -36,5 +36,8 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q core sub2lrc mediaanvil_qt tests tools main_qt.py
 
+      - name: Verify documented build commands
+        run: python tools/verify_document_commands.py
+
       - name: Run test suite
         run: python -m unittest discover -s tests -v

@@ -8,6 +8,17 @@ from PySide6.QtWidgets import (QAbstractButton, QAbstractSpinBox, QApplication, 
 
 
 EN = {
+    '缺失项':'Missing Items',
+    '重新生成波形':'Reload Waveform', '波形生成已取消，点击重新生成。':'Waveform generation cancelled. Click Reload Waveform to try again.',
+    '重试未完成项':'Retry Unfinished Items', '输出路径':'Output Path', '页码':'Page',
+    '已中断':'Interrupted', '已取消':'Cancelled', '等待':'Waiting', '处理中':'Processing',
+    '存在缺失':'Missing Items', '全部文件':'All Files', '完整':'Complete',
+    '全选当前结果':'Select All Filtered Results', '将勾选文件载入批量修复':'Load Selected Files for Batch Repair',
+    '编辑当前音频':'Edit Current Audio', '重新检查':'Check Again', '关闭':'Close',
+    '任务记录未能保存：':'Unable to save task history: ',
+    '主音频未完成，关联文件未处理':'The audio rename did not finish; companion files were not processed',
+    '文件已被修改或替换，未执行撤销':'The file was modified or replaced; undo was skipped',
+    'audio':'Audio Conversion', 'image':'Image Conversion', 'subtitle':'Subtitle Conversion', 'rename':'Batch Rename',
     'MediaAnvil Qt — 多媒体工具箱': 'MediaAnvil Qt — Multimedia Toolbox',
     '音频预览': 'Audio Preview', '音频标签编辑': 'Audio Tag Editor',
     '歌词 / 字幕转换': 'Lyrics / Subtitle Converter', '音频格式转换': 'Audio Converter',
@@ -328,6 +339,9 @@ def tr(text, language=None):
     if '\n' in value:
         return '\n'.join(tr(line, language) for line in value.split('\n'))
     patterns = (
+        (r'^检查完成：(\d+) 个文件，(\d+) 个完整，(\d+) 个存在缺失。$',r'Check complete: \1 files, \2 complete, \3 with missing items.'),
+        (r'^成功 (\d+) 个 · 失败 (\d+) 个 · 未完成 (\d+) 个 · 时间 (.*)$',r'\1 succeeded · \2 failed · \3 unfinished · Time \4'),
+        (r'^共 (\d+) 项 · 每页 200 项$',r'\1 items · 200 per page'),
         (r'^(\d+) 个文件$', r'\1 files'),
         (r'^已导入 (\d+) 个文件$', r'Imported \1 files'),
         (r'^扫描完成：(\d+) 首音频$', r'Scan complete: \1 audio files'),

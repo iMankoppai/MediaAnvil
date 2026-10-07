@@ -9,12 +9,13 @@ from PySide6.QtWidgets import (QLabel,QLineEdit,QPlainTextEdit,QFileDialog,QChec
     QDialog,QVBoxLayout,QHBoxLayout,QGridLayout,QSpinBox,QDoubleSpinBox,QDialogButtonBox,QWidget,QSizePolicy)
 from .common import Page,button,row,form,combo,OutputPath,table,fill_table,group,Columns,dialog_initial_directory,remember_dialog_selection,dialog_filters,remember_dialog_filter
 from .i18n import apply_language
+from .media_check import MediaCheckDialog
 from core.media_matcher import missing_media_check
 from .services import compare_tag_updates,EMBEDDABLE_LYRIC_EXTENSIONS,prepare_lyrics_for_embedding,tagged_destination,write_matches,batch_edit_tags,batch_shift_lyrics,batch_set_cover
 from core.tasks import TaskRecord
 from sub2lrc.audio_metadata import read_metadata,write_metadata,AudioMetadataChanges,export_metadata_cover,export_metadata_lyrics
 from sub2lrc.converter import shift_lrc
-from core.media_matcher import match_audio_file,scan_audio_folder,AUDIO_EXTENSIONS,COVER_EXTENSIONS
+from core.media_matcher import match_audio_file,match_audio_files,scan_audio_folder,AUDIO_EXTENSIONS,COVER_EXTENSIONS
 
 
 def equal_action_row(*actions):
@@ -420,21 +421,29 @@ class MetadataPage(Page):
         if folder:
             remember_dialog_selection(self,'audio',folder);self.run_missing_check(folder)
     def run_missing_check(self,folder):
+        self.check_folder=Path(folder)
         recursive=self.app.settings['include_subfolders']
         self.app.run_task(lambda report:missing_media_check(folder,include_subfolders=recursive,cancel_check=report.raise_if_cancelled),self.missing_checked)
     def missing_checked(self,rows):
         self.check_rows=list(rows)
-        lines=[]
-        for record in rows:
-            if not record.has_problems:continue
-            labels={'lyrics':self.app.t('缺歌词'),'cover':self.app.t('缺封面'),'title':self.app.t('缺标题'),'artist':self.app.t('缺歌手'),'album':self.app.t('缺专辑'),'tags':self.app.t('标签不可读')}
-            problems='、'.join(labels.get(problem,problem) for problem in record.problems)
-            lines.append(f'{record.audio.name}：{problems}')
-            if record.tag_error:lines.append(f'  {record.tag_error}')
-        complete=sum(1 for row in rows if not row.has_problems)
-        summary=self.app.t(f'检查完成：{len(rows)} 个文件，{complete} 个完整，{len(rows)-complete} 个存在缺失。')
-        self.app.show_text('媒体检查结果',summary+('\n\n'+'\n'.join(lines) if lines else ''))
-        self.app.statusBar().showMessage(summary)
+        if not getattr(self,'check_dialog',None):
+            self.check_dialog=MediaCheckDialog(self.app)
+            self.check_dialog.repair.connect(self.load_check_selection)
+            self.check_dialog.edit.connect(self.edit_check_selection)
+            self.check_dialog.refresh.connect(lambda:self.run_missing_check(self.check_folder))
+        self.check_dialog.set_rows(rows);self.check_dialog.show();self.check_dialog.raise_()
+        self.app.statusBar().showMessage(self.check_dialog.summary.text())
+    def load_check_selection(self,paths):
+        if self.app._worker:return self.app.inform(self.app.t('当前任务仍在处理，请等待完成。'))
+        def work(report):
+            return match_audio_files(paths,report.raise_if_cancelled)
+        def done(matches):
+            self.scanned(matches);self.check_dialog.hide()
+            self.app.navigation.setCurrentRow(self.app.keys.index('editor'));self.reveal_match_area()
+        self.app.run_task(work,done)
+    def edit_check_selection(self,path):
+        if self.app._worker:return self.app.inform(self.app.t('当前任务仍在处理，请等待完成。'))
+        self.check_dialog.hide();self.app.navigation.setCurrentRow(self.app.keys.index('editor'));self.receive([path])
     def scanned(self,matches):
         self.match_rows=list(matches);fill_table(self.matches,[(str(m.audio),'','') for m in matches])
         for i,m in enumerate(matches):

@@ -147,10 +147,48 @@ def _match_from_files(audio_path: Path, files: Iterable[Path]) -> MediaMatch:
     return MediaMatch(audio_path, lyrics, covers, lyric_priority, cover_priority)
 
 
+class DirectoryMatchIndex:
+    """Index normalised stems once, retaining conservative priority scoring."""
+    def __init__(self, files: Iterable[Path], cancel_check=None):
+        self.names: dict[tuple[int, str], set[Path]] = {}
+        for path in files:
+            if cancel_check:cancel_check()
+            if path.suffix.casefold() not in LYRIC_EXTENSIONS | COVER_EXTENSIONS:continue
+            stem=path.stem.casefold();stems={stem}
+            suffix=Path(stem).suffix
+            if suffix in AUDIO_EXTENSIONS:stems.add(stem[:-len(suffix)])
+            for name in stems:
+                for level,key in enumerate((name,_without_spaces(name),_without_copy_suffix(name))):
+                    self.names.setdefault((level,key),set()).add(path)
+
+    @classmethod
+    def from_directory(cls, directory: Path, cancel_check=None):
+        return cls(_directory_files(directory),cancel_check)
+
+    def candidates(self, stem: str) -> tuple[Path, ...]:
+        stem=stem.casefold();paths=set()
+        for level,key in enumerate((stem,_without_spaces(stem),_without_copy_suffix(stem))):
+            paths.update(self.names.get((level,key),()))
+        return tuple(sorted(paths,key=lambda p:(p.name.casefold(),str(p).casefold())))
+
+    def match(self, audio: Path) -> MediaMatch:
+        return _match_from_files(audio,self.candidates(audio.stem))
+
+
+def match_audio_files(paths: Iterable[Path], cancel_check=None) -> tuple[MediaMatch, ...]:
+    indexes={};matches=[]
+    for path in map(Path,paths):
+        if cancel_check:cancel_check()
+        if path.parent not in indexes:indexes[path.parent]=DirectoryMatchIndex.from_directory(path.parent,cancel_check)
+        matches.append(indexes[path.parent].match(path))
+    return tuple(matches)
+
+
 def matched_companions(
     audio: str | Path,
     suffixes: Iterable[str],
     directory: str | Path | None = None,
+    index: DirectoryMatchIndex | None = None,
 ) -> tuple[Path, ...]:
     """Return same-name companion files safe enough to rename with the audio.
 
@@ -162,7 +200,7 @@ def matched_companions(
     wanted = {suffix.casefold() for suffix in suffixes}
     search_directory = Path(directory) if directory is not None else audio_path.parent
     candidates = tuple(
-        path for path in _directory_files(search_directory)
+        path for path in (index.candidates(audio_path.stem) if index else _directory_files(search_directory))
         if path.suffix.casefold() in wanted
     )
     strong = tuple(
@@ -182,8 +220,7 @@ def match_audio_file(audio: str | Path, directory: str | Path | None = None) -> 
     """Find conservative best matches in the audio's containing directory."""
     audio_path = Path(audio)
     search_directory = Path(directory) if directory is not None else audio_path.parent
-    files = _directory_files(search_directory)
-    return _match_from_files(audio_path, files)
+    return DirectoryMatchIndex.from_directory(search_directory).match(audio_path)
 
 
 def scan_audio_folder(
@@ -211,19 +248,22 @@ def scan_audio_folder(
             key=lambda item: str(item).casefold(),
         )
         matches = []
+        indexes={}
         for audio in audios:
             if cancel_check:
                 cancel_check()
-            matches.append(_match_from_files(audio, files_by_directory[audio.parent]))
+            if audio.parent not in indexes:indexes[audio.parent]=DirectoryMatchIndex(files_by_directory[audio.parent],cancel_check)
+            matches.append(indexes[audio.parent].match(audio))
         return tuple(matches)
     else:
         files = _directory_files(directory)
     audios = tuple(path for path in files if path.suffix.casefold() in AUDIO_EXTENSIONS)
     matches = []
+    index=DirectoryMatchIndex(files,cancel_check)
     for audio in audios:
         if cancel_check:
             cancel_check()
-        matches.append(_match_from_files(audio, files))
+        matches.append(index.match(audio))
     return tuple(matches)
 
 
@@ -257,6 +297,8 @@ def missing_media_check(
             try:
                 from sub2lrc.audio_metadata import read_metadata
                 state = read_metadata(match.audio)
+                missing_lyrics=missing_lyrics and not getattr(state,'has_lyrics',False)
+                missing_cover=missing_cover and not getattr(state,'has_cover',False)
                 missing_tags = tuple(
                     field for field, value in (
                         ("title", state.title), ("artist", state.artist), ("album", state.album),
@@ -312,6 +354,8 @@ __all__ = [
     "MediaMatch",
     "find_associated_files",
     "match_audio_file",
+    "match_audio_files",
+    "DirectoryMatchIndex",
     "match_folder",
     "matched_companions",
     "scan_audio_folder",

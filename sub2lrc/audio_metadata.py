@@ -9,6 +9,7 @@ import os
 import shutil
 import tempfile
 from typing import Callable, Protocol
+from core.persistence import replace_file
 
 from .cover import read_cover
 from .editor import Mp3Edits, read_mp3_editor_state, save_mp3_edits
@@ -118,7 +119,7 @@ def _atomic_copy(source: Path, destination: Path | None, edit: Callable[[Path], 
     try:
         shutil.copy2(source, temporary)
         edit(temporary)
-        os.replace(temporary, target)
+        replace_file(temporary, target)
     finally:
         temporary.unlink(missing_ok=True)
     return target

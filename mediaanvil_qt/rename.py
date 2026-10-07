@@ -9,12 +9,13 @@ from .common import Page, FileList, button, row, combo, table, fill_table, Statu
 from .conversion import step_group
 from .design import icon
 from core.audio_renamer import SUPPORTED_RENAME_EXTENSIONS,build_rename_plan,execute_rename_plan,undo_rename
+from core.rename_history import RenameJournal
 
 
 class RenamePage(Page):
     def __init__(self,app):
         super().__init__(app,'批量重命名','使用音频标签生成文件名；预览冲突后执行，可撤销最近一次重命名。')
-        self.plan=None;self.records=()
+        self.plan=None;self.journal=RenameJournal(app.settings_file.parent/'rename-history.json');self.records=self.journal.records()
         self.tagline=QLabel('批量处理 · 让文件命更规范  —');self.tagline.setObjectName('muted');self.tagline.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter);self.header_layout.addWidget(self.tagline)
         left=QWidget();left_layout=QVBoxLayout(left);left_layout.setContentsMargins(0,0,0,0);left_layout.setSpacing(10)
         source,source_layout,self.source_detail=step_group(1,'选择文件','支持读取音频标签信息（MP3、FLAC、M4A、WAV 等）');left_layout.addWidget(source)
@@ -30,7 +31,7 @@ class RenamePage(Page):
         source_layout.addWidget(self.toolbar);source_layout.addWidget(self.files,1)
         self.select_files=QCheckBox('全选文件');self.select_files.setChecked(True);self.select_files.toggled.connect(self.check_files)
         self.selection_row=QWidget();selection_layout=QHBoxLayout(self.selection_row);selection_layout.setContentsMargins(0,0,0,0);selection_layout.addWidget(self.select_files);selection_layout.addStretch();selection_layout.addWidget(self.file_count);source_layout.addWidget(self.selection_row)
-        self.undo_button=button('撤销上次重命名',self.undo);self.undo_button.setEnabled(False)
+        self.undo_button=button('撤销上次重命名',self.undo);self.undo_button.setEnabled(bool(self.records))
         rules,rules_layout,self.rules_detail=step_group(2,'重命名规则','设置文件名模板，使用下方变量快速插入');left_layout.addWidget(rules,1)
         fields=QFormLayout();fields.setContentsMargins(0,0,0,0);fields.setVerticalSpacing(8);fields.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow);rules_layout.addLayout(fields)
         self.template=combo(['{artist} - {title}','{track} - {title}','{album} - {track} - {title}','{year} - {artist} - {title}','{genre} - {title}']);self.template.setEditable(True);self.template.setMaximumWidth(16777215)
@@ -117,26 +118,47 @@ class RenamePage(Page):
             status=self.table.item(n,4);status.setForeground(QColor('#169763' if item.can_rename else '#c88032'));status.setToolTip(self.app.t(item.message))
         self.table.blockSignals(False);self.update_selection();self.filter_rows()
     def execute(self):
+        if self.app._worker or self.app._importing:return self.app.inform(self.app.t('当前任务仍在处理，请等待完成。'))
         if not self.plan:return
         selected=self.selected_items()
         if not selected:return
         plan=replace(self.plan,items=selected)
-        self.app.run_task(lambda report:execute_rename_plan(plan,cancel_check=report.raise_if_cancelled),self.executed)
+        self._rename_parameters=self.current_preset_state()
+        self._rename_parameters['rename_plan']=[{'source':str(i.source),'target':str(i.target),
+            'related':[(str(r.old_path),str(r.new_path)) for r in i.related]} for i in selected]
+        self._rename_task_id=self.app.begin_task_history('rename',[i.source for i in selected],self._rename_parameters)
+        targets={i.source:i.target for i in selected}
+        targets.update({r.old_path:r.new_path for i in selected for r in i.related})
+        self._rename_targets=targets
+        self.app.record_task_history('rename',[TaskRecord(p,'等待',output=t) for p,t in targets.items()],self._rename_parameters,self._rename_task_id)
+        def work(report):
+            self.journal.begin()
+            try:
+                return execute_rename_plan(plan,cancel_check=report.raise_if_cancelled,before_move=self.journal.prepare,
+                    after_move=lambda r:report.checkpoint(TaskRecord(r.old_path,'已完成',output=r.new_path)))
+            finally:self.journal.finish()
+        self.app.run_task(work,self.executed)
     def executed(self,result):
-        if result.records:self.records=result.records+result.related_records
-        records=[TaskRecord(item.source,'失败' if any(f.source==item.source for f in result.failures) else '已完成','') for item in getattr(result,'skipped',())]
-        records += [TaskRecord(f.source,'失败',f.message) for f in result.failures]
-        records += [TaskRecord(r.old_path,'已完成') for r in result.records if r.old_path not in {record.source for record in records}]
-        self.app.record_task_history('rename',records)
+        self.restore_recovery()
+        records=[TaskRecord(item.source,'跳过',item.message) for item in getattr(result,'skipped',())]
+        records += [TaskRecord(f.source,'失败',f.message,getattr(self,'_rename_targets',{}).get(f.source)) for f in result.failures]
+        records += [TaskRecord(r.old_path,'已完成',output=r.new_path) for r in result.records+result.related_records if r.old_path not in {record.source for record in records}]
+        recorded={r.source for r in records}
+        records += [TaskRecord(p,'已中断','主音频未完成，关联文件未处理',t) for p,t in getattr(self,'_rename_targets',{}).items() if p not in recorded]
+        self.app.record_task_history('rename',records,getattr(self,'_rename_parameters',{}),getattr(self,'_rename_task_id',None))
         self.undo_button.setEnabled(bool(self.records))
         paths={r.old_path:r.new_path for r in result.records};current=[paths.get(p,p) for p in self.files.paths()]
         self.files.clear();self.files.add_paths(current);self.invalidate()
         self.app.show_text('重命名结果','\n'.join([f'完成：{r.old_path.name} → {r.new_path.name}' for r in result.records]+[f'完成：{r.old_path.name} → {r.new_path.name}' for r in result.related_records]+[f'跳过：{i.original_name} — {i.message or i.status}' for i in result.skipped]+[f'失败：{i.source.name} — {i.message}' for i in result.failures]))
     def undo(self):
         records=self.records
-        if records:self.app.run_task(lambda report:undo_rename(records,report.raise_if_cancelled),self.undone)
+        if records:
+            identities=self.journal.identities()
+            self.app.run_task(lambda report:undo_rename(records,report.raise_if_cancelled,identities,self.journal.restored),self.undone)
+    def restore_recovery(self):
+        self.records=self.journal.records();self.undo_button.setEnabled(bool(self.records))
     def undone(self,result):
-        restored=set(result.records);self.records=tuple(r for r in self.records if r not in restored);self.undo_button.setEnabled(bool(self.records))
+        self.restore_recovery()
         mapping={r.new_path:r.old_path for r in result.records};paths=[mapping.get(p,p) for p in self.files.paths()]
         self.files.clear();self.files.add_paths(paths);self.invalidate()
         self.app.show_text('撤销结果','\n'.join([f'恢复：{r.old_path}' for r in result.records]+[f'失败：{f.source} — {f.message}' for f in result.failures]))

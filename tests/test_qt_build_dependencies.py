@@ -8,6 +8,13 @@ from tools.verify_qt_build import audit_sources, verify_release_documents
 
 
 class QtBuildDependencyTests(unittest.TestCase):
+    def test_documented_scripts_exist_and_missing_commands_are_rejected(self):
+        from tools.verify_document_commands import verify,DOCUMENTS
+        verify()
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            for name in DOCUMENTS:(root/name).write_text('```powershell\n.\\tools\\missing.ps1\n```',encoding='utf8')
+            with self.assertRaisesRegex(ValueError,'missing.ps1'):verify(root)
     def test_build_uses_windows_icu_and_requires_a_completed_smoke_report(self):
         root = Path(__file__).resolve().parents[1]
         build_script = (root / 'build-qt.ps1').read_text(encoding='utf8')

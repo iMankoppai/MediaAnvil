@@ -1,4 +1,4 @@
-# MediaAnvil 1.5.0
+# MediaAnvil 1.5.1
 
 [![Release](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?label=release)](https://github.com/iMankoppai/MediaAnvil/releases)
 [![License](https://img.shields.io/github/license/iMankoppai/MediaAnvil)](LICENSE)
@@ -78,7 +78,8 @@ Configure save behavior, conversion quality, lyrics preview, and file scanning i
 
 | Version | Platform | Notes |
 | --- | --- | --- |
-| [v1.5.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.5.0) | Windows x64 | **Latest**: task center, media checks, waveform cropping, companion-file renaming |
+| [v1.5.1](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.5.1) | Windows x64 | **Latest**: task recovery, efficient waveforms, actionable media checks, persistent undo |
+| [v1.5.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.5.0) | Windows x64 | Task center, media checks, waveform cropping, companion-file renaming |
 | [v1.4.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.4.0) | Windows x64 | Previous version: playback queue, speed control, playback resume, bulk lyric shifts |
 | [v1.2.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.2.0) | Windows x64 | Audio joining/splitting and bulk tag editing |
 
@@ -96,13 +97,12 @@ The application starts centered at `1440 × 960` (3:2) by default and automatica
 
 ## Run from source
 
-Use an official Windows build of Python 3.10 or later:
+Use an official Windows build of Python 3.12 (matching CI):
 
 ```powershell
 python -m venv .build-venv-windows
 .build-venv-windows\Scripts\python.exe -m pip install -r requirements-qt.txt
 .\tools\download_ffmpeg.ps1
-.\tools\download_icu.ps1
 .build-venv-windows\Scripts\python.exe main_qt.py
 ```
 
@@ -119,7 +119,7 @@ Build the Windows release:
 .\build-qt.ps1
 ```
 
-When needed, the build script downloads checksum-verified, fixed versions of FFmpeg and ICU. It creates `dist\MediaAnvilQt` and automatically verifies that the frozen application starts, FFmpeg performs a real conversion, and FFplay is available.
+When needed, the build script downloads checksum-verified, fixed versions of FFmpeg/FFplay; ICU uses the Windows system runtime. It creates `dist\MediaAnvilQt` and automatically verifies that the frozen application starts, FFmpeg performs a real conversion, and FFplay is available.
 
 ## Supported formats
 

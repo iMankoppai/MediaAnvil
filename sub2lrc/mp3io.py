@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import tempfile
 from typing import Callable
+from core.persistence import replace_file
 
 
 def apply_to_mp3_copy(
@@ -32,7 +33,7 @@ def apply_to_mp3_copy(
     try:
         shutil.copy2(source_path, temporary_path)
         edit(temporary_path)
-        os.replace(temporary_path, target_path)
+        replace_file(temporary_path, target_path)
     finally:
         temporary_path.unlink(missing_ok=True)
     return target_path

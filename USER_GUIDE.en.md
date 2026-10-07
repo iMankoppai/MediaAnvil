@@ -2,7 +2,7 @@
 
 **[简体中文 →](USER_GUIDE.md)**
 
-Applies to: MediaAnvil Qt 1.5.0 for Windows
+Applies to: MediaAnvil Qt 1.5.1 for Windows
 
 MediaAnvil is a local media toolbox for audio playback with synchronized lyrics, audio metadata and artwork editing, lyrics and subtitle conversion, audio and image conversion, and metadata-based batch renaming. All media processing happens on your computer.
 
@@ -337,6 +337,16 @@ Use original filename for missing fields prevents incomplete metadata from immed
 
 Export Preview saves the current plan as CSV. Undo Last Rename applies only to the most recent successful batch. MediaAnvil will not overwrite another file if it has taken an original filename.
 
+Undo records are saved locally and survive restarts, including companion lyrics and artwork. Files that were modified, replaced, or whose original name is occupied are skipped with an explanation; other safe items can still be restored.
+
+### Task history and media checks
+
+Task Center retains the latest 20 tasks and their original conversion parameters. Retry Unfinished Items uses the original format, quality and output directory for failed, cancelled or interrupted files. Rename retries first show a preview of the original targets for you to execute. Outputs completed before cancellation remain in the history.
+
+Check Missing Items in the tag editor opens selectable, filterable results with 200 items per page. Filter by missing lyrics, artwork or tags, then use Load Selected Files for Batch Repair to open the existing matching, tag preview and batch-writing tools. You can also edit the current audio and Check Again afterwards. Embedded lyrics and artwork count as present.
+
+Long-audio waveforms are computed in chunks and the latest 12 results are cached. Changes to the source invalidate its cache. Cancel Task stops waveform generation.
+
 ## 10. Settings
 
 Settings apply to subsequent tasks:
@@ -360,6 +370,8 @@ The settings file is stored at:
 ```
 
 MediaAnvil restores safe defaults if the settings file is damaged.
+
+Task history, rename undo records and waveform caches are stored in the same local data directory. Task records include input/output paths and conversion parameters and remain after the app closes.
 
 ## 11. Output and file safety
 
@@ -404,4 +416,4 @@ JPG does not support transparency. MediaAnvil fills transparent pixels with whit
 
 ## 13. Third-party components
 
-MediaAnvil includes Qt/PySide6, ICU, FFmpeg, and FFplay. License information is provided in `THIRD_PARTY_NOTICES.md` and the `licenses` directory inside the release folder.
+MediaAnvil includes Qt/PySide6, FFmpeg, and FFplay; ICU uses the Windows system runtime. License information is provided in `THIRD_PARTY_NOTICES.md` and the `licenses` directory inside the release folder.

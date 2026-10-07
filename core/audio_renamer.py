@@ -8,7 +8,7 @@ import re
 import string
 from typing import Callable, Iterable
 
-from core.media_matcher import LYRIC_EXTENSIONS, COVER_EXTENSIONS, matched_companions
+from core.media_matcher import LYRIC_EXTENSIONS, COVER_EXTENSIONS, matched_companions, DirectoryMatchIndex
 from core.windows_paths import sanitize_windows_stem, validate_windows_filename
 from sub2lrc.audio_metadata import AudioMetadataError, read_metadata
 
@@ -253,12 +253,12 @@ def _path_key(path: Path) -> str:
         return str(path.absolute()).casefold()
 
 
-def related_media_records(audio: Path, new_audio_name: str) -> tuple[RenameRecord, ...]:
+def related_media_records(audio: Path, new_audio_name: str, index=None) -> tuple[RenameRecord, ...]:
     """Build safe old->new records for strongly matched related media files."""
     new_stem = Path(new_audio_name).stem
     records: list[RenameRecord] = []
     seen: set[str] = set()
-    for candidate in matched_companions(audio, [*LYRIC_EXTENSIONS, *COVER_EXTENSIONS]):
+    for candidate in matched_companions(audio, [*LYRIC_EXTENSIONS, *COVER_EXTENSIONS],index=index):
         if candidate.name.casefold().startswith(audio.name.casefold()):
             suffix = candidate.name[len(audio.name):]
             target = audio.parent / f"{new_audio_name}{suffix}"
@@ -318,6 +318,7 @@ def build_rename_plan(
             unique_files.append(path)
 
     provisional: list[RenamePlanItem] = []
+    indexes={}
     for path in unique_files:
         if cancel_check: cancel_check()
         try:
@@ -332,8 +333,7 @@ def build_rename_plan(
             if _path_key(target) == _path_key(path):
                 provisional.append(RenamePlanItem(path, path.name, target, new_name, "无需修改", "文件名已经符合模板", fields))
             else:
-                related = related_media_records(path, new_name)
-                provisional.append(RenamePlanItem(path, path.name, target, new_name, "可重命名", "", fields, related))
+                provisional.append(RenamePlanItem(path, path.name, target, new_name, "可重命名", "", fields))
 
     conflicts = detect_conflicts(provisional)
     conflict_keys = set(conflicts)
@@ -355,7 +355,8 @@ def build_rename_plan(
         status = "可重命名（自动避让）" if avoided else "可重命名"
         message = "目标文件已存在，已生成安全的新文件名" if avoided else ""
         reserved.add(_path_key(target))
-        related = related_media_records(item.source, target.name)
+        if item.source.parent not in indexes:indexes[item.source.parent]=DirectoryMatchIndex.from_directory(item.source.parent,cancel_check)
+        related = related_media_records(item.source, target.name,indexes[item.source.parent])
         planned.append(RenamePlanItem(item.source, item.original_name, target, target.name, status, message, item.fields, related))
     return RenamePlan(tuple(planned), template, fallback_missing)
 
@@ -364,6 +365,8 @@ def execute_rename_plan(
     plan: RenamePlan,
     on_item: Callable[[RenamePlanItem, str], None] | None = None,
     cancel_check: Callable[[], None] | None = None,
+    before_move: Callable[[RenameRecord], None] | None = None,
+    after_move: Callable[[RenameRecord], None] | None = None,
 ) -> RenameExecutionResult:
     """Execute only approved plan items; one filesystem error never aborts the batch."""
     records: list[RenameRecord] = []
@@ -383,6 +386,7 @@ def execute_rename_plan(
                 raise OSError("源文件不存在或无法访问")
             if item.target.exists():
                 raise OSError("目标文件已存在，未覆盖")
+            if before_move:before_move(RenameRecord(item.source,item.target))
             item.source.rename(item.target)
         except (OSError, ValueError) as exc:
             failures.append(RenameFailure(item.source, str(exc)))
@@ -391,25 +395,29 @@ def execute_rename_plan(
             continue
         record = RenameRecord(item.source, item.target)
         records.append(record)
+        if after_move:after_move(record)
+        related_failed=False
         for related_record in item.related:
             try:
                 if not related_record.old_path.is_file():
                     raise OSError("关联文件不存在")
                 if related_record.new_path.exists():
                     raise OSError("关联目标已存在，未覆盖")
+                if before_move:before_move(related_record)
                 related_record.old_path.rename(related_record.new_path)
             except OSError as exc:
                 failures.append(RenameFailure(related_record.old_path, str(exc)))
-                if on_item:
-                    on_item(item, "部分完成")
+                related_failed=True
                 continue
             related_records.append(related_record)
+            if after_move:after_move(related_record)
         if on_item:
-            on_item(item, "已完成")
+            on_item(item, "部分完成" if related_failed else "已完成")
     return RenameExecutionResult(tuple(records), tuple(skipped), tuple(failures), tuple(related_records))
 
 
-def undo_rename(records: Iterable[RenameRecord], cancel_check: Callable[[], None] | None = None) -> UndoResult:
+def undo_rename(records: Iterable[RenameRecord], cancel_check: Callable[[], None] | None = None,
+                identities=None, on_restored=None) -> UndoResult:
     """Undo the latest batch only when both paths are still safe to use."""
     restored: list[RenameRecord] = []
     failures: list[RenameFailure] = []
@@ -420,11 +428,16 @@ def undo_rename(records: Iterable[RenameRecord], cancel_check: Callable[[], None
                 raise OSError("新文件名不存在")
             if record.old_path.exists():
                 raise OSError("原文件名已被其他文件占用")
+            if identities is not None:
+                from .rename_history import file_identity
+                if record.new_path not in identities or file_identity(record.new_path)!=identities[record.new_path]:
+                    raise OSError("文件已被修改或替换，未执行撤销")
             record.new_path.rename(record.old_path)
         except OSError as exc:
             failures.append(RenameFailure(record.new_path, str(exc)))
             continue
         restored.append(record)
+        if on_restored:on_restored(record)
     return UndoResult(tuple(restored), tuple(failures))
 
 

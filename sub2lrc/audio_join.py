@@ -14,9 +14,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Thread
+from threading import Event
 from typing import Callable, Iterable
 
 from core.windows_paths import sanitize_windows_stem
+from core.persistence import read_json, write_json
 
 from .audio_converter import (
     DEFAULT_FFMPEG_TIMEOUT_SECONDS,
@@ -90,52 +92,125 @@ def _fade_filters(fade_seconds: float, duration_seconds: float | None) -> list[s
 
 
 def audio_peaks(source: str | Path, buckets: int = 900,
-                ffmpeg_path: str | Path | None = None) -> tuple[float, tuple[float, ...]]:
-    """Decode a file and return ``(duration_seconds, peak_amplitudes)``.
-
-    One peak per bucket keeps the data small enough to hand to the GUI while
-    still showing the shape of the whole file. Amplitudes are normalised to
-    0..1 so the widget can draw without knowing the sample format.
-    """
+                ffmpeg_path: str | Path | None = None, *, cancel_check=None,
+                process_callback=None, cache_directory: Path | None = None) -> tuple[float, tuple[float, ...]]:
+    """Reduce PCM in bounded chunks; optional cache is invalidated by file stats."""
     import array
-    import subprocess
+    import hashlib
+    import math
+    import tempfile
+    from queue import Full
     path = Path(source)
+    if cancel_check:cancel_check()
     if not path.is_file():
         raise AudioConversionError("音频文件不存在或无法访问。")
-    buckets = max(1, int(buckets))
+    buckets = max(1, min(10000, int(buckets)))
+    stat=path.stat()
+    key=hashlib.sha256(f'1|{path.resolve()}|{stat.st_size}|{stat.st_mtime_ns}|{buckets}'.encode()).hexdigest()
+    cache_path=Path(cache_directory)/'peaks.json' if cache_directory is not None else None
+    cache=read_json(cache_path,{}) if cache_path else {}
+    if not isinstance(cache,dict):cache={}
+    cached=cache.get(key)
+    if isinstance(cached,dict):
+        try:
+            duration=float(cached['duration']);values=tuple(float(p) for p in cached['peaks'])
+            if duration>=0 and math.isfinite(duration) and len(values)==buckets and all(math.isfinite(p) and 0<=p<=1 for p in values):
+                return duration,values
+        except (KeyError,TypeError,ValueError):pass
     ffmpeg = find_ffmpeg(ffmpeg_path)
+    duration=_duration_seconds(ffmpeg,path) or 0.0
+    if cancel_check:cancel_check()
     command = [
         str(ffmpeg), "-nostdin", "-hide_banner", "-loglevel", "error",
         "-i", str(path), "-map", "0:a:0", "-vn",
         "-ac", "1", "-ar", "8000", "-f", "s16le", "pipe:1",
     ]
+    peaks=[0.0]*buckets;count=0;expected=max(1,round(duration*8000))
+    def reduce_chunk(data):
+        nonlocal count
+        samples=array.array('h');samples.frombytes(data)
+        offset=0
+        while offset<len(samples):
+            bucket=min(buckets-1,((count+1)*buckets-1)//expected)
+            boundary=(bucket+1)*expected//buckets
+            end=len(samples) if bucket==buckets-1 else min(len(samples),offset+max(1,boundary-count))
+            peaks[bucket]=max(peaks[bucket],max((abs(v) for v in samples[offset:end]),default=0)/32768.0)
+            count+=end-offset;offset=end
+    chunks=Queue(maxsize=4);stop=Event();errors=[]
+    def read_chunks(stream):
+        try:
+            while not stop.is_set():
+                data=stream.read(65536)
+                while not stop.is_set():
+                    try:chunks.put(data,timeout=.1);break
+                    except Full:pass
+                if not data:break
+        except (OSError,ValueError) as exc:
+            while not stop.is_set():
+                try:chunks.put(exc,timeout=.1);break
+                except Full:pass
+        finally:
+            stream.close()
+    def read_errors(stream):
+        try:
+            while data:=stream.read(4096):
+                errors.append(data);errors[:]=errors[-4:]
+        finally:stream.close()
+    spool=tempfile.TemporaryFile() if duration<=0 else None
     try:
-        result = subprocess.run(
-            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            creationflags=_creation_flags(), timeout=DEFAULT_FFMPEG_TIMEOUT_SECONDS,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise AudioConversionError(f"无法解码音频生成波形：{exc}") from exc
-    if result.returncode != 0:
-        reason = result.stderr.decode("utf-8", "replace").strip() or "未知错误"
-        raise AudioConversionError(f"无法解码音频生成波形：{reason}")
-    samples = array.array("h")
-    samples.frombytes(result.stdout[:len(result.stdout) - len(result.stdout) % 2])
-    duration = _duration_seconds(ffmpeg, path) or 0.0
-    if not samples or buckets <= 0:
-        return duration, ()
-    peaks: list[float] = []
-    step = len(samples) / buckets
-    for index in range(buckets):
-        start = int(index * step)
-        end = min(len(samples), int((index + 1) * step))
-        chunk = samples[start:end]
-        peaks.append(max((abs(value) for value in chunk), default=0) / 32768.0)
+        process=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,creationflags=_creation_flags())
+    except OSError as exc:
+        if spool:spool.close()
+        raise AudioConversionError(f'无法解码音频生成波形：{exc}') from exc
+    readers=[Thread(target=read_chunks,args=(process.stdout,),daemon=True),Thread(target=read_errors,args=(process.stderr,),daemon=True)]
+    # Unusual streams without duration are spooled to disk, never retained in RAM.
+    deadline=time.monotonic()+DEFAULT_FFMPEG_TIMEOUT_SECONDS;pending=b'';decoded=0
+    try:
+        if process_callback:process_callback(process)
+        for reader in readers:reader.start()
+        while True:
+            if cancel_check:cancel_check()
+            if time.monotonic()>deadline:raise AudioConversionError('波形生成超时')
+            try:data=chunks.get(timeout=.1)
+            except Empty:continue
+            if isinstance(data,Exception):raise AudioConversionError(f'无法读取波形数据：{data}') from data
+            if not data:break
+            data=pending+data;pending=data[len(data)//2*2:];data=data[:len(data)//2*2]
+            decoded+=len(data)//2
+            if spool:spool.write(data)
+            else:reduce_chunk(data)
+        while process.poll() is None:
+            if cancel_check:cancel_check()
+            if time.monotonic()>deadline:raise AudioConversionError('波形生成超时')
+            stop.wait(.05)
+        readers[1].join(timeout=2)
+        if process.returncode!=0:
+            raise AudioConversionError('无法解码音频生成波形：'+b''.join(errors).decode('utf8','replace'))
+        if cancel_check:cancel_check()
+        if spool:
+            expected=max(1,decoded);duration=decoded/8000;spool.seek(0)
+            while data:=spool.read(65536):
+                if cancel_check:cancel_check()
+                reduce_chunk(data)
+    finally:
+        stop.set();_stop_process(process)
+        if process_callback:process_callback(None)
+        for reader in readers:
+            if reader.ident is not None:reader.join(timeout=2)
+        if not readers[0].ident:process.stdout.close()
+        if not readers[1].ident:process.stderr.close()
+        if spool:spool.close()
+    if not decoded:return duration,()
     highest = max(peaks, default=0.0) or 1.0
     # Normalise quietly: a very quiet file still shows a visible shape, but a
     # normal file is not amplified into clipping-looking blocks.
     scale = min(1.0, 0.85 / highest) if highest > 0 else 1.0
-    return duration, tuple(value * scale for value in peaks)
+    result=duration,tuple(value*scale for value in peaks)
+    if cache_path and path.stat().st_mtime_ns==stat.st_mtime_ns:
+        cache.pop(key,None);cache[key]={'duration':duration,'peaks':result[1]}
+        try:write_json(cache_path,dict(list(cache.items())[-12:]))
+        except (OSError,ValueError):pass
+    return result
 
 
 def audio_duration(source: str | Path, ffmpeg_path: str | Path | None = None) -> float:

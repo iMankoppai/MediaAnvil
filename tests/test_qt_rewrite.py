@@ -73,9 +73,10 @@ class QtRewriteTests(unittest.TestCase):
             'seek':lambda self,p:None,'close':lambda self:None,'stop':lambda self:None,
         })()
     def test_pages_preserve_native_window_and_data(self):
-        self.assertEqual(qt_version,'1.5.0')
-        self.assertIn('v1.5.0',[label.text() for label in self.window.findChildren(QLabel)])
+        self.assertEqual(qt_version,'1.5.1')
+        self.assertIn('v1.5.1',[label.text() for label in self.window.findChildren(QLabel)])
         self.assertEqual(len(self.window.pages),10)
+        self.assertEqual(self.window.keys[7:9],['tasks','settings'])
         actual_size=(self.window.width(),self.window.height());expected_size=default_window_size()
         for actual,expected in zip(actual_size,expected_size):self.assertAlmostEqual(actual,expected,delta=1)
         self.assertFalse(self.window.windowFlags() & Qt.WindowType.FramelessWindowHint)
@@ -530,6 +531,31 @@ class QtRewriteTests(unittest.TestCase):
         before=source.read_bytes();page=self.window.pages['subtitle'];page.receive([source]);page.start();self.wait()
         self.assertEqual(source.read_bytes(),before);self.assertTrue((self.base/'歌曲.lrc').exists())
         page.start();self.wait();self.assertTrue((self.base/'歌曲_1.lrc').exists())
+    def test_retry_uses_original_parameters_after_restart(self):
+        source=self.base/'retry.srt'
+        page=self.window.pages['subtitle'];page.convert_paths([source]);self.wait()
+        self.assertEqual(self.window.task_history.parameters['format'],'lrc')
+        original_time=self.window.task_history.created_at
+        self.window.close();self.qt.processEvents()
+        self.window=MainWindow(self.base/'settings.json');self.window.inform=lambda message:self.messages.append(str(message))
+        self.assertEqual(self.window.task_history.created_at,original_time)
+        self.window.pages['subtitle'].format.setCurrentIndex(2)
+        source.write_text('1\n00:00:01,000 --> 00:00:02,000\nRetry\n',encoding='utf8')
+        self.window.retry_failed();self.wait()
+        self.assertTrue((self.base/'retry.lrc').exists());self.assertFalse((self.base/'retry.vtt').exists())
+    def test_cancelled_conversion_preserves_completed_output_in_history(self):
+        from core.tasks import TaskCancelled
+        first=self.base/'first.srt';second=self.base/'second.srt';output=self.base/'first.lrc'
+        page=self.window.pages['subtitle']
+        def convert(kind,paths,*args):
+            if paths[0]==second:raise TaskCancelled()
+            output.write_text('[00:01]done',encoding='utf8');return [output],['完成：'+str(output)]
+        with patch('mediaanvil_qt.conversion.convert_files',side_effect=convert):
+            page.convert_paths([first,second]);self.wait()
+        history=self.window.task_history
+        self.assertEqual(history.records[0].output,output)
+        self.assertEqual(history.records[1].state,'已取消')
+        self.assertEqual(len(history.succeeded),1)
     def test_image_conversion_retains_source_and_flattens_alpha(self):
         source=self.base/'透明.png';Image.new('RGBA',(15,21),(0,0,0,0)).save(source);original=source.read_bytes()
         outputs,lines=convert_files('image',[source],'',ImageConversionSettings('jpg',90),lambda *args:None)
@@ -565,10 +591,67 @@ class QtRewriteTests(unittest.TestCase):
         from types import SimpleNamespace
         with patch('sub2lrc.audio_metadata.read_metadata',return_value=SimpleNamespace(title='T',artist='A',album='')):
             page.run_missing_check(self.base);self.wait()
-        message=self.messages[-1]
-        self.assertIn('missing-items.mp3',message)
-        self.assertIn('缺封面',message)
-        self.assertIn('缺专辑',message)
+        dialog=page.check_dialog
+        self.assertIn('missing-items.mp3',dialog.table.item(0,1).text())
+        self.assertIn('缺封面',dialog.table.item(0,2).text())
+        self.assertIn('缺专辑',dialog.table.item(0,2).text())
+        dialog.select_all.setChecked(True)
+        with patch('mediaanvil_qt.metadata.match_audio_files') as matcher:
+            from core.media_matcher import MediaMatch
+            matcher.return_value=(MediaMatch(audio),)
+            dialog.choose_repair();self.wait()
+        self.assertEqual([m.audio for m in page.match_rows],[audio])
+        self.assertFalse(dialog.isVisible())
+    def test_media_check_paging_and_filtering_keep_repair_selection_scoped(self):
+        from core.media_matcher import MediaCheckRow
+        from mediaanvil_qt.media_check import MediaCheckDialog
+        dialog=MediaCheckDialog(self.window)
+        rows=[MediaCheckRow(self.base/f'{i}.mp3',i%2==0,i%2==1,()) for i in range(450)]
+        dialog.set_rows(rows)
+        self.assertEqual(dialog.table.rowCount(),200)
+        dialog.select_all.setChecked(True);self.assertEqual(len(dialog.selected_paths()),450)
+        dialog.page_number.setValue(3);self.assertEqual(dialog.table.rowCount(),50)
+        dialog.filter.setCurrentIndex(dialog.filter.findData('cover'))
+        self.assertEqual(len(dialog.selected_paths()),225)
+        dialog.select_all.setChecked(True);dialog.select_all.setChecked(False)
+        self.assertFalse(dialog.selected_paths())
+        dialog.filter.setCurrentIndex(dialog.filter.findData('lyrics'))
+        self.assertEqual(len(dialog.selected_paths()),225)
+        dialog.close()
+    def test_large_import_is_batched_and_keeps_event_loop_responsive(self):
+        from mediaanvil_qt.common import FileList
+        files=FileList({'.lrc'});paths=[]
+        for i in range(601):
+            path=self.base/f'{i}.lrc';path.write_text('[00:01]x',encoding='utf8');paths.append(path)
+        count=[];ticks=[]
+        files.add_paths_batched(paths,count.append)
+        QTimer.singleShot(0,lambda:ticks.append(files.count()))
+        deadline=time.monotonic()+5
+        while not count and time.monotonic()<deadline:self.qt.processEvents()
+        self.assertEqual(count,[601]);self.assertEqual(len(files.checked_paths()),601)
+        self.assertTrue(ticks);self.assertLess(ticks[0],601)
+    def test_rename_undo_survives_restart(self):
+        from core.audio_renamer import RenamePlan,RenamePlanItem
+        page=self.window.pages['renamer'];source=self.base/'rename-original.mp3';target=self.base/'rename-target.mp3'
+        source.write_bytes(b'original');page.receive([source])
+        page.previewed(RenamePlan((RenamePlanItem(source,source.name,target,target.name,'可重命名'),),'{title}'))
+        page.execute();self.wait();self.assertTrue(target.exists())
+        self.window.close();self.qt.processEvents();self.window=MainWindow(self.base/'settings.json')
+        self.window.inform=lambda message:self.messages.append(str(message));self.window.show_text=lambda title,text:self.messages.append(str(text))
+        page=self.window.pages['renamer'];self.assertTrue(page.undo_button.isEnabled())
+        page.undo();self.wait();self.assertEqual(source.read_bytes(),b'original');self.assertFalse(target.exists())
+    def test_rename_retry_keeps_companions_attached_to_failed_audio(self):
+        from core.audio_renamer import RenamePlan,RenamePlanItem,RenameRecord
+        page=self.window.pages['renamer'];audio=self.base/'audio.mp3';lyric=self.base/'audio.lrc'
+        target=self.base/'changed.mp3';lyric_target=self.base/'changed.lrc'
+        audio.write_bytes(b'audio');lyric.write_bytes(b'lyrics');page.receive([audio])
+        page.previewed(RenamePlan((RenamePlanItem(audio,audio.name,target,target.name,'可重命名',related=(RenameRecord(lyric,lyric_target),)),),'{title}'))
+        target.write_bytes(b'occupied');page.execute();self.wait()
+        self.assertTrue(lyric.exists());self.assertFalse(lyric_target.exists())
+        self.window.retry_failed()
+        self.assertEqual(len(page.plan.items),1)
+        self.assertEqual(page.plan.items[0].related,(RenameRecord(lyric,lyric_target),))
+        self.assertEqual(page.plan.items[0].target,target)
     def test_batch_tag_preview_shows_before_and_after_without_writing(self):
         audio=self.base/'preview-tags.mp3';audio.write_bytes(b'x')
         with patch('mediaanvil_qt.services.read_metadata') as reader:

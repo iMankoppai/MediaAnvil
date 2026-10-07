@@ -207,7 +207,7 @@ class JoinPage(Page):
         crop_layout.addWidget(crop_row)
         self.crop_note = QLabel('拖动波形上的虚线选择起止时间；导出时写入新文件。')
         self.crop_note.setObjectName('muted')
-        crop_layout.addWidget(self.crop_note)
+        crop_layout.addWidget(row(self.crop_note,button('重新生成波形',self.reload_waveform,symbol='convert')))
         self.crop_options = crop_options
         mode_body.addWidget(crop_options)
 
@@ -297,12 +297,21 @@ class JoinPage(Page):
         paths = self.files.checked_paths()
         source = paths[0] if paths else None
         if source == self._wave_source: return
+        if self.app._importing:
+            QTimer.singleShot(50,self,self.refresh_waveform_source);return
+        if self.app._worker:
+            if getattr(self,'_wave_waiting_worker',None) is not self.app._worker:
+                self._wave_waiting_worker=self.app._worker
+                self.app._worker.finished.connect(lambda:QTimer.singleShot(0,self,self.refresh_waveform_source))
+            return
         self._wave_source = source
         if source is None:
             self.waveform.clear_audio(); self.crop_note.setText(self.app.t('选择一个音频文件后显示波形。')); return
         self.crop_note.setText(self.app.t('正在生成波形…'))
         def work(report):
-            return audio_peaks(source)
+            return audio_peaks(source,cancel_check=report.raise_if_cancelled,
+                               process_callback=report.register_process,
+                               cache_directory=self.app.settings_file.parent/'waveforms')
         def done(result):
             if self._wave_source != source: return
             duration, peaks = result
@@ -311,6 +320,14 @@ class JoinPage(Page):
             self.crop_end_edit.setMaximum(max(0.0, duration))
             self.crop_note.setText(self.app.t('拖动波形上的虚线选择起止时间；导出时写入新文件。'))
         self.app.run_task(work, done)
+        if self.app._worker:self.app._worker.cancelled.connect(self.waveform_cancelled)
+
+    def waveform_cancelled(self):
+        self._wave_source=None;self.crop_note.setText(self.app.t('波形生成已取消，点击重新生成。'))
+        self.waveform.clear_audio()
+    def reload_waveform(self):
+        if self.app._worker or self.app._importing:return self.app.inform(self.app.t('当前任务仍在处理，请等待完成。'))
+        self._wave_source=None;self.refresh_waveform_source()
 
     def crop_selection_changed(self, start, end):
         self.crop_start_edit.blockSignals(True); self.crop_start_edit.setValue(start); self.crop_start_edit.blockSignals(False)

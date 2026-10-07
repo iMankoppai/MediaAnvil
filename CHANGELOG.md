@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.5.1
+
+- Task Center retains the latest 20 tasks locally, retries conversions with their original parameters, and keeps completed outputs when a batch is cancelled. Interrupted files can be retried after restart.
+- Waveforms use bounded PCM chunks, support cancellation, and cache the latest 12 results with source-change invalidation.
+- Media checks offer filters, selection, pagination and direct entry into batch repair or individual editing. Embedded lyrics and artwork now count as present.
+- Directory matching indexes normalised filenames once per folder while preserving ambiguity and double-suffix rules. Large imports load in batches and image thumbnails load on demand.
+- Rename undo survives restarts. A journal is saved before each move, including companion files; undo refuses modified/replaced files and keeps unresolved items for later recovery.
+- Source/build instructions now match Windows ICU handling, and CI verifies documented PowerShell commands.
+- Corrected Task Center / Settings navigation and completed English media-check labels. Atomic metadata writes tolerate brief Windows file locks while preserving originals on persistent errors.
+
+### 中文说明
+
+- 任务中心保存最近 20 次任务，重启后仍可查看。重试沿用原来的转换格式、质量和输出目录；取消任务后，已完成文件的结果不会丢失。
+- 长音频波形改为分块计算，减少内存占用，支持取消和缓存；修改源文件后会重新计算。
+- 媒体检查支持筛选、勾选和分页，可以直接把选中的文件带到批量修复区域，也能单独编辑并重新检查。内嵌歌词和封面不再被误报为缺失。
+- 大文件夹中的歌词、封面匹配更快；大量导入分批显示，图片缩略图按需加载。
+- 重命名撤销记录保存在本机，重启后仍可恢复音频及关联歌词、封面。遇到文件被修改、替换或旧名称被占用时，会保留记录并说明原因。
+- 修正任务中心与设置页的导航对应关系，补齐英文检查界面。遇到 Windows 短暂占用文件时，标签保存会有限重试；持续失败时仍保留原文件。
+- 更新中英文构建说明，修正 ICU 处理方式，并自动检查文档中的脚本命令是否存在。
+
 ## 1.5.0
 
 - Renaming a track now renames its matching lyrics and artwork with it. Batch
