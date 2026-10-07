@@ -40,4 +40,11 @@ jobs:
         run: python tools/verify_document_commands.py
 
       - name: Run test suite
-        run: python -m unittest discover -s tests -v
+        shell: pwsh
+        run: |
+          # Use canonical TEMP paths even when Windows exposes an 8.3 alias.
+          $taskTempPath = python -c 'import tempfile; from pathlib import Path; print(Path(tempfile.gettempdir()).resolve())'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not resolve the test temp directory.' }
+          $env:TEMP = $taskTempPath
+          $env:TMP = $taskTempPath
+          python -m unittest discover -s tests -v

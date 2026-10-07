@@ -9,7 +9,9 @@ from core.rename_history import RenameJournal
 class RenameJournalTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
-        self.root=Path(self.temp.name);self.path=self.root/'rename.json'
+        # Windows runners may supply an 8.3 TEMP alias (RUNNER~1). The journal
+        # stores resolved paths, so the fixture must use the same spelling.
+        self.root=Path(self.temp.name).resolve();self.path=self.root/'rename.json'
         self.journal=RenameJournal(self.path)
 
     def move(self,name='audio.mp3'):

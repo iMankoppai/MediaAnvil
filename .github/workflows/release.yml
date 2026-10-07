@@ -47,6 +47,12 @@ jobs:
         shell: pwsh
         run: |
           $env:SUB2LRC_TEST_FFMPEG = (Resolve-Path vendor/ffmpeg/ffmpeg.exe).Path
+          # Canonicalise TEMP before testing tagged sources; older tests compare
+          # recorded paths, while Windows may provide the RUNNER~1 short alias.
+          $taskTempPath = .build-venv-windows\Scripts\python.exe -c 'import tempfile; from pathlib import Path; print(Path(tempfile.gettempdir()).resolve())'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not resolve the test temp directory.' }
+          $env:TEMP = $taskTempPath
+          $env:TMP = $taskTempPath
           .build-venv-windows\Scripts\python.exe -m unittest discover -s tests -v
 
       - name: Package release and checksum
