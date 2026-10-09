@@ -285,6 +285,15 @@ def missing_media_check(
     if not directory.is_dir():
         return ()
     matches = scan_audio_folder(directory, include_subfolders=include_subfolders, cancel_check=cancel_check)
+    return inspect_matches(matches,check_tags=check_tags,cancel_check=cancel_check)
+
+
+def check_audio_paths(paths, *, check_tags=True, cancel_check=None):
+    """Inspect an explicit selection, including outputs saved elsewhere."""
+    return inspect_matches(match_audio_files(paths,cancel_check),check_tags=check_tags,cancel_check=cancel_check)
+
+
+def inspect_matches(matches, *, check_tags=True, cancel_check=None):
     rows: list[MediaCheckRow] = []
     for match in matches:
         if cancel_check:

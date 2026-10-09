@@ -3,6 +3,7 @@ __pycache__/
 .build-venv/
 build/
 dist/
+/dist-upgrade/
 .test-tools/
 .test-runtime/
 .test-runtime-elevated/
@@ -46,3 +47,7 @@ android/signing.properties
 
 # Working notes handed between development sessions, not part of the product
 /HANDOFF.md
+
+# Local scratch files, prototype builds and validation logs
+/.tmp/
+/dist-redesign/

@@ -130,12 +130,19 @@ class SettingsPage(Page):
         footer.addWidget(button('恢复默认设置', self.defaults, symbol='undo'))
         footer.addWidget(button('保存设置', self.save, True, 'save'))
         self.layout.addWidget(self.footer)
+        from .tool_layouts import FooterActions
+        from PySide6.QtWidgets import QPushButton
+        original_footer=self.footer
+        self.layout.removeWidget(original_footer)
+        self.footer=FooterActions(original_footer.findChildren(QPushButton),self.footer_note)
+        original_footer.hide();self.layout.addWidget(self.footer)
         self.populate(app.settings)
         general.fields.setRowVisible(self.directory, output.currentData() == 'custom')
         QTimer.singleShot(0, self._update_responsive_layout)
 
     def section(self, symbol, title, description, row_index, column, column_span=1):
         section = SettingSection(symbol, title, description); self.sections.append(section)
+        section.grid_position=(row_index,column,column_span)
         section.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.section_grid.addWidget(section, row_index, column, 1, column_span)
         return section
@@ -167,16 +174,26 @@ class SettingsPage(Page):
         viewport = getattr(self, 'scroll', None)
         available = viewport.viewport().size() if viewport and viewport.viewport().height() > 100 else self.size()
         roomy = available.height() >= 590 and available.width() >= 850
+        narrow=available.width()<700
+        if getattr(self,'_single_column',None)!=narrow:
+            self._single_column=narrow
+            for section in self.sections:self.section_grid.removeWidget(section)
+            for index,section in enumerate(self.sections):
+                row_index,column,span=section.grid_position
+                self.section_grid.addWidget(section,index if narrow else row_index,0 if narrow else column,1,1 if narrow else span)
+            self.section_grid.setColumnStretch(0,1);self.section_grid.setColumnStretch(1,0 if narrow else 1)
+        self.footer_note.setVisible(not narrow)
         self.layout.setContentsMargins(20, 12, 20, 16) if roomy else self.layout.setContentsMargins(20, 3, 20, 0)
         self.section_grid.setVerticalSpacing(10 if roomy else 3)
-        self.page_badge.setVisible(roomy)
+        self.page_badge.hide()
         self.page_detail.setVisible(roomy)
         self.general_section.fields.setRowVisible(self.language, True)
         for section in self.sections:
+            section.fields.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows if narrow else QFormLayout.RowWrapPolicy.DontWrapRows)
             section.detail.setVisible(roomy)
             section.outer.setContentsMargins(16, 8, 16, 8) if roomy else section.outer.setContentsMargins(12, 3, 12, 3)
             badge = next(label for label in section.caption.findChildren(QLabel) if label.objectName() == 'iconBadge')
-            badge.setFixedSize(38, 38) if roomy else badge.setFixedSize(30, 30)
+            badge.hide()
         for control in self.controls.values():
             if isinstance(control, Toggle): control.setFixedSize(44, 26)
             elif isinstance(control, (QComboBox, QSpinBox, QDoubleSpinBox)): control.setFixedHeight(32 if roomy else 26)

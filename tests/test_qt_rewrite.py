@@ -80,14 +80,58 @@ class QtRewriteTests(unittest.TestCase):
         actual_size=(self.window.width(),self.window.height());expected_size=default_window_size()
         for actual,expected in zip(actual_size,expected_size):self.assertAlmostEqual(actual,expected,delta=1)
         self.assertFalse(self.window.windowFlags() & Qt.WindowType.FramelessWindowHint)
-        self.assertIn('QPushButton#navItem { background:transparent; border:0; border-left:2px solid transparent; border-radius:8px; text-align:left; padding:12px 14px; min-height:22px; font-size:15px; font-weight:600; }',STYLE)
+        self.assertIn('QPushButton#navItem:checked { background:#dce5ff; color:#315cff; font-weight:600; }',STYLE)
         self.assertIn('QSlider:horizontal { padding:0 8px; }',STYLE)
-        self.assertIn('QSlider::handle:horizontal { background:white; border:2px solid #397bf3; width:12px; height:12px;',STYLE)
+        self.assertIn('QSlider::handle:horizontal { background:#315cff; border:2px solid white; width:12px; height:12px;',STYLE)
         self.assertFalse(hasattr(self.window.pages['preview'],'open_folder'))
         self.assertIn('使用说明',[button.text() for button in self.window.pages['about'].findChildren(QPushButton)])
         self.window.pages['editor'].title.setText('未保存的草稿')
         for i in range(len(self.window.keys)):self.window.navigation.setCurrentRow(i);self.qt.processEvents()
         self.assertEqual(self.window.pages['editor'].title.text(),'未保存的草稿')
+
+    def test_presets_save_restart_apply_and_delete_through_window(self):
+        self.window.navigation.setCurrentRow(self.window.keys.index('audio'))
+        page=self.window.pages['audio']
+        page.format.setCurrentIndex(page.format.findData('flac'))
+        page.output.edit.setText(str(self.base))
+        expected=page.current_preset_state()
+        with patch('PySide6.QtWidgets.QInputDialog.getText',return_value=(' 音乐归档 ',True)):
+            self.window.preset_save.click()
+        self.assertEqual(self.messages,[])
+        self.assertEqual(self.window.preset_combo.currentText(),'音乐归档')
+        self.window.close();self.qt.processEvents()
+        self.window=MainWindow(self.base/'settings.json')
+        self.window.inform=lambda message:self.messages.append(str(message))
+        self.window.navigation.setCurrentRow(self.window.keys.index('audio'))
+        restarted=self.window.pages['audio']
+        restarted.rate.setCurrentIndex(restarted.rate.findData(48000))
+        restarted.channels.setCurrentIndex(restarted.channels.findData(2))
+        self.window.preset_combo.setCurrentIndex(self.window.preset_combo.findText('音乐归档'))
+        self.assertEqual(self.window.pages['audio'].current_preset_state(),expected)
+        for key in ('preview','editor','tasks','settings','about','image','renamer','audio'):
+            self.window.navigation.setCurrentRow(self.window.keys.index(key))
+        self.window.preset_combo.setCurrentIndex(self.window.preset_combo.findText('音乐归档'))
+        self.window.preset_delete.click()
+        from core.settings import load_settings
+        self.assertEqual(load_settings(self.base/'settings.json')['task_presets'],{})
+        self.assertEqual(self.window.preset_combo.count(),0)
+        self.assertEqual(self.messages,[])
+
+    def test_failed_preset_writes_leave_memory_and_disk_unchanged(self):
+        self.window.navigation.setCurrentRow(self.window.keys.index('audio'))
+        with patch('PySide6.QtWidgets.QInputDialog.getText',return_value=('收藏',True)):
+            self.window.save_current_preset()
+        before=self.window.settings['task_presets'].copy()
+        disk=self.window.settings_file.read_bytes()
+        with patch('mediaanvil_qt.app.save_settings',side_effect=PermissionError('文件被占用')):
+            with patch('PySide6.QtWidgets.QInputDialog.getText',return_value=('另一个',True)):
+                self.window.save_current_preset()
+            self.window.delete_selected_preset()
+        self.assertEqual(self.window.settings['task_presets'],before)
+        self.assertEqual(self.window.settings_file.read_bytes(),disk)
+        self.assertEqual(self.window.preset_combo.currentText(),'收藏')
+        self.assertIn('预设保存失败',self.messages[-2])
+        self.assertIn('预设删除失败',self.messages[-1])
 
     def test_about_documents_open_in_read_only_app_dialog_with_matching_language(self):
         about=self.window.pages['about']
@@ -356,6 +400,24 @@ class QtRewriteTests(unittest.TestCase):
             if original is None:del sys._MEIPASS
             else:sys._MEIPASS=original
 
+    def test_editor_save_controls_have_visible_geometry_in_fixed_footer(self):
+        page=self.window.pages['editor']
+        for language in ('zh_CN','en_US'):
+            self.window.set_language(language)
+            for width,height in ((1440,960),(1100,760),(760,480)):
+                self.window.resize(width,height)
+                self.window.navigation.setCurrentRow(self.window.keys.index('editor'))
+                for _ in range(8):self.qt.processEvents()
+                for control in (page.mode,page.save_button):
+                    with self.subTest(language=language,size=(width,height),control=type(control).__name__):
+                        self.assertTrue(control.isVisible())
+                        self.assertGreaterEqual(control.width(),control.minimumSizeHint().width())
+                        self.assertGreater(control.height(),0)
+                        top=control.mapTo(page.footer,QPoint(0,0))
+                        bottom=control.mapTo(page.footer,control.rect().bottomRight())
+                        self.assertTrue(page.footer.rect().contains(top))
+                        self.assertTrue(page.footer.rect().contains(bottom))
+
     def test_fixed_footer_never_overlaps_scrolling_content(self):
         for width,height in ((1440,900),(1100,700),(900,640)):
             self.window.resize(width,height)
@@ -411,9 +473,11 @@ class QtRewriteTests(unittest.TestCase):
         )
         for view in lyrics:self.assertIn('Segoe UI Symbol',view.styleSheet())
         self.qt.processEvents()
-        for view in lyrics:self.assertEqual(QFontInfo(view.font()).family(),'Segoe UI Symbol')
-        self.assertIn('font-size:17px; font-weight:600',self.window.pages['preview'].lyrics.styleSheet())
-        self.assertIn('background:#edf4ff; font-weight:700',self.window.pages['preview'].lyrics.styleSheet())
+        for view in lyrics:
+            expected='Microsoft YaHei UI' if view is self.window.pages['preview'].lyrics else 'Segoe UI Symbol'
+            self.assertEqual(QFontInfo(view.font()).family(),expected)
+        self.assertIn('font-size:22px; font-weight:600',self.window.pages['preview'].lyrics.styleSheet())
+        self.assertIn('background:#edf2ff; font-weight:700',self.window.pages['preview'].lyrics.styleSheet())
         self.assertIn('QListWidget::item:focus { border:0; outline:0; }',self.window.pages['preview'].lyrics.styleSheet())
         self.assertEqual(type(self.window.pages['preview'].lyrics.itemDelegate()).__name__,'LyricItemDelegate')
     def test_settings_cards_fill_width_and_keyboard_switch_preserves_value(self):
@@ -670,12 +734,12 @@ class QtRewriteTests(unittest.TestCase):
     def test_ambiguous_matches_do_not_autoselect(self):
         page=self.window.pages['editor'];paths=[self.base/'a.lrc',self.base/'b.lrc']
         page.candidates(page.lyric_match,paths);self.assertIsNone(page.lyric_match.currentData())
-    def test_metadata_media_actions_align_without_a_separate_crop_button(self):
+    def test_metadata_media_actions_stay_visible_with_cover_cropping(self):
         page=self.window.pages['editor'];self.window.navigation.setCurrentRow(self.window.keys.index('editor'));self.qt.processEvents()
         assert page is not None
         self.assertFalse(page.match_content.isVisible());self.assertEqual(page.match_toggle.text(),'展开匹配区域')
         self.assertFalse(page.match_note.wordWrap())
-        actions=(page.import_lyrics_button,page.export_lyrics_button,page.import_cover_button,page.export_cover_button)
+        actions=(page.import_lyrics_button,page.export_lyrics_button,page.import_cover_button,page.crop_cover_button,page.export_cover_button)
         for action in actions:
             self.assertEqual(action.sizePolicy().horizontalPolicy(),QSizePolicy.Policy.Ignored)
             self.assertTrue(action.isVisible());self.assertGreater(action.width(),70)
@@ -683,11 +747,26 @@ class QtRewriteTests(unittest.TestCase):
         self.assertLessEqual(abs(page.import_cover_button.width()-page.export_cover_button.width()),1)
         self.assertNotIn('方形裁剪…',[item.text() for item in page.findChildren(QPushButton)])
         self.assertLessEqual(abs(page.match_toggle.geometry().right()-page.match_header.contentsRect().right()),1)
+        # At the design width the two previews share one baseline and their
+        # action rows line up, which is what the original equality asserted.
+        self.window.resize(1440,960)
+        for _ in range(8):self.qt.processEvents()
         self.assertEqual(page.lyrics.height(),page.cover.height())
-        self.assertGreaterEqual(page.lyrics.height(),130)
-        self.assertEqual(page.lyric_actions.mapTo(page,QPoint(0,0)).y(),page.cover_actions.mapTo(page,QPoint(0,0)).y())
-        lyric_y=page.import_lyrics_button.mapTo(page,QPoint(0,0)).y();cover_y=page.import_cover_button.mapTo(page,QPoint(0,0)).y()
-        self.assertLessEqual(abs(lyric_y-cover_y),1)
+        self.assertEqual(page.lyric_actions.mapTo(page,QPoint(0,0)).y(),
+                         page.cover_actions.mapTo(page,QPoint(0,0)).y())
+        self.assertEqual(page.import_lyrics_button.mapTo(page,QPoint(0,0)).y(),
+                         page.import_cover_button.mapTo(page,QPoint(0,0)).y())
+        # Narrower windows may wrap the three cover actions onto their own row;
+        # both previews must stay usable and end above their action rows.
+        for width,height in ((1100,760),(900,640),(760,480)):
+            self.window.resize(width,height)
+            for _ in range(8):self.qt.processEvents()
+            with self.subTest(size=(width,height)):
+                self.assertGreaterEqual(page.lyrics.height(),130)
+                self.assertGreaterEqual(page.cover.height(),180)
+                for preview,toolbar in ((page.lyrics,page.lyric_actions),(page.cover,page.cover_actions)):
+                    bottom=preview.mapTo(page,preview.rect().bottomRight()).y()
+                    self.assertLess(bottom,toolbar.mapTo(page,QPoint(0,0)).y())
         page.scroll.verticalScrollBar().setValue(page.scroll.verticalScrollBar().maximum());self.qt.processEvents()
         footer_top=page.footer.mapTo(self.window,page.footer.rect().topLeft()).y()
         for action in actions:self.assertLess(action.mapTo(self.window,action.rect().bottomRight()).y(),footer_top)
@@ -970,17 +1049,27 @@ class QtRewriteTests(unittest.TestCase):
         self.assertEqual(page.scroll.verticalScrollBar().value(),0)
 
     def test_error_dialogs_offer_copyable_details(self):
-        from PySide6.QtWidgets import QMessageBox
+        from PySide6.QtWidgets import QApplication,QMessageBox
         with patch.object(QMessageBox,'exec',return_value=0) as run:
             box=self.window.show_message('MediaAnvil Qt','处理失败：详细原因')
         self.assertTrue(run.called)
         labels=[button.text() for button in box.buttons()]
         self.assertIn('复制详情',labels)
         self.assertIn('确定',labels)
-        # the copy button copies the full technical detail text
+        # The button must hand the full technical text to the clipboard. The
+        # payload is asserted directly because reading the value back needs a
+        # reachable OS clipboard, which sandboxed and headless runners deny.
         copy_button=next(button for button in box.buttons() if button.text()=='复制详情')
-        copy_button.click()
-        self.assertEqual(self.qt.clipboard().text(),'处理失败：详细原因')
+        with patch.object(QApplication,'clipboard') as clipboard:
+            copy_button.click()
+        clipboard.return_value.setText.assert_called_once_with('处理失败：详细原因')
+        # Verify the real round trip too, but only where the platform allows it.
+        self.qt.clipboard().setText('mediaanvil-clipboard-probe')
+        if self.qt.clipboard().text()=='mediaanvil-clipboard-probe':
+            with patch.object(QMessageBox,'exec',return_value=0):
+                round_trip=self.window.show_message('MediaAnvil Qt','处理失败：详细原因')
+            next(button for button in round_trip.buttons() if button.text()=='复制详情').click()
+            self.assertEqual(self.qt.clipboard().text(),'处理失败：详细原因')
         self.window.settings['language']='en_US'
         with patch.object(QMessageBox,'exec',return_value=0):
             english=self.window.show_message('MediaAnvil Qt','Task failed: details')
@@ -1581,7 +1670,7 @@ class QtRewriteTests(unittest.TestCase):
         self.assertEqual(page.tabs.bar.count(),2)
         self.assertEqual(page.tabs.current_index(),0)
         # The offsets belong to the lyric view, and only to it.
-        self.assertIs(page.shift_row.parentWidget(),page.tabs.stack.widget(0))
+        self.assertTrue(page.tabs.stack.widget(0).isAncestorOf(page.shift_row))
         self.assertNotIn(page.shift_row,page.tabs.stack.widget(1).findChildren(QWidget))
         page.tabs.set_current_index(1)
         for _ in range(3):self.qt.processEvents()

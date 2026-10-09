@@ -49,7 +49,7 @@ class RenamePage(Page):
         self.all_rows=QCheckBox('全选可重命名项');self.all_rows.setChecked(True);self.all_rows.toggled.connect(self.check_rows)
         self.count_label=QLabel('添加文件后，点击刷新预览');self.count_label.setObjectName('muted')
         self.preview_controls=row(self.all_rows,self.count_label,self.search);self.preview_controls.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed);preview_layout.addWidget(self.preview_controls)
-        self.table=table(['选择','#','原文件名','新文件名','状态']);self.table.setMinimumHeight(280)
+        self.table=table(['选择','#','原文件名','新文件名','状态'],virtual=True);self.table.setMinimumHeight(280)
         self.table.setItemDelegateForColumn(4,StatusDelegate(self.table))
         for col in (0,1,4):self.table.horizontalHeader().setSectionResizeMode(col,QHeaderView.ResizeMode.ResizeToContents)
         self.table.itemChanged.connect(self.update_selection);preview_layout.addWidget(self.table,1)
@@ -58,6 +58,8 @@ class RenamePage(Page):
         actions=QWidget();actions.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed);actions_layout=QHBoxLayout(actions);actions_layout.setContentsMargins(0,0,0,0);actions_layout.addWidget(self.undo_button);actions_layout.addStretch();actions_layout.addWidget(self.export_button);actions_layout.addWidget(self.execute_button);preview_layout.addWidget(actions)
         self.step_cards=(source,rules,preview);self.columns=Columns(left,preview,700);self.layout.addWidget(self.columns,1)
         self.files.filesChanged.connect(self.invalidate);self.template.currentTextChanged.connect(self.invalidate);self.fallback.toggled.connect(self.invalidate)
+        from .tool_layouts import rename_layout
+        rename_layout(self)
         self._layout_ready=True
     def current_preset_state(self):
         return {'kind':'rename','template':self.template.currentText(),'fallback_missing':self.fallback.isChecked()}
@@ -68,7 +70,7 @@ class RenamePage(Page):
     def check_files(self,checked):
         for i in range(self.files.count()):self.files.item(i).setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
     def remove_selected(self):
-        selected={index.row() for index in self.table.selectionModel().selectedRows()}
+        selected={self.table.source_row(index.row()) for index in self.table.selectionModel().selectedRows()}
         remaining=[path for i,path in enumerate(self.files.paths()) if i not in selected]
         self.files.clear();self.files.add_paths(remaining)
     def invalidate(self,*args):
@@ -80,10 +82,15 @@ class RenamePage(Page):
         for i in range(self.table.rowCount()):
             text=' '.join(self.table.item(i,c).text() for c in (2,3))
             self.table.setRowHidden(i,query not in text.casefold())
+        self.table.commit_filter()
     def check_rows(self,checked):
-        for i in range(self.table.rowCount()):
-            item=self.table.item(i,0)
-            if item.flags() & Qt.ItemFlag.ItemIsUserCheckable:item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+        blocked=self.table.signalsBlocked();self.table.blockSignals(True);self.table.setUpdatesEnabled(False)
+        try:
+            for i in range(self.table.rowCount()):
+                item=self.table.item(i,0)
+                if item.flags() & Qt.ItemFlag.ItemIsUserCheckable:item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+        finally:self.table.blockSignals(blocked);self.table.setUpdatesEnabled(True)
+        self.update_selection()
     def selected_items(self):
         if not self.plan:return ()
         return tuple(item for i,item in enumerate(self.plan.items) if item.can_rename and self.table.item(i,0).checkState()==Qt.CheckState.Checked)
@@ -106,7 +113,12 @@ class RenamePage(Page):
     def preview(self):
         paths=self.files.checked_paths();template=self.template.currentText();fallback=self.fallback.isChecked()
         if not paths:return self.app.inform(self.app.t('请先添加音频。'))
-        self.app.run_task(lambda report:build_rename_plan(paths,template,fallback_missing=fallback,cancel_check=report.raise_if_cancelled),self.previewed)
+        def done(plan,task_id):
+            if paths!=self.files.checked_paths() or template!=self.template.currentText() or fallback!=self.fallback.isChecked():
+                self.app.statusBar().showMessage(self.app.t('文件或规则已变化，请重新预览。'));return
+            self.previewed(plan)
+        self.app.submit_task('preview',paths,self.current_preset_state(),
+            lambda report:build_rename_plan(paths,template,fallback_missing=fallback,cancel_check=report.raise_if_cancelled),done)
     def previewed(self,plan):
         self.table.blockSignals(True)
         fill_table(self.table,[('',n+1,i.original_name,i.new_name,self.app.t(i.status)) for n,i in enumerate(plan.items)])
@@ -118,34 +130,35 @@ class RenamePage(Page):
             status=self.table.item(n,4);status.setForeground(QColor('#169763' if item.can_rename else '#c88032'));status.setToolTip(self.app.t(item.message))
         self.table.blockSignals(False);self.update_selection();self.filter_rows()
     def execute(self):
-        if self.app._worker or self.app._importing:return self.app.inform(self.app.t('当前任务仍在处理，请等待完成。'))
         if not self.plan:return
         selected=self.selected_items()
         if not selected:return
         plan=replace(self.plan,items=selected)
-        self._rename_parameters=self.current_preset_state()
-        self._rename_parameters['rename_plan']=[{'source':str(i.source),'target':str(i.target),
+        parameters=self.current_preset_state()
+        parameters['rename_plan']=[{'source':str(i.source),'target':str(i.target),
             'related':[(str(r.old_path),str(r.new_path)) for r in i.related]} for i in selected]
-        self._rename_task_id=self.app.begin_task_history('rename',[i.source for i in selected],self._rename_parameters)
         targets={i.source:i.target for i in selected}
         targets.update({r.old_path:r.new_path for i in selected for r in i.related})
-        self._rename_targets=targets
-        self.app.record_task_history('rename',[TaskRecord(p,'等待',output=t) for p,t in targets.items()],self._rename_parameters,self._rename_task_id)
         def work(report):
             self.journal.begin()
             try:
                 return execute_rename_plan(plan,cancel_check=report.raise_if_cancelled,before_move=self.journal.prepare,
                     after_move=lambda r:report.checkpoint(TaskRecord(r.old_path,'已完成',output=r.new_path)))
             finally:self.journal.finish()
-        self.app.run_task(work,self.executed)
-    def executed(self,result):
+        task_id=self.app.submit_task('rename',targets,parameters,work,
+            lambda result,task_id:self.executed(result,parameters,task_id,targets))
+        if task_id is None:return
+        history=next(h for h in self.app.task_histories if h.task_id==task_id)
+        self.app.store_task_history(replace(history,records=tuple(replace(r,output=targets[r.source]) for r in history.records)))
+    def executed(self,result,parameters=None,task_id=None,targets=None):
+        targets=targets if targets is not None else getattr(self,'_rename_targets',{})
         self.restore_recovery()
         records=[TaskRecord(item.source,'跳过',item.message) for item in getattr(result,'skipped',())]
-        records += [TaskRecord(f.source,'失败',f.message,getattr(self,'_rename_targets',{}).get(f.source)) for f in result.failures]
+        records += [TaskRecord(f.source,'失败',f.message,targets.get(f.source)) for f in result.failures]
         records += [TaskRecord(r.old_path,'已完成',output=r.new_path) for r in result.records+result.related_records if r.old_path not in {record.source for record in records}]
         recorded={r.source for r in records}
-        records += [TaskRecord(p,'已中断','主音频未完成，关联文件未处理',t) for p,t in getattr(self,'_rename_targets',{}).items() if p not in recorded]
-        self.app.record_task_history('rename',records,getattr(self,'_rename_parameters',{}),getattr(self,'_rename_task_id',None))
+        records += [TaskRecord(p,'已中断','主音频未完成，关联文件未处理',t) for p,t in targets.items() if p not in recorded]
+        self.app.record_task_history('rename',records,parameters,task_id)
         self.undo_button.setEnabled(bool(self.records))
         paths={r.old_path:r.new_path for r in result.records};current=[paths.get(p,p) for p in self.files.paths()]
         self.files.clear();self.files.add_paths(current);self.invalidate()
@@ -159,6 +172,9 @@ class RenamePage(Page):
         self.records=self.journal.records();self.undo_button.setEnabled(bool(self.records))
     def undone(self,result):
         self.restore_recovery()
+        if getattr(self.app,'organizer',None):
+            from core.tasks import TaskHistory
+            self.app.organizer.follow_outputs(TaskHistory('rename',tuple(TaskRecord(r.new_path,'已完成',output=r.old_path) for r in result.records)))
         mapping={r.new_path:r.old_path for r in result.records};paths=[mapping.get(p,p) for p in self.files.paths()]
         self.files.clear();self.files.add_paths(paths);self.invalidate()
         self.app.show_text('撤销结果','\n'.join([f'恢复：{r.old_path}' for r in result.records]+[f'失败：{f.source} — {f.message}' for f in result.failures]))
@@ -169,11 +185,11 @@ class RenamePage(Page):
     def _update_responsive_layout(self):
         if not getattr(self,'_layout_ready',False):return
         viewport=getattr(self,'scroll',None);available=viewport.viewport().size() if viewport and viewport.viewport().width()>100 else self.size()
-        roomy=available.width()>=850 and available.height()>=600;self._roomy=roomy;self.setMaximumHeight(16777215)
+        roomy=available.width()>=850 and available.height()>=700;self._roomy=roomy;self.setMaximumHeight(16777215)
         self.files.setFixedHeight(170 if roomy else 28)
         for card in self.step_cards:card.step_badge.setFixedSize(32,32) if roomy else card.step_badge.setFixedSize(24,24)
         for detail in (self.source_detail,self.rules_detail,self.preview_detail):detail.setVisible(roomy)
-        self.tagline.setVisible(available.width()>=900)
+        self.tagline.hide()
         labels=('添加文件','移除','清空') if roomy else ('添加…','移除','清空')
         for control,text in zip(self.toolbar.findChildren(QPushButton),labels):control.setText(self.app.t(text))
         if not roomy:self._refresh_compact_height();QTimer.singleShot(0,self._refresh_compact_height)

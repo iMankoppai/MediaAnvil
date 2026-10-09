@@ -45,13 +45,14 @@ class QtBuildDependencyTests(unittest.TestCase):
         guide=root/'USER_GUIDE.md';script=(root/'build-qt.ps1').read_text(encoding='utf8')
         self.assertTrue(guide.is_file())
         self.assertIn('USER_GUIDE.md',script)
-        self.assertIn("dist\\MediaAnvilQt\\USER_GUIDE.md",script)
+        self.assertIn("$OutputDirectory = 'dist'",script)
+        self.assertIn("$qtOutputDirectory 'MediaAnvilQt\\USER_GUIDE.md'",script)
         self.assertIn('# MediaAnvil 使用说明',guide.read_text(encoding='utf8'))
         english_guide=root/'USER_GUIDE.en.md';english_build=root/'README-Qt.en.md'
         self.assertTrue(english_guide.is_file());self.assertTrue(english_build.is_file())
-        self.assertIn("dist\\MediaAnvilQt\\USER_GUIDE.en.md",script)
-        self.assertIn("dist\\MediaAnvilQt\\README-Qt.md",script)
-        self.assertIn("dist\\MediaAnvilQt\\README-Qt.en.md",script)
+        self.assertIn("$qtOutputDirectory 'MediaAnvilQt\\USER_GUIDE.en.md'",script)
+        self.assertIn("$qtOutputDirectory 'MediaAnvilQt\\README-Qt.md'",script)
+        self.assertIn("$qtOutputDirectory 'MediaAnvilQt\\README-Qt.en.md'",script)
         self.assertIn('# MediaAnvil User Guide',english_guide.read_text(encoding='utf8'))
 
     def test_mit_license_is_included_in_the_release(self):
@@ -61,15 +62,15 @@ class QtBuildDependencyTests(unittest.TestCase):
         self.assertTrue(license_file.is_file())
         self.assertIn('MIT License', license_file.read_text(encoding='utf8'))
         self.assertIn("'LICENSE');.", script)
-        self.assertIn("dist\\MediaAnvilQt\\LICENSE", script)
+        self.assertIn("$qtOutputDirectory 'MediaAnvilQt\\LICENSE'", script)
 
     def test_third_party_notices_and_licenses_are_in_the_release_root(self):
         root = Path(__file__).resolve().parents[1]
         script = (root / 'build-qt.ps1').read_text(encoding='utf8')
         notices = root / 'THIRD_PARTY_NOTICES.md'
         self.assertTrue(notices.is_file())
-        self.assertIn("dist\\MediaAnvilQt\\THIRD_PARTY_NOTICES.md", script)
-        self.assertIn("dist\\MediaAnvilQt\\licenses\\qt", script)
+        self.assertIn("$qtOutputDirectory 'MediaAnvilQt\\THIRD_PARTY_NOTICES.md'", script)
+        self.assertIn("$qtOutputDirectory 'MediaAnvilQt\\licenses\\qt'", script)
         self.assertIn('FFmpeg', notices.read_text(encoding='utf8'))
         self.assertTrue((root / 'licenses/qt/GPL-3.0.txt').is_file())
 

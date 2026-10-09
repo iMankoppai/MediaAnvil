@@ -97,6 +97,8 @@ The application starts centered at `1440 × 960` (3:2) by default and automatica
 
 ## Run from source
 
+The working source also includes unreleased organizer, task queue, native playback, fast export and result verification upgrades. The 1.5.1 download links still refer to the original release. See sections 14 and 15 of the User Guide.
+
 Use an official Windows build of Python 3.12 (matching CI):
 
 ```powershell

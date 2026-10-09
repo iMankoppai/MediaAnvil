@@ -1,4 +1,17 @@
-﻿$ErrorActionPreference = 'Stop'
+﻿param(
+    [string]$OutputDirectory = 'dist',
+    [string]$WorkDirectory = 'build'
+)
+$ErrorActionPreference = 'Stop'
+$qtOutputDirectory = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot $OutputDirectory))
+$qtWorkDirectory = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot $WorkDirectory))
+$qtWorkspacePrefix = $PSScriptRoot.TrimEnd('\') + '\'
+foreach ($qtTarget in @($qtOutputDirectory, $qtWorkDirectory)) {
+    if (-not $qtTarget.StartsWith($qtWorkspacePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Build and output directories must be within this project.'
+    }
+}
+
 $qtPython = Join-Path $PSScriptRoot '.build-venv-windows\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $qtPython)) { throw '请使用官方 Windows Python 创建 .build-venv-windows 虚拟环境。' }
 $ffmpegDirectory = Join-Path $PSScriptRoot 'vendor\ffmpeg'
@@ -37,23 +50,23 @@ try {
         (Join-Path $qtBase 'DLLs'),
         (Join-Path $env:SystemRoot 'System32'), $env:SystemRoot
     ) -join [IO.Path]::PathSeparator
-    $qtBuildArgs += @('--distpath', (Join-Path $PSScriptRoot 'dist'),
-                     '--workpath', (Join-Path $PSScriptRoot 'build'),
-                     '--specpath', (Join-Path $PSScriptRoot 'build'))
+    $qtBuildArgs += @('--distpath', $qtOutputDirectory,
+                     '--workpath', $qtWorkDirectory,
+                     '--specpath', $qtWorkDirectory)
     & $qtPython (Join-Path $PSScriptRoot 'tools\run_qt_pyinstaller.py') @qtBuildArgs
     if ($LASTEXITCODE -ne 0) { throw 'Qt 版打包失败。' }
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'USER_GUIDE.md') -Destination (Join-Path $PSScriptRoot 'dist\MediaAnvilQt\USER_GUIDE.md') -Force
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'USER_GUIDE.en.md') -Destination (Join-Path $PSScriptRoot 'dist\MediaAnvilQt\USER_GUIDE.en.md') -Force
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README-Qt.md') -Destination (Join-Path $PSScriptRoot 'dist\MediaAnvilQt\README-Qt.md') -Force
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README-Qt.en.md') -Destination (Join-Path $PSScriptRoot 'dist\MediaAnvilQt\README-Qt.en.md') -Force
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'LICENSE') -Destination (Join-Path $PSScriptRoot 'dist\MediaAnvilQt\LICENSE') -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'USER_GUIDE.md') -Destination (Join-Path $qtOutputDirectory 'MediaAnvilQt\USER_GUIDE.md') -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'USER_GUIDE.en.md') -Destination (Join-Path $qtOutputDirectory 'MediaAnvilQt\USER_GUIDE.en.md') -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README-Qt.md') -Destination (Join-Path $qtOutputDirectory 'MediaAnvilQt\README-Qt.md') -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README-Qt.en.md') -Destination (Join-Path $qtOutputDirectory 'MediaAnvilQt\README-Qt.en.md') -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'LICENSE') -Destination (Join-Path $qtOutputDirectory 'MediaAnvilQt\LICENSE') -Force
     # The user guide points at THIRD_PARTY_NOTICES.md and licenses/ inside the
     # release folder, so both must be visible next to the executable.
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'THIRD_PARTY_NOTICES.md') -Destination (Join-Path $PSScriptRoot 'dist\MediaAnvilQt\THIRD_PARTY_NOTICES.md') -Force
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'licenses\qt') -Destination (Join-Path $PSScriptRoot 'dist\MediaAnvilQt\licenses\qt') -Recurse -Force
-    & $qtPython (Join-Path $PSScriptRoot 'tools\verify_qt_build.py')
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'THIRD_PARTY_NOTICES.md') -Destination (Join-Path $qtOutputDirectory 'MediaAnvilQt\THIRD_PARTY_NOTICES.md') -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'licenses\qt') -Destination (Join-Path $qtOutputDirectory 'MediaAnvilQt\licenses\qt') -Recurse -Force
+    & $qtPython (Join-Path $PSScriptRoot 'tools\verify_qt_build.py') --build-directory $qtWorkDirectory --dist-directory $qtOutputDirectory
     if ($LASTEXITCODE -ne 0) { throw 'Qt 成品自检失败，不能交付。' }
 } finally {
     $env:PATH = $qtOriginalPath
 }
-Write-Host '完成：dist\MediaAnvilQt\MediaAnvilQt.exe（请保留整个文件夹）'
+Write-Host "完成：$qtOutputDirectory\MediaAnvilQt\MediaAnvilQt.exe（请保留整个文件夹）"

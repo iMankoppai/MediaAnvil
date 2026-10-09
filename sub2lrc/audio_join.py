@@ -341,11 +341,34 @@ def _run(command: list[str], destination: Path, expected_seconds: float | None,
         raise AudioConversionError("处理失败：FFmpeg 没有生成有效的音频文件。")
 
 
+def stream_copy_signature(ffmpeg, path, output_format):
+    """Conservative eligibility: same container, codec, rate and channel layout."""
+    import re
+    if path.suffix.lower()!=FORMAT_SPECS[output_format].extension:return None
+    codecs={'mp3':'mp3','wav':'pcm_s16le','flac':'flac','m4a':'aac','aac':'aac'}
+    if output_format not in codecs:return None
+    try:
+        probe=subprocess.run([str(ffmpeg),'-nostdin','-hide_banner','-i',str(path)],
+            capture_output=True,text=True,encoding='utf8',errors='replace',timeout=15,creationflags=_creation_flags())
+    except (OSError,subprocess.TimeoutExpired):return None
+    streams=re.findall(r'Audio: ([^\r\n]+)',probe.stderr)
+    if len(streams)!=1:return None
+    parts=[p.strip() for p in streams[0].split(',')]
+    if len(parts)<4 or parts[0].split()[0]!=codecs[output_format] or not re.fullmatch(r'\d+ Hz',parts[1]):return None
+    return tuple(parts[:4])
+
+
+def can_stream_copy(ffmpeg, paths, output_format, polish):
+    if polish.normalize or polish.fade_seconds:return False
+    signatures=[stream_copy_signature(ffmpeg,p,output_format) for p in paths]
+    return bool(signatures) and signatures[0] is not None and all(s==signatures[0] for s in signatures)
+
+
 def merge_audio(sources: Iterable[str | Path], output_format: str = "mp3",
                 output_dir: str | Path | None = None,
                 progress: ProgressCallback | None = None,
                 ffmpeg_path: str | Path | None = None,
-                *, polish: AudioPolish | None = None,
+                *, polish: AudioPolish | None = None, fast: bool = False,
                 cancel_check: Callable[[], None] | None = None,
                 process_callback: Callable[[subprocess.Popen[str] | None], None] | None = None,
                 timeout_seconds: float = DEFAULT_FFMPEG_TIMEOUT_SECONDS) -> Path:
@@ -369,6 +392,17 @@ def merge_audio(sources: Iterable[str | Path], output_format: str = "mp3",
     destination = _unique(directory, f"{stem}-合并", extension)
     total = sum(_duration_seconds(ffmpeg, path) or 0.0 for path in paths) or None
     spec = FORMAT_SPECS[output_format]
+    if fast and can_stream_copy(ffmpeg,paths,output_format,polish):
+        import tempfile
+        # ffconcat has its own quoting rules; this is never passed to a shell.
+        with tempfile.TemporaryDirectory(prefix='mediaanvil-concat-') as temporary:
+            manifest=Path(temporary)/'inputs.ffconcat'
+            entries=["file '"+p.resolve().as_posix().replace("'","'\\''")+"'" for p in paths]
+            manifest.write_text('ffconcat version 1.0\n'+'\n'.join(entries)+'\n',encoding='utf8')
+            command=[str(ffmpeg),'-nostdin','-hide_banner','-loglevel','error','-f','concat','-safe','0',
+                '-i',str(manifest),'-map','0:a:0','-vn','-codec:a','copy','-n','-progress','pipe:1','-nostats',str(destination)]
+            _run(command,destination,total,progress,0.0,100.0,cancel_check,process_callback,timeout_seconds)
+        return destination
     command = [str(ffmpeg), "-nostdin", "-hide_banner", "-loglevel", "error"]
     for path in paths:
         command.extend(("-i", str(path)))
@@ -415,7 +449,7 @@ def split_audio(source: str | Path, plans: Iterable[SplitPlan], output_format: s
                 output_dir: str | Path | None = None,
                 progress: ProgressCallback | None = None,
                 ffmpeg_path: str | Path | None = None,
-                *, polish: AudioPolish | None = None,
+                *, polish: AudioPolish | None = None, fast: bool = False,
                 cancel_check: Callable[[], None] | None = None,
                 process_callback: Callable[[subprocess.Popen[str] | None], None] | None = None,
                 timeout_seconds: float = DEFAULT_FFMPEG_TIMEOUT_SECONDS) -> tuple[Path, ...]:
@@ -440,6 +474,9 @@ def split_audio(source: str | Path, plans: Iterable[SplitPlan], output_format: s
     directory = _output_directory(output_dir, path)
     extension = FORMAT_SPECS[output_format].extension
     spec = FORMAT_SPECS[output_format]
+    # PCM packets need not coincide with a requested sample. WAV cuts retain
+    # the exact lossless path; whole-file joins can still copy.
+    copy_audio=fast and output_format!='wav' and can_stream_copy(ffmpeg,[path],output_format,polish)
     stem = sanitize_windows_stem(path.stem) or "audio"
     outputs: list[Path] = []
     for index, plan in enumerate(pieces, 1):
@@ -460,8 +497,8 @@ def split_audio(source: str | Path, plans: Iterable[SplitPlan], output_format: s
                             "-map", "[out]"))
         else:
             command.extend(("-map", "0:a:0"))
-        command.extend(("-vn", "-codec:a", spec.codec))
-        if spec.key in {"mp3", "m4a", "aac"}:
+        command.extend(("-vn", "-codec:a", 'copy' if copy_audio else spec.codec))
+        if not copy_audio and spec.key in {"mp3", "m4a", "aac"}:
             command.extend(("-b:a", f"{spec.default_parameter}k"))
         if spec.key == "mp3":
             command.extend(("-id3v2_version", "3"))

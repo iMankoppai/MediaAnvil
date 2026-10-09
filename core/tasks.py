@@ -93,12 +93,15 @@ class TaskHistory:
 
 
 def save_task_histories(path: Path, histories: tuple[TaskHistory, ...] | list[TaskHistory]) -> None:
+    pending={h.task_id for h in histories if any(r.state in {'排队','等待','处理中'} for r in h.records)}
+    recent={h.task_id for h in histories if h.task_id not in pending}
+    recent=set(h.task_id for h in [h for h in histories if h.task_id in recent][-20:])
     write_json(path, {"version": 1, "tasks": [
         {"kind": task.kind, "parameters": task.parameters, "created_at": task.created_at,
          "task_id": task.task_id, "records": [
              {"source": str(r.source), "state": r.state, "message": r.message,
               "output": str(r.output) if r.output else None} for r in task.records]}
-        for task in histories[-20:]]})
+        for task in histories if task.task_id in pending or task.task_id in recent]})
 
 
 def load_task_histories(path: Path) -> list[TaskHistory]:
@@ -106,7 +109,7 @@ def load_task_histories(path: Path) -> list[TaskHistory]:
     if not isinstance(raw, dict) or raw.get("version") != 1 or not isinstance(raw.get("tasks"), list):
         return []
     histories = []
-    for value in raw["tasks"][-20:]:
+    for value in raw["tasks"][-100:]:
         try:
             if not isinstance(value["parameters"], dict) or not isinstance(value["records"], list):
                 continue
@@ -114,7 +117,7 @@ def load_task_histories(path: Path) -> list[TaskHistory]:
             for r in value["records"]:
                 if not isinstance(r["source"], str) or not isinstance(r["state"], str):
                     raise ValueError("Invalid task record")
-                state = "已中断" if r["state"] in {"等待", "处理中"} else r["state"]
+                state = "已中断" if r["state"] in {"排队", "等待", "处理中"} else r["state"]
                 records.append(TaskRecord(Path(r["source"]), state, str(r.get("message", "")),
                                           Path(r["output"]) if r.get("output") else None))
             histories.append(TaskHistory(str(value["kind"]), tuple(records), value["parameters"],

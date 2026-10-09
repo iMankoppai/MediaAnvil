@@ -53,6 +53,16 @@ Run the Qt integration tests with:
 
 Integration tests cover event-loop responsiveness, conversion, source-file preservation, metadata Save As, rename and undo behavior, lyrics seeking, settings, and cropping. Automated tests cannot prove that native title-bar movement is visually stable on every user system; verify the final Qt build by dragging its window on a real desktop.
 
+Build into separate directories to preserve an existing distribution:
+
+```powershell
+.\build-qt.ps1 -OutputDirectory dist-upgrade -WorkDirectory .test-tools\upgrade-build
+.build-venv-windows\Scripts\python.exe tools\verify_release_matrix.py --executable dist-upgrade\MediaAnvilQt\MediaAnvilQt.exe
+.build-venv-windows\Scripts\python.exe tools\benchmark_upgrade.py --extended --skip-legacy
+```
+
+The matrix launches the frozen app in Chinese scratch paths with a system-only PATH and validates native decoding, ten pages and Qt scales of 100%, 125%, 150% and 200%, saving screenshots. This does not replace testing another computer or actual Windows display settings. Repeat `--audio PATH` for read-only measurements of real audio and use `--work-directory EXISTING_DIRECTORY` to compare disks. Synthetic signals are explicitly identified in the report.
+
 ## Third-party components
 
 Qt/PySide6/Shiboken 6.11.2 is distributed as separate dynamic libraries. ICU uses the Windows system runtime; it is not bundled or downloaded separately. Qt/PySide open-source license information is provided in `licenses/qt/`. Source and build information:

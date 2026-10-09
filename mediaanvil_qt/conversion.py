@@ -7,7 +7,8 @@ from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QLabel, QSpinBox, QDoubleSpinBox, QCheckBox, QPlainTextEdit, QFileDialog, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QHeaderView, QSizePolicy, QPushButton, QFrame
 from .design import icon
-from .common import Page, FileList, OutputPath, button, row, combo, Columns, table, fill_table, thumbnail, StatusDelegate, ThumbnailDelegate, dialog_initial_directory, remember_dialog_selection
+from .cover_widgets import ResponsiveCover
+from .common import Page, FileList, OutputPath, button, row, combo, Columns, table, fill_table, StatusDelegate, ThumbnailDelegate, dialog_initial_directory, remember_dialog_selection
 from .services import convert_files, output_directory_problem
 from sub2lrc.audio_converter import FORMAT_SPECS, SUPPORTED_INPUT_EXTENSIONS, AudioConversionSettings
 from sub2lrc.image_converter import IMAGE_FORMAT_SPECS, SUPPORTED_IMAGE_EXTENSIONS, ImageConversionSettings
@@ -101,7 +102,7 @@ class ConversionPage(Page):
         self.start_button=button('开始批量转换',self.start,True,'convert')
         self.start_button.setMinimumHeight(32);self.start_button.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed)
         settings_body.removeWidget(self.auto_open);settings_body.addWidget(row(self.auto_open,self.start_button))
-        result_card,result_body,self.result_detail=step_group(3,'转换结果预览' if kind=='subtitle' else '转换完成','选择文件查看转换结果，支持另存为')
+        result_card,result_body,self.result_detail=step_group(3,'转换结果预览' if kind=='subtitle' else '转换结果','选择文件查看转换结果，支持另存为')
         self.step_cards=(source,settings,result_card)
         self.columns=Columns(left,result_card,700);self.layout.addWidget(self.columns,1)
         self.summary=QLabel('暂无转换记录');self.summary.setObjectName('muted');self.summary.hide();result_body.addWidget(self.summary)
@@ -123,7 +124,7 @@ class ConversionPage(Page):
         empty_hint=QLabel('转换完成后，文件内容将在这里显示' if kind=='subtitle' else '转换完成后，文件将显示在这里');empty_hint.setObjectName('muted');empty_layout.addWidget(empty_hint,0,Qt.AlignmentFlag.AlignCenter)
         empty_more=QLabel('请选择左侧文件并进行转换');empty_more.setObjectName('muted');empty_layout.addWidget(empty_more,0,Qt.AlignmentFlag.AlignCenter);empty_layout.addStretch()
         result_body.addWidget(self.empty,1);self.result_table.hide()
-        self.preview=QLabel('选择转换结果查看预览');self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter);self.preview.setMinimumHeight(90)
+        self.preview=ResponsiveCover();self.preview.set_artwork(None,'选择转换结果查看预览');self.preview.setMinimumHeight(90)
         self.detail=QLabel('');self.detail.setWordWrap(True);self.detail.setObjectName('muted')
         if kind=='image':
             result_body.addWidget(self.preview);result_body.addWidget(self.detail);self.preview.hide();self.detail.hide()
@@ -139,6 +140,8 @@ class ConversionPage(Page):
             control.setSizePolicy(QSizePolicy.Policy.Preferred,QSizePolicy.Policy.Fixed)
         for control in self.toolbar.findChildren(QPushButton):control.setSizePolicy(QSizePolicy.Policy.Ignored,QSizePolicy.Policy.Fixed)
         self.start_button.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed)
+        from .tool_layouts import conversion_layout
+        conversion_layout(self)
         self._layout_ready=True
     def current_preset_state(self):
         fields={'kind':self.kind,'format':self.format.currentData(),'output_directory':self.output.text()}
@@ -153,8 +156,8 @@ class ConversionPage(Page):
         if fields.get('format'):self.format.setCurrentIndex(max(0,self.format.findData(fields['format'])))
         if self.kind=='audio':
             if fields.get('parameter') is not None:self.parameter.setCurrentIndex(max(0,self.parameter.findData(fields['parameter'])))
-            if fields.get('rate') is not None:self.rate.setCurrentIndex(max(0,self.rate.findData(fields['rate'])))
-            if fields.get('channels') is not None:self.channels.setCurrentIndex(max(0,self.channels.findData(fields['channels'])))
+            if 'rate' in fields:self.rate.setCurrentIndex(max(0,self.rate.findData(fields['rate'])))
+            if 'channels' in fields:self.channels.setCurrentIndex(max(0,self.channels.findData(fields['channels'])))
             if 'preserve' in fields:self.preserve.setChecked(bool(fields['preserve']))
         elif self.kind=='image':
             if fields.get('quality') is not None:self.quality.setValue(int(fields['quality']))
@@ -175,7 +178,6 @@ class ConversionPage(Page):
         if not paths:return self.app.inform(self.app.t('请先添加并勾选要转换的文件。'))
         self.convert_paths(paths)
     def convert_paths(self,paths,parameters=None):
-        if self.app._worker or self.app._importing:return self.app.inform(self.app.t('当前任务仍在处理，请等待完成。'))
         parameters=dict(parameters if parameters is not None else self.current_preset_state())
         paths=tuple(Path(p) for p in paths)
         if not paths:return
@@ -190,7 +192,6 @@ class ConversionPage(Page):
         directory=parameters.get('output_directory','');kind=self.kind;self.started=time.monotonic()
         problem=output_directory_problem(directory)
         if problem:return self.app.inform(self.app.t(problem))
-        task_id=self.app.begin_task_history(kind,paths,parameters)
         def work(report):
             records=[]
             for i,source in enumerate(paths):
@@ -207,9 +208,10 @@ class ConversionPage(Page):
                 records.append(record)
                 report.checkpoint(TaskRecord(source,'已完成' if target else '失败',record['message'],target))
             return records
-        self.app.run_task(work,lambda records:self.completed(records,parameters,task_id))
+        self.app.submit_task(kind,paths,parameters,work,lambda records,task_id:self.completed(records,parameters,task_id))
     def completed(self,records,parameters=None,task_id=None):
         self.records=records;self.last_outputs=[r['path'] for r in records if r['path']]
+        self.retry_button.setEnabled(any(not r['path'] for r in records))
         self.app.record_task_history(self.kind,[TaskRecord(r['source'],'失败' if not r['path'] else '已完成',r['message'],r['path']) for r in records],parameters,task_id)
         self.empty.hide();self.summary.show();self.result_picker.setEnabled(bool(records))
         if self.kind=='subtitle':self.results.show()
@@ -246,9 +248,10 @@ class ConversionPage(Page):
         if self.kind=='image':
             self.preview.clear()
             if path:
-                self.preview.setPixmap(thumbnail(path,210).pixmap(210,150))
+                try:self.preview.set_artwork(path.read_bytes())
+                except OSError as exc:self.preview.set_artwork(None,str(exc))
                 self.detail.setText(f"{path.name}\n{record['size']/1024:.1f} KB · {record['dimensions']}\n{self.app.t('完成时间：')}{record['finished']}")
-            else:self.preview.setText(self.app.t('转换失败'));self.detail.setText(self.app.t(record['message']))
+            else:self.preview.set_artwork(None,self.app.t('转换失败'));self.detail.setText(self.app.t(record['message']))
     def current_record(self):
         index=self.result_picker.currentIndex()
         return self.records[index] if 0<=index<len(self.records) else None
@@ -291,13 +294,13 @@ class ConversionPage(Page):
             card.step_badge.setFixedSize(32,32) if roomy else card.step_badge.setFixedSize(24,24)
         self.source_detail.hide()
         for detail in (self.settings_detail,self.result_detail):detail.setVisible(roomy)
-        self.tagline.setVisible(available.width()>=900)
+        self.tagline.hide()
         long_labels=(('添加图片' if self.kind=='image' else '添加文件'),'移除','清空')
         short_labels=('添加…','移除','清空')
         for control,text in zip(self.toolbar.findChildren(QPushButton),long_labels if roomy else short_labels):control.setText(self.app.t(text))
         self.result_table.setMinimumHeight(190 if roomy else 130)
         self.results.setMinimumHeight(310 if roomy and self.kind=='subtitle' else 190 if self.kind=='subtitle' else 0)
-        self.preview.setMinimumHeight(130 if roomy else 90)
+        self.preview.setMinimumHeight(240 if roomy and self.kind=='image' else 90)
         if not roomy:
             self._refresh_compact_height();QTimer.singleShot(0,self._refresh_compact_height)
     def _refresh_compact_height(self):

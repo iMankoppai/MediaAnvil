@@ -51,6 +51,16 @@
 
 集成测试覆盖界面线程响应、转换、源文件保护、标签另存、重命名与撤销、歌词跳转、设置、裁剪等。自动测试不能证明用户机器上的原生标题栏视觉跳位已消失；需要对最终 Qt 版进行实际拖动验收。
 
+本地升级验收可使用独立构建目录，保留原 `dist`：
+
+```powershell
+.\build-qt.ps1 -OutputDirectory dist-upgrade -WorkDirectory .test-tools\upgrade-build
+.build-venv-windows\Scripts\python.exe tools\verify_release_matrix.py --executable dist-upgrade\MediaAnvilQt\MediaAnvilQt.exe
+.build-venv-windows\Scripts\python.exe tools\benchmark_upgrade.py --extended --skip-legacy
+```
+
+缩放检查会在中文临时路径启动冻结版，限制 PATH 为系统目录，验证原生解码、10 个页面以及 Qt 100%/125%/150%/200% 缩放，并保存截图。此检查不能替代另一台电脑或真实 Windows 显示设置的验收。性能工具可用重复的 `--audio 文件路径` 只读测量真实音频，用 `--work-directory 已有目录` 比较不同磁盘；合成信号的结果会明确标记。
+
 ## 第三方组件
 
 Qt/PySide6/Shiboken 6.11.2 以独立动态库随附。ICU 使用 Windows 系统运行时，不随应用打包，也无需单独下载。Qt/PySide 的开源许可信息见 `licenses/qt/`，源码与构建信息：

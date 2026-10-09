@@ -417,3 +417,17 @@ JPG does not support transparency. MediaAnvil fills transparent pixels with whit
 ## 13. Third-party components
 
 MediaAnvil includes Qt/PySide6, FFmpeg, and FFplay; ICU uses the Windows system runtime. License information is provided in `THIRD_PARTY_NOTICES.md` and the `licenses` directory inside the release folder.
+
+## 14. Music Organizer and queued tasks
+
+Open Music Organizer from Task Center, choose a folder and select tracks. Follow Match Lyrics and Artwork, Preview Tag Changes, and Preview Rename. Enter tag values on the Tag Editor page and choose ambiguous associations manually. Writes still require the corresponding page action; the organizer does not modify files automatically. Return to Organizer keeps the same selection and follows successful save-as and rename outputs.
+
+Batch conversions, tag writes, joins, splits and renames run serially. Submission captures the input files and settings; later changes to controls do not alter pending jobs. Task Center can reorder or cancel pending jobs. Cancel Task stops the active job. Up to 20 jobs may wait. Interrupted jobs remain available for manual retry after restart. Matching selectors show 100 tracks per page and retain choices across pages; batch writing includes the entire scan.
+
+## 15. Playback, fast export and verification
+
+Native playback adjusts volume, speed and position continuously and synchronizes lyrics to the decoder clock. Scratch copies keep original files editable. Unsupported native playback falls back to compatibility playback with a message.
+
+Fast Export can copy compatible same-format audio without encoding when effects are disabled. Cuts follow audio frame boundaries and may vary slightly; leave this option off for precise cuts. WAV cuts retain exact processing. Incompatible inputs and enabled effects automatically use the precise path.
+
+Task Center can open output folders, verify results on disk and export CSV reports including errors, paths and original parameters. Verification checks readable audio duration, image integrity and subtitle parsing; it does not replace listening to the full output.

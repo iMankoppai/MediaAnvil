@@ -3,138 +3,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QCheckBox, QDoubleSpinBox, QHBoxLayout, QLabel,
     QRadioButton, QButtonGroup, QSpinBox, QVBoxLayout, QWidget, QSizePolicy,
     )
 
+from .waveform import WaveformView as WaveformView, width_start as width_start
 from .common import (Page, FileList, OutputPath, button, row, combo, Columns, table,
     fill_table)
 from .conversion import step_group
 from sub2lrc.audio_converter import FORMAT_SPECS, SUPPORTED_INPUT_EXTENSIONS
 from sub2lrc.audio_join import (AudioPolish, MAX_FADE_SECONDS, SplitPlan, audio_duration,
     audio_peaks, merge_audio, plan_equal_parts, plan_fixed_length, split_audio)
-
-
-class WaveformView(QWidget):
-    """Interactive waveform with a draggable selection range.
-
-    The widget owns no audio state: callers set peaks/duration and read back
-    ``selection_start``/``selection_end`` in seconds. Painting is cheap because
-    only the cached peak list is redrawn.
-    """
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setMinimumHeight(140)
-        self.peaks: tuple[float, ...] = ()
-        self.duration: float = 0.0
-        self.selection_start = 0.0
-        self.selection_end = 0.0
-        self._drag_side = None  # None, 'start', 'end', 'move'
-        self._press_time = 0.0
-        self._press_start = 0.0
-        self._press_end = 0.0
-        self.selectionChanged = None  # optional callback(seconds_start, seconds_end)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-
-    # -- data ------------------------------------------------------------
-    def set_audio(self, duration: float, peaks: tuple[float, ...]):
-        self.duration = float(duration or 0.0)
-        self.peaks = tuple(peaks)
-        self.selection_start = 0.0
-        self.selection_end = self.duration
-        self.update()
-        self._emit()
-
-    def clear_audio(self):
-        self.duration = 0.0; self.peaks = ()
-        self.selection_start = 0.0; self.selection_end = 0.0
-        self.update(); self._emit()
-
-    def set_selection(self, start: float, end: float):
-        self.selection_start = max(0.0, min(start, self.duration))
-        self.selection_end = max(self.selection_start, min(end, self.duration))
-        self.update(); self._emit()
-
-    def _emit(self):
-        if callable(self.selectionChanged):
-            self.selectionChanged(self.selection_start, self.selection_end)
-
-    # -- geometry --------------------------------------------------------
-    def _time_at(self, x: float) -> float:
-        width = max(1.0, self.width())
-        return max(0.0, min(1.0, x / width)) * self.duration
-
-    def _x_at(self, seconds: float) -> float:
-        if self.duration <= 0: return 0.0
-        return (seconds / self.duration) * self.width()
-
-    # -- interaction -----------------------------------------------------
-    def mousePressEvent(self, event):
-        if self.duration <= 0: return
-        position = event.position().x()
-        time = self._time_at(position)
-        start_x, end_x = self._x_at(self.selection_start), self._x_at(self.selection_end)
-        edge = max(12, int(self.width() * 0.02))
-        if abs(position - start_x) <= edge:
-            self._drag_side = 'start'
-        elif abs(position - end_x) <= edge:
-            self._drag_side = 'end'
-        elif start_x <= position <= end_x:
-            self._drag_side = 'move'
-            self._press_time = time
-            self._press_start, self._press_end = self.selection_start, self.selection_end
-        else:
-            self._drag_side = 'start' if position < width_start(end_x, start_x) else 'end'
-            self.set_selection(time, self.selection_end if self._drag_side == 'start' else time)
-        self._press_time = time
-
-    def mouseMoveEvent(self, event):
-        if not self._drag_side or self.duration <= 0: return
-        time = self._time_at(event.position().x())
-        if self._drag_side == 'start':
-            self.set_selection(min(time, self.selection_end), self.selection_end)
-        elif self._drag_side == 'end':
-            self.set_selection(self.selection_start, max(time, self.selection_start))
-        else:
-            delta = time - self._press_time
-            span = self._press_end - self._press_start
-            start = max(0.0, min(self._press_start + delta, self.duration - span))
-            self.set_selection(start, start + span)
-
-    def mouseReleaseEvent(self, event):
-        self._drag_side = None
-
-    # -- painting --------------------------------------------------------
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = QRectF(self.rect()).adjusted(0.5, 4.5, -0.5, -4.5)
-        painter.setPen(QPen(QColor('#c8daf7'), 1))
-        painter.setBrush(QColor('#f4f8ff'))
-        painter.drawRoundedRect(rect, 8, 8)
-        if not self.peaks or self.duration <= 0: return
-        middle = rect.center().y()
-        amplitude = rect.height() / 2 - 6
-        bucket_width = rect.width() / len(self.peaks)
-        start_x, end_x = self._x_at(self.selection_start), self._x_at(self.selection_end)
-        for index, peak in enumerate(self.peaks):
-            x = rect.left() + index * bucket_width
-            height = max(1.0, peak * amplitude)
-            inside = start_x <= x <= end_x
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor('#2b70f3' if inside else '#9fb7db'))
-            painter.drawRect(QRectF(x, middle - height, max(1.0, bucket_width - 0.5), height * 2))
-        painter.setPen(QPen(QColor('#246ef0'), 1, Qt.PenStyle.DashLine))
-        painter.drawLine(QPointF(start_x, rect.top()), QPointF(start_x, rect.bottom()))
-        painter.drawLine(QPointF(end_x, rect.top()), QPointF(end_x, rect.bottom()))
-
-
-def width_start(end_x: float, start_x: float) -> float:
-    """Helper kept tiny: clicking left of the selection midpoint extends start."""
-    return (start_x + end_x) / 2
 
 
 class JoinPage(Page):
@@ -250,6 +130,9 @@ class JoinPage(Page):
         polish_row = row(self.fade_enabled, self.fade_seconds, self.normalize)
         self.polish_row = polish_row
         output_body.addWidget(polish_row)
+        self.fast_export=QCheckBox('快速导出（兼容时免重编码）')
+        self.fast_export.setToolTip('快速模式按音频帧切分，切点可能有轻微偏差；格式不兼容或启用音效时自动使用精确模式。')
+        output_body.addWidget(self.fast_export)
         self.polish_note = QLabel('两项默认关闭；勾选后仅作用于新生成的文件。')
         self.polish_note.setObjectName('muted')
         output_body.addWidget(self.polish_note)
@@ -273,6 +156,8 @@ class JoinPage(Page):
         self.layout.addWidget(self.footer)
         # The default-checked button emits no toggle signal, so the initial
         # label and option visibility are applied explicitly here.
+        from .tool_layouts import join_layout
+        join_layout(self)
         self.mode_changed()
         self.files.filesChanged.connect(self.refresh_waveform_source)
         self._wave_source = None
@@ -396,54 +281,65 @@ class JoinPage(Page):
         paths = self.files.checked_paths()
         if not paths:
             return self.app.inform(self.app.t('请先添加并勾选要处理的文件。'))
-        output_format = self.format.currentData()
-        directory = self.output.text()
-        polish = self.current_polish()
+        parameters={'mode':self.current_mode(),'format':self.format.currentData(),'output_directory':self.output.text(),
+            'fade':self.current_polish().fade_seconds,'normalize':self.current_polish().normalize,
+            'fast':self.fast_export.isChecked(),'split_mode':self.split_mode.currentData(),
+            'parts':self.split_parts.value(),'length':self.split_length.value(),
+            'start':self.waveform.selection_start,'end':self.waveform.selection_end}
+        self.submit_parameters(paths,parameters)
+
+    def submit_parameters(self,paths,parameters):
+        paths=tuple(Path(p) for p in paths)
+        output_format=parameters['format'];directory=parameters.get('output_directory','')
+        polish=AudioPolish(fade_seconds=parameters.get('fade',0),normalize=parameters.get('normalize',False))
+        fast=parameters.get('fast',False);mode=parameters['mode']
         try:
             polish.validate()
         except Exception as exc:
             return self.app.inform(str(exc))
-        if self.current_mode() == 'merge':
+        if mode == 'merge':
             if len(paths) < 2:
                 return self.app.inform(self.app.t('合并至少需要两个音频文件。'))
             sources = list(paths)
-            self.app.run_task(
+            self.app.submit_task('join',sources,parameters,
                 lambda report: [merge_audio(sources, output_format, directory, report,
-                                            polish=polish,
+                                            polish=polish,fast=fast,
                                             cancel_check=report.raise_if_cancelled,
                                             process_callback=report.register_process)],
-                self.finished)
+                lambda outputs,task_id:self.finished(outputs,task_id,sources))
             return
         source = paths[0]
-        if self.current_mode() == 'crop':
-            start, end = self.waveform.selection_start, self.waveform.selection_end
+        if mode == 'crop':
+            start,end=parameters['start'],parameters['end']
             if end - start < 0.05:
                 return self.app.inform(self.app.t('选区太短，请先拖宽选区。'))
             plans = (SplitPlan(start, end - start),)
         else:
-            by_parts = self.split_mode.currentData() == 'parts'
-            parts = self.split_parts.value()
-            length = self.split_length.value()
+            by_parts=parameters['split_mode']=='parts';parts=parameters['parts'];length=parameters['length']
             def work(report):
                 report(0, source.name)
                 total = audio_duration(source)
                 plan_list = plan_equal_parts(total, parts) if by_parts else plan_fixed_length(total, length)
                 return list(split_audio(source, plan_list, output_format, directory, report,
-                                        polish=polish,
+                                        polish=polish,fast=fast,
                                         cancel_check=report.raise_if_cancelled,
                                         process_callback=report.register_process))
-            self.app.run_task(work, self.finished)
+            self.app.submit_task('join',[source],parameters,work,lambda outputs,task_id:self.finished(outputs,task_id,[source]))
             return
         def crop_work(report):
             report(0, source.name)
             return list(split_audio(source, plans, output_format, directory, report,
-                                    polish=polish,
+                                    polish=polish,fast=fast,
                                     cancel_check=report.raise_if_cancelled,
                                     process_callback=report.register_process))
-        self.app.run_task(crop_work, self.finished)
+        self.app.submit_task('join',[source],parameters,crop_work,lambda outputs,task_id:self.finished(outputs,task_id,[source]))
 
-    def finished(self, outputs):
+    def finished(self, outputs,task_id=None,sources=()):
         outputs = [Path(path) for path in outputs]
+        if task_id:
+            from core.tasks import TaskRecord
+            records=[TaskRecord(source,'已完成',output=outputs[0]) for source in sources] if len(sources)>1 else [TaskRecord(sources[0],'已完成',output=p) for p in outputs]
+            self.app.record_task_history('join',records,task_id=task_id)
         self.last_outputs = outputs
         rows = []
         for path in outputs:
@@ -480,4 +376,4 @@ class JoinPage(Page):
             card.step_badge.setFixedSize(32, 32) if roomy else card.step_badge.setFixedSize(24, 24)
         for detail in (self.source_detail, self.mode_detail, self.output_detail, self.result_detail):
             detail.setVisible(roomy)
-        self.tagline.setVisible(available.width() >= 980)
+        self.tagline.hide()

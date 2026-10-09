@@ -8,7 +8,11 @@ from sub2lrc.image_converter import convert_image_batch
 from sub2lrc.converter import convert_content, convert_file, read_subtitle, shift_lrc, unique_output_path
 from sub2lrc.embedder import read_lrc
 from sub2lrc.audio_metadata import AudioMetadataChanges, read_metadata, write_metadata
-from core.tasks import TaskCancelled
+from core.tasks import TaskCancelled, TaskRecord
+
+
+def checkpoint(progress,audio,state,message='',output=None):
+    if hasattr(progress,'checkpoint'):progress.checkpoint(TaskRecord(Path(audio),state,message,Path(output) if output else None))
 
 
 EMBEDDABLE_LYRIC_EXTENSIONS=frozenset({'.lrc','.srt','.vtt'})
@@ -178,10 +182,12 @@ def batch_edit_tags(audio_paths, values, overwrite, directory, progress):
             target = None if overwrite else tagged_destination(audio, directory)
             output = write_metadata(audio, AudioMetadataChanges(**fields), target)
             lines.append(f'完成：{output}')
+            checkpoint(progress,audio,'已完成',output=output)
         except TaskCancelled:
             raise
         except Exception as exc:
             lines.append(f'失败：{audio.name} — {exc}')
+            checkpoint(progress,audio,'失败',str(exc))
         progress((index + 1) / total * 100, audio.name)
     return lines
 
@@ -204,10 +210,12 @@ def batch_shift_lyrics(audio_paths, seconds, overwrite, directory, progress):
             state = read_metadata(audio)
             if not state.has_lyrics or not state.lyrics.strip():
                 lines.append(f'跳过：{audio.name}（没有内嵌歌词）')
+                checkpoint(progress,audio,'跳过',lines[-1])
             else:
                 shifted = shift_lrc(state.lyrics, seconds)
                 if shifted == state.lyrics:
                     lines.append(f'跳过：{audio.name}（偏移后没有变化）')
+                    checkpoint(progress,audio,'跳过',lines[-1])
                 else:
                     target = None if overwrite else tagged_destination(audio, directory)
                     with TemporaryDirectory(prefix='mediaanvil-shift-') as temporary:
@@ -215,10 +223,12 @@ def batch_shift_lyrics(audio_paths, seconds, overwrite, directory, progress):
                         lyric.write_text(shifted, encoding='utf-8-sig')
                         output = write_metadata(audio, AudioMetadataChanges(lyrics_path=lyric), target)
                     lines.append(f'完成：{output}')
+                    checkpoint(progress,audio,'已完成',output=output)
         except TaskCancelled:
             raise
         except Exception as exc:
             lines.append(f'失败：{audio.name} — {exc}')
+            checkpoint(progress,audio,'失败',str(exc))
         progress((index + 1) / total * 100, audio.name)
     return lines
 
@@ -249,10 +259,12 @@ def batch_set_cover(audio_paths, cover, overwrite, directory, progress):
                         opened.convert('RGBA').save(image)
                 output = write_metadata(audio, AudioMetadataChanges(cover_path=image), target)
             lines.append(f'完成：{output}')
+            checkpoint(progress,audio,'已完成',output=output)
         except TaskCancelled:
             raise
         except Exception as exc:
             lines.append(f'失败：{audio.name} — {exc}')
+            checkpoint(progress,audio,'失败',str(exc))
         progress((index + 1) / total * 100, audio.name)
     return lines
 
@@ -262,7 +274,7 @@ def write_matches(rows, overwrite, directory, progress):
     for i, (audio, lyric, cover) in enumerate(rows):
         if hasattr(progress, 'raise_if_cancelled'): progress.raise_if_cancelled()
         if not lyric and not cover:
-            lines.append(f'跳过：{audio.name}（无已选关联文件）'); continue
+            lines.append(f'跳过：{audio.name}（无已选关联文件）');checkpoint(progress,audio,'跳过',lines[-1]);continue
         try:
             target = None if overwrite else tagged_destination(audio, directory)
             with TemporaryDirectory(prefix='mediaanvil-match-') as temporary:
@@ -273,7 +285,9 @@ def write_matches(rows, overwrite, directory, progress):
                         image.convert('RGBA').save(cover)
                 output = write_metadata(audio, AudioMetadataChanges(lyrics_path=lyric, cover_path=cover), target)
             lines.append(f'完成：{output}')
+            checkpoint(progress,audio,'已完成',output=output)
         except TaskCancelled: raise
-        except Exception as exc: lines.append(f'失败：{audio.name} — {exc}')
+        except Exception as exc:
+            lines.append(f'失败：{audio.name} — {exc}');checkpoint(progress,audio,'失败',str(exc))
         progress((i+1)/len(rows)*100, audio.name)
     return lines

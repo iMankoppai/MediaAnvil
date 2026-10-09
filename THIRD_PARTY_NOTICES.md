@@ -1,5 +1,21 @@
 # Third-party notices
 
+## Qt native playback
+
+The upgraded desktop player uses Qt Multimedia supplied by the official
+`PySide6-Addons==6.11.2` wheel, alongside `PySide6-Essentials==6.11.2` and Shiboken.
+These components are shipped as separate dynamic libraries. Qt/PySide source
+and license information is described in `README-Qt.md` and `licenses/qt/`.
+
+Qt Multimedia's FFmpeg backend uses the FFmpeg libraries shipped with that Qt
+distribution. They are separate from the gyan.dev command-line binaries below.
+The Qt backend's upstream attribution, license texts and source/build references
+are available in the matching Qt documentation:
+
+- https://doc.qt.io/qt-6.11/qtmultimedia-attribution-ffmpeg.html
+- https://code.qt.io/cgit/qt/qtmultimedia.git/tree/src/3rdparty/ffmpeg?h=6.11.2
+- https://code.qt.io/cgit/qt/qtmultimedia.git/tree/config.tests/ffmpeg?h=6.11.2
+
 ## FFmpeg
 
 The standalone Windows build of MediaAnvil includes `ffmpeg.exe` and `ffplay.exe` from the FFmpeg 9.0.2 essentials build published by gyan.dev, one of the Windows build providers linked from the official FFmpeg download page.

@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+- Preset saving and deletion use the window's settings path and keep existing settings on write failure.
+- Batch conversions, metadata writes, joins and renames can queue with captured inputs and parameters. Pending jobs can be reordered or cancelled; their interrupted history survives restart.
+- A guided Music Organizer reuses media inspection, matching, tag preview and rename tools, following save-as and rename outputs through the session.
+- Native Qt playback changes volume, speed and position without restarting FFplay, reads the decoder clock, preserves pitch and falls back to compatibility playback. Scratch copies keep source files editable during playback.
+- Optional fast join/split export copies compatible audio streams. Effects and incompatible formats use the precise path; WAV cuts retain sample-accurate lossless processing.
+- Rename tables use a data model, association selectors paginate, and task checkpoints are coalesced. Task Center can open output folders, verify audio/image/subtitle results, and export CSV reports with original parameters.
+- Performance checks include non-silent stereo, a 30-minute synthetic recording, corrupt media and sampled process-tree memory. Frozen build checks cover Chinese paths, native decoding, all pages and four Qt display scales.
+- Settings collapse to one column in narrow windows. CI now validates a frozen build on normal changes as well as releases.
+
+### 中文说明
+
+- 修复预设保存、删除及保存失败后的状态一致性。
+- 支持批量任务排队、调整顺序、取消及中断记录恢复；提交时固定文件和处理参数。
+- 新增音乐整理流程，串联检查、匹配、标签预览和重命名，跟随另存与改名后的路径。
+- 使用 Qt 连续播放，实时调整音量、倍速和进度；使用临时副本避免占用原文件，保留兼容播放回退。
+- 增加兼容条件下免重编码的快速导出，保留精确模式和 WAV 精确裁剪。
+- 优化大表格、候选选择分页和状态更新，增加结果检查及含参数的 CSV 处理报告。
+- 扩展性能基准与发行版缩放、中文路径、原生解码验收；窄窗口设置页使用单列。
+
 ## 1.5.1
 
 - Task Center retains the latest 20 tasks locally, retries conversions with their original parameters, and keeps completed outputs when a batch is cancelled. Interrupted files can be retried after restart.

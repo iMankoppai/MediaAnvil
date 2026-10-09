@@ -1,11 +1,9 @@
 """Shared visual language: pale surfaces, line icons and standard Qt controls."""
-import sys
 from functools import lru_cache
-from pathlib import Path
 from PySide6.QtCore import Qt, QSize, QByteArray, QRectF, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QCheckBox
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QCheckBox, QLabel
 
 ICONS = {
     'music': '<path d="M9 18V5l11-2v13M9 8l11-2"/><ellipse cx="6" cy="18" rx="3" ry="2.5"/><ellipse cx="17" cy="16" rx="3" ry="2.5"/>',
@@ -32,6 +30,7 @@ ICONS = {
     'undo':'<path d="M9 7H4v-5M4 7c2-3 5-4 8-4a9 9 0 1 1-8 13"/>',
     'save':'<path d="M4 3h13l3 3v15H4Z"/><path d="M8 3v6h8V3M8 21v-7h8v7"/>',
     'crop':'<path d="M7 3v14a4 4 0 0 0 4 4h10M3 7h14a4 4 0 0 1 4 4v10"/>',
+    'task':'<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3" cy="6" r=".6"/><circle cx="3" cy="12" r=".6"/><circle cx="3" cy="18" r=".6"/>',
 }
 PAGE_ICONS = ['music', 'tag', 'text', 'convert', 'image', 'shuffle', 'rename', 'task', 'settings', 'info']
 # The stretch sits above this entry so the navigation keeps its footer group.
@@ -58,7 +57,7 @@ class Toggle(QCheckBox):
     def hitButton(self, point): return self.rect().contains(point)
     def paintEvent(self, event):
         painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        color = '#2871f5' if self.isChecked() else '#c9d1dc'
+        color = '#315cff' if self.isChecked() else '#c9d1dc'
         if not self.isEnabled(): color = '#dce3ec'
         painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor(color))
         painter.drawRoundedRect(QRectF(1, 3, 42, 22), 11, 11)
@@ -75,93 +74,30 @@ class Navigation(QWidget):
         self.layout = QVBoxLayout(self); self.layout.setContentsMargins(0, 0, 0, 0); self.layout.setSpacing(5)
     def addItem(self, label):
         index = len(self.buttons)
-        if index == NAVIGATION_STRETCH_INDEX: self.layout.addStretch(1)
         item = QPushButton(label); item.setObjectName('navItem'); item.setCheckable(True)
         item.setIcon(icon(PAGE_ICONS[index])); item.setIconSize(QSize(20, 20))
         item.setCursor(Qt.CursorShape.PointingHandCursor)
         item.clicked.connect(lambda checked=False, i=index: self.setCurrentRow(i))
         self.buttons.append(item); self.layout.addWidget(item)
+        if index == 9:self.arrange_groups()
+    def arrange_groups(self):
+        while self.layout.count():self.layout.takeAt(0)
+        for heading,indices in (('工作空间',(0,1,6)),('格式处理',(2,3,4,5)),('',(7,))):
+            if heading:
+                caption=QLabel(heading);caption.setObjectName('navHeading');self.layout.addWidget(caption)
+            for index in indices:self.layout.addWidget(self.buttons[index])
+        self.layout.addStretch(1)
+        for index in (8,9):self.layout.addWidget(self.buttons[index])
+        self.local_status=QLabel('●  本地处理');self.local_status.setObjectName('localStatus')
+        self.layout.addWidget(self.local_status)
     def setCurrentRow(self, index):
         if not 0 <= index < len(self.buttons): return
         changed = self._current != index; self._current = index
         for i, item in enumerate(self.buttons):
             item.setChecked(i == index)
-            item.setIcon(icon(PAGE_ICONS[i], '#246ef0' if i == index else '#43536d'))
+            item.setIcon(icon(PAGE_ICONS[i], '#315cff' if i == index else '#192338'))
         if changed: self.currentRowChanged.emit(index)
     def currentRow(self): return self._current
 
 
-STYLE = '''
-QWidget { font-family:"Microsoft YaHei UI"; font-size:13px; color:#27354e; }
-QMainWindow, QWidget#shell { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #f8fbff,stop:0.5 #edf6ff,stop:1 #f5f9fe); }
-QScrollArea, QScrollArea>QWidget>QWidget, QWidget#sidebar { background:transparent; border:none; }
-QLabel { background:transparent; }
-QLabel#pageTitle { font-size:23px; font-weight:700; color:#172641; }
-QLabel#sectionTitle { font-size:16px; font-weight:600; color:#20304b; }
-QLabel#trackTitle { font-size:22px; font-weight:650; color:#1b2a45; }
-QLabel#brand { font-size:17px; font-weight:700; color:#15243f; }
-QLabel#muted, QLabel#version { color:#66758b; font-size:12px; }
-QLabel#iconBadge { background:#e8f0ff; border-radius:19px; }
-QLabel#pageBadge { background:#e2efff; border-radius:14px; }
-QLabel#success { background:#eaf8f1; color:#148957; padding:10px; border-radius:8px; }
-QLabel#notice { background:#f0f6ff; color:#586f92; padding:8px; border-radius:7px; }
-QLabel#artwork { background:#eef4ff; border:1px solid #e5edfa; border-radius:14px; color:#637493; }
-QLabel#coverPreview { background:transparent; border:0; color:#637493; }
-QFrame#card { background:#ffffff; border:1px solid #edf1f7; border-radius:12px; }
-QFrame#card QLineEdit, QFrame#card QComboBox, QFrame#card QSpinBox, QFrame#card QDoubleSpinBox { background:#f9fbfe; }
-QFrame#card QListWidget, QFrame#card QPlainTextEdit, QFrame#card QTableWidget { background:#ffffff; }
-QPushButton { background:#f9fbfe; border:1px solid #dfe6f0; border-radius:8px; padding:7px 13px; min-height:18px; }
-QPushButton:hover { background:#edf3ff; border-color:#c8daf7; }
-QPushButton:pressed { background:#e1ebfc; }
-QPushButton:focus { border-color:#8ab0fb; }
-QPushButton[primary="true"] { background:#2b70f3; color:white; border-color:#2b70f3; font-weight:600; }
-QPushButton[primary="true"]:hover { background:#1b62e8; }
-QPushButton[danger="true"] { color:#ee5365; background:#fff3f4; border-color:#ffdde2; }
-QPushButton#roundControl { min-width:46px; max-width:46px; min-height:46px; max-height:46px; border-radius:23px; padding:0; background:#f0f5fd; border:0px solid transparent; }
-QPushButton#roundControl:checked { background:#d9eaff; }
-QPushButton#roundPlay { min-width:60px; max-width:60px; min-height:60px; max-height:60px; border-radius:30px; padding:0; background:#0877ff; border:0px solid transparent; }
-QPushButton:disabled { color:#a0acbd; background:#f0f3f8; border-color:#e7edf4; }
-QPushButton#navItem { background:transparent; border:0; border-left:2px solid transparent; border-radius:8px; text-align:left; padding:12px 14px; min-height:22px; font-size:15px; font-weight:600; }
-QPushButton#navItem:hover { background:#e9f0fa; }
-QPushButton#navItem:checked { background:#e2ecfc; color:#246ef0; border-left-color:#2a72fa; font-weight:700; }
-QLineEdit,QComboBox,QSpinBox,QDoubleSpinBox { background:#f9fbfe; border:1px solid #e0e7f1; border-radius:7px; padding:5px 10px; min-height:20px; selection-background-color:#dbe8ff; selection-color:#234672; }
-QLineEdit:focus,QComboBox:focus,QSpinBox:focus,QDoubleSpinBox:focus { border-color:#8ab0fb; }
-QLineEdit:disabled,QComboBox:disabled,QSpinBox:disabled,QDoubleSpinBox:disabled { color:#a0acbd; background:#f1f4f9; }
-QComboBox::drop-down { border:0; width:26px; }
-QComboBox::down-arrow { image:url("@ASSETS@/chevron-down.svg"); width:12px; height:8px; }
-QSpinBox::up-button,QDoubleSpinBox::up-button { subcontrol-origin:border; subcontrol-position:top right; width:22px; border:none; margin:2px 2px 0 0; }
-QSpinBox::down-button,QDoubleSpinBox::down-button { subcontrol-origin:border; subcontrol-position:bottom right; width:22px; border:none; margin:0 2px 2px 0; }
-QSpinBox::up-arrow,QDoubleSpinBox::up-arrow { image:url("@ASSETS@/chevron-up.svg"); width:10px; height:7px; }
-QSpinBox::down-arrow,QDoubleSpinBox::down-arrow { image:url("@ASSETS@/chevron-down.svg"); width:10px; height:7px; }
-QComboBox QAbstractItemView { border:1px solid #e0e7f1; background:white; selection-background-color:#e9f1ff; selection-color:#234672; padding:4px; }
-QListWidget,QPlainTextEdit,QTableWidget { background:white; border:1px solid #e9eef5; border-radius:8px; selection-background-color:#e9f1ff; selection-color:#234672; padding:5px; }
-QListWidget::item { padding:7px; border-radius:5px; }
-QListWidget::item:hover { background:#f1f6ff; }
-QHeaderView::section { background:#f7f9fd; color:#617087; border:none; padding:10px 8px; font-weight:500; }
-QTableWidget { gridline-color:#f0f3f8; }
-QCheckBox { spacing:7px; min-height:23px; }
-QCheckBox::indicator { width:15px; height:15px; }
-QCheckBox::indicator:unchecked { border:1px solid #cbd6e5; border-radius:4px; background:white; }
-QCheckBox::indicator:checked { border:1px solid #2b70f3; border-radius:4px; background:#2b70f3; image:url("@ASSETS@/check.svg"); }
-QAbstractItemView::indicator { width:16px; height:16px; }
-QAbstractItemView::indicator:unchecked { border:1px solid #cbd6e5; border-radius:4px; background:white; }
-QAbstractItemView::indicator:checked { border:1px solid #2b70f3; border-radius:4px; background:#2b70f3; image:url("@ASSETS@/check.svg"); }
-QTabWidget::pane { border:none; background:transparent; }
-QTabBar::tab { color:#617087; padding:10px 18px; border-bottom:2px solid transparent; }
-QTabBar::tab:selected { color:#276eef; border-bottom-color:#2b70f3; }
-QProgressBar { border:0; border-radius:4px; background:#e6edf8; text-align:center; color:#546988; }
-QProgressBar::chunk { background:#397cf5; border-radius:4px; }
-QSlider:horizontal { padding:0 8px; }
-QSlider::groove:horizontal { height:5px; background:#e5ecf6; border-radius:2px; }
-QSlider::sub-page:horizontal { background:#3a7bf4; border-radius:2px; }
-QSlider::handle:horizontal { background:white; border:2px solid #397bf3; width:12px; height:12px; margin:-6px 0; border-radius:8px; }
-QScrollBar:vertical { background:transparent; width:8px; margin:2px; }
-QScrollBar::handle:vertical { background:#d3ddeb; border-radius:3px; min-height:30px; }
-QScrollBar::handle:vertical:hover { background:#b9c9df; }
-QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical { height:0; }
-QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical { background:transparent; }
-QStatusBar { background:#f0f5fb; color:#5f6f85; font-size:11px; }
-QSplitter::handle { background:transparent; width:12px; }
-QToolTip { background:#ffffff; color:#354761; border:1px solid #dce5f2; padding:6px; }
-'''
-STYLE = STYLE.replace('@ASSETS@', (Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent.parent)) / 'assets' / 'qt').as_posix())
+from .theme import STYLE as STYLE

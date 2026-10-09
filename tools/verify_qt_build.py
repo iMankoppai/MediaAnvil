@@ -46,11 +46,11 @@ def verify_release_documents(directory):
         raise RuntimeError('Release folder is missing licenses/qt license texts')
 
 
-def verify():
-    audit_sources(ROOT / 'build/MediaAnvilQt/Analysis-00.toc',
+def verify(build_directory=None,dist_directory=None):
+    audit_sources((Path(build_directory) if build_directory else ROOT/'build') / 'MediaAnvilQt/Analysis-00.toc',
                   [Path(sys.base_prefix), Path(sys.prefix),
                    Path(os.environ['SystemRoot']), ROOT / 'vendor'])
-    directory = ROOT / 'dist/MediaAnvilQt'
+    directory = (Path(dist_directory) if dist_directory else ROOT/'dist') / 'MediaAnvilQt'
     verify_release_documents(directory)
     bundled_icu = tuple(directory.rglob('icu*.dll'))
     if bundled_icu:
@@ -62,6 +62,8 @@ def verify():
     environment = os.environ.copy()
     system_root = Path(os.environ['SystemRoot'])
     environment['PATH'] = os.pathsep.join((str(system_root / 'System32'), str(system_root)))
+    for key in ('PYTHONHOME','PYTHONPATH','QT_PLUGIN_PATH','QML_IMPORT_PATH','QML2_IMPORT_PATH','QT_QPA_PLATFORM_PLUGIN_PATH'):
+        environment.pop(key,None)
     try:
         completed = subprocess.run(
             [str(directory / 'MediaAnvilQt.exe'), '--smoke-test', str(output)],
@@ -103,4 +105,8 @@ def verify():
 
 
 if __name__ == '__main__':
-    verify()
+    import argparse
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--build-directory',type=Path)
+    parser.add_argument('--dist-directory',type=Path)
+    args=parser.parse_args();verify(args.build_directory,args.dist_directory)
