@@ -11,6 +11,7 @@
 - Performance checks include non-silent stereo, a 30-minute synthetic recording, corrupt media and sampled process-tree memory. Frozen build checks cover Chinese paths, native decoding, all pages and four Qt display scales.
 - Settings collapse to one column in narrow windows. CI now validates a frozen build on normal changes as well as releases.
 - Removed the codex ghost scan helper, its notes and its test; the script only read local Codex data and was unrelated to the application.
+- CI and release builds now run on Python 3.13, the version the source instructions use.
 
 ### 中文说明
 
@@ -22,6 +23,7 @@
 - 优化大表格、候选选择分页和状态更新，增加结果检查及含参数的 CSV 处理报告。
 - 扩展性能基准与发行版缩放、中文路径、原生解码验收；窄窗口设置页使用单列。
 - 移除与程序无关的 codex ghost scan 辅助脚本及其说明与测试（该脚本仅用于查看本机 Codex 数据）。
+- CI 与发行构建改用 Python 3.13，与源码运行说明保持一致。
 
 ## 1.5.1
 
