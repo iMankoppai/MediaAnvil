@@ -749,6 +749,11 @@ class QtRewriteTests(unittest.TestCase):
         self.assertLessEqual(abs(page.match_toggle.geometry().right()-page.match_header.contentsRect().right()),1)
         # At the design width the two previews share one baseline and their
         # action rows line up, which is what the original equality asserted.
+        # Windows quietly caps a window at the desktop size, and a CI runner's
+        # desktop is narrower than the design width, which used to stack the two
+        # previews and break this check. Raising the cap keeps the design width
+        # reachable on any desktop.
+        self.window.setMaximumSize(QSize(2200,1600))
         self.window.resize(1440,960)
         for _ in range(8):self.qt.processEvents()
         self.assertEqual(page.lyrics.height(),page.cover.height())
