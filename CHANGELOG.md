@@ -10,6 +10,7 @@
 - Rename tables use a data model, association selectors paginate, and task checkpoints are coalesced. Task Center can open output folders, verify audio/image/subtitle results, and export CSV reports with original parameters.
 - Performance checks include non-silent stereo, a 30-minute synthetic recording, corrupt media and sampled process-tree memory. Frozen build checks cover Chinese paths, native decoding, all pages and four Qt display scales.
 - Settings collapse to one column in narrow windows. CI now validates a frozen build on normal changes as well as releases.
+- Removed the codex ghost scan helper, its notes and its test; the script only read local Codex data and was unrelated to the application.
 
 ### 中文说明
 
@@ -20,6 +21,7 @@
 - 增加兼容条件下免重编码的快速导出，保留精确模式和 WAV 精确裁剪。
 - 优化大表格、候选选择分页和状态更新，增加结果检查及含参数的 CSV 处理报告。
 - 扩展性能基准与发行版缩放、中文路径、原生解码验收；窄窗口设置页使用单列。
+- 移除与程序无关的 codex ghost scan 辅助脚本及其说明与测试（该脚本仅用于查看本机 Codex 数据）。
 
 ## 1.5.1
 
