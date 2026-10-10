@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.6.0
 
 - Preset saving and deletion use the window's settings path and keep existing settings on write failure.
 - Batch conversions, metadata writes, joins and renames can queue with captured inputs and parameters. Pending jobs can be reordered or cancelled; their interrupted history survives restart.

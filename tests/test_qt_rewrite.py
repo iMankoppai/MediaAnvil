@@ -73,8 +73,8 @@ class QtRewriteTests(unittest.TestCase):
             'seek':lambda self,p:None,'close':lambda self:None,'stop':lambda self:None,
         })()
     def test_pages_preserve_native_window_and_data(self):
-        self.assertEqual(qt_version,'1.5.1')
-        self.assertIn('v1.5.1',[label.text() for label in self.window.findChildren(QLabel)])
+        self.assertEqual(qt_version,'1.6.0')
+        self.assertIn('v1.6.0',[label.text() for label in self.window.findChildren(QLabel)])
         self.assertEqual(len(self.window.pages),10)
         self.assertEqual(self.window.keys[7:9],['tasks','settings'])
         actual_size=(self.window.width(),self.window.height());expected_size=default_window_size()

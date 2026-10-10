@@ -1,4 +1,4 @@
-# MediaAnvil 1.5.1
+# MediaAnvil 1.6.0
 
 [![Release](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?label=release)](https://github.com/iMankoppai/MediaAnvil/releases)
 [![License](https://img.shields.io/github/license/iMankoppai/MediaAnvil)](LICENSE)
@@ -78,7 +78,8 @@ Configure save behavior, conversion quality, lyrics preview, and file scanning i
 
 | Version | Platform | Notes |
 | --- | --- | --- |
-| [v1.5.1](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.5.1) | Windows x64 | **Latest**: task recovery, efficient waveforms, actionable media checks, persistent undo |
+| [v1.6.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.6.0) | Windows x64 | **Latest**: organizer workflow, task queue, native playback, fast export, result verification |
+| [v1.5.1](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.5.1) | Windows x64 | Task recovery, efficient waveforms, actionable media checks, persistent undo |
 | [v1.5.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.5.0) | Windows x64 | Task center, media checks, waveform cropping, companion-file renaming |
 | [v1.4.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.4.0) | Windows x64 | Previous version: playback queue, speed control, playback resume, bulk lyric shifts |
 | [v1.2.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.2.0) | Windows x64 | Audio joining/splitting and bulk tag editing |
@@ -96,8 +97,6 @@ Keep the `_internal` directory beside the executable; do not copy the EXE by its
 The application starts centered at `1440 × 960` (3:2) by default and automatically scales down for smaller or high-DPI displays.
 
 ## Run from source
-
-The working source also includes unreleased organizer, task queue, native playback, fast export and result verification upgrades. The 1.5.1 download links still refer to the original release. See sections 14 and 15 of the User Guide.
 
 Use an official Windows build of Python 3.13 (matching CI):
 

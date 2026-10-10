@@ -1,4 +1,4 @@
-# MediaAnvil 1.5.1
+# MediaAnvil 1.6.0
 
 [![Release](https://img.shields.io/github/v/release/iMankoppai/MediaAnvil?label=release)](https://github.com/iMankoppai/MediaAnvil/releases)
 [![License](https://img.shields.io/github/license/iMankoppai/MediaAnvil)](LICENSE)
@@ -78,7 +78,8 @@ MediaAnvil 是一款面向 Windows 的本地多媒体工具箱。它使用 Qt �
 
 | 版本 | 平台 | 说明 |
 | --- | --- | --- |
-| [v1.5.1](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.5.1) | Windows x64 | **最新版**：任务恢复、波形性能优化、媒体检查修复入口、持久化撤销 |
+| [v1.6.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.6.0) | Windows x64 | **最新版**：整理流程、任务排队、连续播放、快速导出、结果核验 |
+| [v1.5.1](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.5.1) | Windows x64 | 任务恢复、波形性能优化、媒体检查修复入口、持久化撤销 |
 | [v1.5.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.5.0) | Windows x64 | 任务中心、媒体检查、波形裁剪、关联文件同步改名 |
 | [v1.4.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.4.0) | Windows x64 | 上一版本：播放队列、倍速、断点续播、批量歌词偏移 |
 | [v1.2.0](https://github.com/iMankoppai/MediaAnvil/releases/tag/v1.2.0) | Windows x64 | 音频合并与分段、批量标签修改 |
@@ -96,8 +97,6 @@ MediaAnvilQt.exe
 程序默认以 `1440 × 960`（3:2）窗口启动并居中；高 DPI 或较小屏幕会自动按比例适配。
 
 ## 从源码运行
-
-当前源码还包含尚未发布的整理流程、任务排队、连续播放、快速导出和结果核验升级；上面的 1.5.1 下载链接仍指向原发行版。新增行为见使用说明第 14、15 节。
 
 使用官方 Windows Python 3.13（与 CI 验证环境一致）：
 
