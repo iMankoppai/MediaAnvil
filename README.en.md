@@ -99,10 +99,10 @@ The application starts centered at `1440 × 960` (3:2) by default and automatica
 
 The working source also includes unreleased organizer, task queue, native playback, fast export and result verification upgrades. The 1.5.1 download links still refer to the original release. See sections 14 and 15 of the User Guide.
 
-Use an official Windows build of Python 3.12 (matching CI):
+Use an official Windows build of Python (3.13 below; CI verifies with 3.12):
 
 ```powershell
-python -m venv .build-venv-windows
+py -3.13 -m venv .build-venv-windows
 .build-venv-windows\Scripts\python.exe -m pip install -r requirements-qt.txt
 .\tools\download_ffmpeg.ps1
 .build-venv-windows\Scripts\python.exe main_qt.py

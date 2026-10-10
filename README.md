@@ -99,10 +99,10 @@ MediaAnvilQt.exe
 
 当前源码还包含尚未发布的整理流程、任务排队、连续播放、快速导出和结果核验升级；上面的 1.5.1 下载链接仍指向原发行版。新增行为见使用说明第 14、15 节。
 
-使用官方 Windows Python 3.12（与 CI 验证环境一致）：
+使用官方 Windows Python（示例为 3.13；CI 验证环境为 3.12）：
 
 ```powershell
-python -m venv .build-venv-windows
+py -3.13 -m venv .build-venv-windows
 .build-venv-windows\Scripts\python.exe -m pip install -r requirements-qt.txt
 .\tools\download_ffmpeg.ps1
 .build-venv-windows\Scripts\python.exe main_qt.py
